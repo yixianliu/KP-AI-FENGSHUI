@@ -1,0 +1,27 @@
+[2026-05-09 19:50:01.116746] 排盘过程中发生错误:
+'QWidget' object has no attribute 'date'
+Traceback (most recent call last):
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\main_window.py", line 146, in perform_calculate
+    data = self.input_panel.get_data()
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\components\input_panel.py", line 297, in get_data
+    'year': self.date_edit.date().year(),
+            ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'QWidget' object has no attribute 'date'. Did you mean: 'update'?
+[2026-05-09 19:51:20.049923] 排盘过程中发生错误:
+'QWidget' object has no attribute 'date'
+Traceback (most recent call last):
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\main_window.py", line 146, in perform_calculate
+    data = self.input_panel.get_data()
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\components\input_panel.py", line 298, in get_data
+    'year': self.date_edit.date().year(),
+            ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'QWidget' object has no attribute 'date'. Did you mean: 'update'?
+[2026-05-09 19:51:28.593204] 排盘过程中发生错误:
+'QWidget' object has no attribute 'date'
+Traceback (most recent call last):
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\main_window.py", line 146, in perform_calculate
+    data = self.input_panel.get_data()
+  File "D:\PythonProject\KP-AI-FENGSHUI\ui\components\input_panel.py", line 298, in get_data
+    'year': self.date_edit.date().year(),
+            ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'QWidget' object has no attribute 'date'. Did you mean: 'update'?

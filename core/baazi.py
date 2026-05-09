@@ -1,4 +1,3 @@
-from utils.calendar import TIAN_GAN, DI_ZHI
 from lunarcalendar import Converter, Solar, Lunar
 
 TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
@@ -23,10 +22,14 @@ MONTH_GAN = [
 
 SHIER_SHEN = ['长生', '沐浴', '冠带', '临官', '帝旺', '衰', '病', '死', '墓', '绝', '胎', '养']
 
+FIRST_DAY_GANZHI = '甲子'
+BASE_YEAR = 1900
+
 class BaZiCalculator:
     def __init__(self):
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
+        self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}
 
     def get_year_ganzhi(self, year):
         idx = (year - 4) % 60
@@ -41,9 +44,39 @@ class BaZiCalculator:
                 return month_gan + month_zhi
         return ''
 
-    def get_day_ganzhi(self, solar):
-        lunar = Converter.Solar2Lunar(solar)
-        return lunar.dayzodiac
+    def get_day_ganzhi(self, year, month, day):
+        total_days = self.get_days_since_base(year, month, day)
+        idx = (self.ganzhi_map[FIRST_DAY_GANZHI] + total_days) % 60
+        return YEAR_GANZHI[idx]
+
+    def get_days_since_base(self, year, month, day):
+        days = 0
+        
+        for y in range(BASE_YEAR, year):
+            if self.is_leap_year(y):
+                days += 366
+            else:
+                days += 365
+        
+        month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        if self.is_leap_year(year):
+            month_days[1] = 29
+        
+        for m in range(1, month):
+            days += month_days[m-1]
+        
+        days += (day - 1)
+        
+        return days
+
+    def is_leap_year(self, year):
+        if year % 400 == 0:
+            return True
+        if year % 100 == 0:
+            return False
+        if year % 4 == 0:
+            return True
+        return False
 
     def get_hour_ganzhi(self, day_gan, hour):
         hour_zhi_idx = self.get_hour_zhi_idx(hour)
@@ -92,7 +125,7 @@ class BaZiCalculator:
         month_idx = solar.month
         month_ganzhi = self.get_month_ganzhi(year_gan, month_idx)
         
-        day_ganzhi = self.get_day_ganzhi(solar)
+        day_ganzhi = self.get_day_ganzhi(solar.year, solar.month, solar.day)
         
         hour_ganzhi = self.get_hour_ganzhi(day_ganzhi[0], hour)
 
