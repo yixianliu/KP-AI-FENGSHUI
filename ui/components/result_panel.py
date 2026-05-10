@@ -1,9 +1,117 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QFrame, QGridLayout, QTabWidget,
-                             QTableWidget, QTableWidgetItem, QPushButton,
-                             QApplication, QScrollArea)
-from PyQt5.QtCore import Qt
+                             QLabel, QFrame, QGridLayout, QTableWidget,
+                             QTableWidgetItem, QPushButton, QApplication,
+                             QScrollArea, QSizePolicy, QProxyStyle)
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
+
+class ResultCard(QFrame):
+    def __init__(self, title, icon, parent=None):
+        super().__init__(parent)
+        self.title = title
+        self.icon = icon
+        self.is_expanded = True
+        self.init_ui()
+
+    def init_ui(self):
+        self.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #E8D5B5;
+                border-radius: 10px;
+            }
+        """)
+
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        self.header_frame = QFrame()
+        self.header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #5D4037;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+            }
+        """)
+        self.header_layout = QHBoxLayout(self.header_frame)
+        self.header_layout.setContentsMargins(15, 10, 10, 10)
+
+        self.expand_btn = QPushButton('▼')
+        self.expand_btn.setFixedSize(24, 24)
+        self.expand_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #D4AF37;
+                border: none;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                color: #FFF8E7;
+            }
+        """)
+        self.expand_btn.clicked.connect(self.toggle_expand)
+
+        self.icon_label = QLabel(self.icon)
+        self.icon_label.setStyleSheet("font-size: 16px;")
+
+        self.title_label = QLabel(self.title)
+        self.title_label.setStyleSheet("""
+            font-size: 14px;
+            font-weight: bold;
+            color: #D4AF37;
+        """)
+
+        self.header_layout.addWidget(self.expand_btn)
+        self.header_layout.addWidget(self.icon_label)
+        self.header_layout.addWidget(self.title_label)
+        self.header_layout.addStretch()
+
+        self.copy_btn = QPushButton('复制')
+        self.copy_btn.setFixedSize(50, 24)
+        self.copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #D4AF37;
+                color: #5D4037;
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #B89600;
+            }
+        """)
+        self.copy_btn.clicked.connect(self.on_copy)
+        self.header_layout.addWidget(self.copy_btn)
+
+        self.main_layout.addWidget(self.header_frame)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(15, 15, 15, 15)
+
+        self.main_layout.addWidget(self.content_widget)
+
+        self.setLayout(self.main_layout)
+
+    def toggle_expand(self):
+        self.is_expanded = not self.is_expanded
+        self.content_widget.setVisible(self.is_expanded)
+        self.expand_btn.setText('▶' if not self.is_expanded else '▼')
+
+    def on_copy(self):
+        text = self.get_copy_text()
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.information(self, '复制成功', f'{self.title}已复制到剪贴板')
+
+    def get_copy_text(self):
+        return ""
+
+    def set_content(self, widget):
+        self.content_layout.addWidget(widget)
 
 class ResultPanel(QWidget):
     def __init__(self, parent=None):
@@ -12,109 +120,71 @@ class ResultPanel(QWidget):
 
     def init_ui(self):
         self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(15, 15, 15, 15)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(15)
 
-        self.create_header()
-        self.create_tabs()
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                background-color: #F5E6D3;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #D4AF37;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #B89600;
+            }
+        """)
+
+        self.scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(15)
+
+        self.bazi_card = ResultCard('四柱八字', '🔮')
+        self.wuxing_card = ResultCard('五行分布', '⚗️')
+        self.shishen_card = ResultCard('十神分析', '📊')
+        self.geju_card = ResultCard('命局格局', '🏆')
+
+        self.init_bazi_content()
+        self.init_wuxing_content()
+        self.init_shishen_content()
+        self.init_geju_content()
+
+        self.scroll_layout.addWidget(self.bazi_card)
+        self.scroll_layout.addWidget(self.wuxing_card)
+        self.scroll_layout.addWidget(self.shishen_card)
+        self.scroll_layout.addWidget(self.geju_card)
+        self.scroll_layout.addStretch()
+
+        self.scroll_area.setWidget(self.scroll_content)
+
+        self.layout.addWidget(self.scroll_area)
 
         self.setLayout(self.layout)
+
         self.setStyleSheet("""
             QWidget {
-                background-color: #FFF8E7;
-            }
-            QTabWidget::pane {
-                border: 1px solid #E8D5B5;
-                border-radius: 8px;
-                background-color: white;
-            }
-            QTabBar::tab {
-                background-color: #F5E6D3;
-                color: #5D4037;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                color: #5D4037;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover {
-                background-color: #EBD9C4;
-            }
-            QLabel {
-                color: #333333;
-            }
-            QFrame {
-                background-color: white;
-                border: 1px solid #E8D5B5;
-                border-radius: 8px;
-            }
-            QPushButton {
-                background-color: #5D4037;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 5px 15px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #4A3428;
+                background-color: transparent;
             }
         """)
 
-    def create_header(self):
-        header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #4A3728;
-                border: none;
-                border-radius: 8px;
-            }
-        """)
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(15, 10, 15, 10)
-
-        title_label = QLabel('命盘分析结果')
-        title_label.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-            color: #D4AF37;
-        """)
-        title_label.setFont(QFont('SimHei', 16, QFont.Bold))
-        header_layout.addWidget(title_label)
-
-        header_layout.addStretch()
-
-        self.copy_btn = QPushButton('复制结果')
-        self.copy_btn.clicked.connect(self.copy_to_clipboard)
-        header_layout.addWidget(self.copy_btn)
-
-        self.layout.addWidget(header_frame)
-
-    def create_tabs(self):
-        self.tab_widget = QTabWidget()
-
-        self.bazi_tab = self.create_bazi_tab()
-        self.wuxing_tab = self.create_wuxing_tab()
-        self.shishen_tab = self.create_shishen_tab()
-        self.geju_tab = self.create_geju_tab()
-
-        self.tab_widget.addTab(self.bazi_tab, '四柱八字')
-        self.tab_widget.addTab(self.wuxing_tab, '五行分析')
-        self.tab_widget.addTab(self.shishen_tab, '十神分析')
-        self.tab_widget.addTab(self.geju_tab, '命局格局')
-
-        self.layout.addWidget(self.tab_widget)
-
-    def create_bazi_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
-
-        content_frame = QFrame()
-        content_layout = QVBoxLayout(content_frame)
+    def init_bazi_content(self):
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setSpacing(15)
 
         self.bazi_grid = QGridLayout()
         self.bazi_grid.setSpacing(20)
@@ -132,7 +202,7 @@ class ResultPanel(QWidget):
 
             ganzhi = QLabel('--')
             ganzhi.setStyleSheet("""
-                font-size: 26px;
+                font-size: 28px;
                 font-weight: bold;
                 color: #5D4037;
                 font-family: 'SimHei';
@@ -156,19 +226,12 @@ class ResultPanel(QWidget):
         """)
         content_layout.addWidget(self.date_label)
 
-        layout.addWidget(content_frame)
-        layout.addStretch()
+        self.bazi_card.set_content(content_widget)
 
-        widget.setLayout(layout)
-        return widget
-
-    def create_wuxing_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
-
-        content_frame = QFrame()
-        content_layout = QVBoxLayout(content_frame)
+    def init_wuxing_content(self):
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setSpacing(15)
 
         self.wuxing_grid = QGridLayout()
         self.wuxing_grid.setSpacing(15)
@@ -185,7 +248,7 @@ class ResultPanel(QWidget):
         for i, element in enumerate(elements):
             label = QLabel(element)
             label.setStyleSheet(f"""
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: bold;
                 color: {colors[element]};
             """)
@@ -238,18 +301,11 @@ class ResultPanel(QWidget):
         """)
         content_layout.addWidget(self.wuxing_summary)
 
-        layout.addWidget(content_frame)
-        layout.addStretch()
+        self.wuxing_card.set_content(content_widget)
 
-        widget.setLayout(layout)
-        return widget
-
-    def create_shishen_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        content_frame = QFrame()
-        content_layout = QVBoxLayout(content_frame)
+    def init_shishen_content(self):
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
 
         self.shishen_table = QTableWidget(4, 5)
         self.shishen_table.setHorizontalHeaderLabels(['柱位', '天干', '十神', '地支', '藏干十神'])
@@ -260,9 +316,10 @@ class ResultPanel(QWidget):
             QTableWidget {
                 border: none;
                 font-size: 13px;
+                background-color: transparent;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 10px;
                 text-align: center;
             }
             QTableWidget::item:selected {
@@ -272,7 +329,7 @@ class ResultPanel(QWidget):
                 background-color: #5D4037;
                 color: white;
                 font-weight: bold;
-                padding: 8px;
+                padding: 10px;
                 text-align: center;
                 border: none;
             }
@@ -295,17 +352,11 @@ class ResultPanel(QWidget):
         """)
         content_layout.addWidget(self.shishen_summary)
 
-        layout.addWidget(content_frame)
+        self.shishen_card.set_content(content_widget)
 
-        widget.setLayout(layout)
-        return widget
-
-    def create_geju_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        content_frame = QFrame()
-        content_layout = QVBoxLayout(content_frame)
+    def init_geju_content(self):
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
 
         self.geju_content = QLabel('请输入信息并点击排盘按钮')
         self.geju_content.setStyleSheet("""
@@ -328,21 +379,7 @@ class ResultPanel(QWidget):
 
         content_layout.addWidget(geju_frame)
 
-        layout.addWidget(content_frame)
-        layout.addStretch()
-
-        widget.setLayout(layout)
-        return widget
-
-    def get_wuxing_color(self, element):
-        colors = {
-            '木': '#228B22',
-            '火': '#DC143C',
-            '土': '#D2691E',
-            '金': '#708090',
-            '水': '#1E90FF'
-        }
-        return colors.get(element, '#333333')
+        self.geju_card.set_content(content_widget)
 
     def update_bazi(self, data):
         pillars = ['年柱', '月柱', '日柱', '时柱']
@@ -401,47 +438,6 @@ class ResultPanel(QWidget):
 
         geju_text = '；'.join(summary)
         self.geju_content.setText(f"日主为{rizhu}，{geju_text}")
-
-    def copy_to_clipboard(self):
-        text = self.get_summary_text()
-        clipboard = QApplication.clipboard()
-        clipboard.setText(text)
-
-        from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.information(self, '复制成功', '结果已复制到剪贴板')
-
-    def get_summary_text(self):
-        lines = []
-        lines.append("【四柱八字】")
-        pillars = ['年柱', '月柱', '日柱', '时柱']
-        for i in range(4):
-            value = self.bazi_grid.itemAtPosition(1, i).widget().text()
-            lines.append(f"  {pillars[i]}: {value}")
-
-        lines.append(f"\n{self.date_label.text()}")
-
-        lines.append("\n【五行分布】")
-        elements = ['木', '火', '土', '金', '水']
-        for i, element in enumerate(elements):
-            count = self.wuxing_grid.itemAtPosition(1, i).widget().text()
-            pct = self.wuxing_grid.itemAtPosition(3, i).widget().text()
-            lines.append(f"  {element}: {count}个 ({pct})")
-
-        if self.wuxing_summary.text():
-            lines.append(f"\n{self.wuxing_summary.text()}")
-
-        lines.append("\n【十神分析】")
-        for i in range(4):
-            row_data = [self.shishen_table.item(i, j).text() for j in range(5)]
-            lines.append(f"  {' | '.join(row_data)}")
-
-        if self.shishen_summary.text():
-            lines.append(f"\n{self.shishen_summary.text()}")
-
-        lines.append("\n【命局格局】")
-        lines.append(f"  {self.geju_content.text()}")
-
-        return '\n'.join(lines)
 
     def clear(self):
         self.geju_content.setText('请输入信息并点击排盘按钮')

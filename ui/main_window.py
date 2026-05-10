@@ -1,12 +1,12 @@
 import sys
 import traceback
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QLabel, QSplitter,
+                             QHBoxLayout, QLabel, QStackedWidget,
                              QFrame, QProgressBar, QMenuBar, QMenu,
                              QAction, QToolBar, QStatusBar, QMessageBox,
-                             QShortcut, QFileDialog)
+                             QShortcut, QFileDialog, QApplication)
 from PyQt5.QtCore import Qt, QTimer, QSize
-from PyQt5.QtGui import QFont, QKeySequence, QIcon
+from PyQt5.QtGui import QFont, QKeySequence
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from core.baazi import BaZiCalculator
@@ -23,8 +23,8 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('八字排盘')
-        self.setGeometry(100, 100, 1100, 750)
-        self.setMinimumSize(900, 600)
+        self.setGeometry(100, 100, 1000, 800)
+        self.setMinimumSize(800, 600)
 
         self.create_menu_bar()
         self.create_tool_bar()
@@ -37,56 +37,23 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         central_widget.setLayout(main_layout)
 
-        header_frame = QFrame()
-        header_frame.setFixedHeight(60)
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #4A3728;
-            }
-        """)
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-
-        title_label = QLabel('八字排盘')
-        title_label.setStyleSheet("""
-            font-size: 24px;
-            font-weight: bold;
-            color: #D4AF37;
-        """)
-        title_label.setFont(QFont('SimHei', 24, QFont.Bold))
-        header_layout.addWidget(title_label)
-
-        header_layout.addStretch()
-
-        self.status_label = QLabel('就绪')
-        self.status_label.setStyleSheet("""
-            font-size: 13px;
-            color: #FFF8E7;
-        """)
-        header_layout.addWidget(self.status_label)
-
+        header_frame = self.create_header()
         main_layout.addWidget(header_frame)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #D4AF37;
-                width: 2px;
-            }
-        """)
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(20, 20, 20, 20)
+        self.content_layout.setSpacing(15)
 
         self.input_panel = InputPanel()
         self.input_panel.submit_btn.clicked.connect(self.on_calculate)
-        self.input_panel.setFixedWidth(300)
-        splitter.addWidget(self.input_panel)
 
         self.result_panel = ResultPanel()
-        splitter.addWidget(self.result_panel)
 
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
+        self.content_layout.addWidget(self.input_panel)
+        self.content_layout.addWidget(self.result_panel)
 
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(self.content_widget)
 
         self.statusBar().setStyleSheet("""
             QStatusBar {
@@ -120,6 +87,37 @@ class MainWindow(QMainWindow):
                 background-color: #F5E6D3;
             }
         """)
+
+    def create_header(self):
+        header_frame = QFrame()
+        header_frame.setFixedHeight(60)
+        header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #4A3728;
+            }
+        """)
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(20, 0, 20, 0)
+
+        title_label = QLabel('八字排盘')
+        title_label.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            color: #D4AF37;
+        """)
+        title_label.setFont(QFont('SimHei', 24, QFont.Bold))
+        header_layout.addWidget(title_label)
+
+        header_layout.addStretch()
+
+        self.status_label = QLabel('就绪')
+        self.status_label.setStyleSheet("""
+            font-size: 13px;
+            color: #FFF8E7;
+        """)
+        header_layout.addWidget(self.status_label)
+
+        return header_frame
 
     def create_menu_bar(self):
         menubar = self.menuBar()
