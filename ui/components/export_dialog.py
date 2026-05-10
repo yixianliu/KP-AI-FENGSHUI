@@ -177,7 +177,7 @@ class ExportDialog(QDialog):
 
         self.filename_edit = QLineEdit()
         self.filename_edit.setText(f"八字排盘_{self.data['input']['name']}")
-        self.filename_layout.addWidget(self.filename_edit)
+        filename_layout.addWidget(self.filename_edit)
 
         filename_group.setLayout(filename_layout)
         layout.addWidget(filename_group)

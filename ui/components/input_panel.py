@@ -1,8 +1,10 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QRadioButton,
                              QDateEdit, QComboBox, QPushButton,
-                             QButtonGroup, QFrame, QGridLayout, QSpacerItem)
-from PyQt5.QtCore import QDate, QTime, Qt, QSize
+                             QButtonGroup, QFrame, QGridLayout,
+                             QToolTip, QMessageBox)
+from PyQt5.QtCore import QDate, QTime, Qt, QEvent
+from ui.styles import Stylesheets, Colors, Fonts
 
 HOUR_NAMES = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时',
               '午时', '未时', '申时', '酉时', '戌时', '亥时']
@@ -14,77 +16,62 @@ class InputPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+        self.setup_validation()
 
     def init_ui(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border-radius: 10px;
-                border: 1px solid #E8D5B5;
-            }
-        """)
+        self.setStyleSheet(Stylesheets.CARD)
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(20, 15, 20, 15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(12)
 
-        title_layout = QHBoxLayout()
-        title_icon = QLabel('📋')
-        title_icon.setStyleSheet("font-size: 18px;")
-        title_label = QLabel('基本信息')
-        title_label.setStyleSheet("""
-            font-size: 15px;
-            font-weight: bold;
-            color: #5D4037;
+        title_label = QLabel('八字排盘')
+        title_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_TITLE};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+            margin-bottom: 10px;
         """)
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        main_layout.addLayout(title_layout)
+        main_layout.addWidget(title_label)
 
         form_layout = QGridLayout()
-        form_layout.setSpacing(15)
+        form_layout.setSpacing(10)
         form_layout.setVerticalSpacing(12)
 
         row = 0
 
         name_label = QLabel('姓名:')
-        name_label.setStyleSheet("color: #5D4037; font-weight: bold;")
+        name_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+        """)
         self.name_lineedit = QLineEdit()
-        self.name_lineedit.setPlaceholderText('请输入您的姓名')
-        self.name_lineedit.setFixedHeight(38)
-        self.name_lineedit.setMinimumWidth(150)
+        self.name_lineedit.setPlaceholderText('请输入姓名')
+        self.name_lineedit.setStyleSheet(Stylesheets.LINE_EDIT)
+        self.name_lineedit.textChanged.connect(self.on_input_changed)
+
         form_layout.addWidget(name_label, row, 0)
-        form_layout.addWidget(self.name_lineedit, row, 1, 1, 2)
+        form_layout.addWidget(self.name_lineedit, row, 1, 1, 3)
 
         row += 1
+
         gender_label = QLabel('性别:')
-        gender_label.setStyleSheet("color: #5D4037; font-weight: bold;")
+        gender_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+        """)
 
         self.gender_group = QButtonGroup()
         self.male_radio = QRadioButton('男')
         self.female_radio = QRadioButton('女')
         self.male_radio.setChecked(True)
-        self.male_radio.setStyleSheet("""
-            QRadioButton {
-                color: #333333;
-                font-size: 13px;
-            }
-            QRadioButton::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #D4AF37;
-                border-radius: 8px;
-                background-color: white;
-            }
-            QRadioButton::indicator:checked {
-                background-color: #D4AF37;
-            }
-        """)
-        self.female_radio.setStyleSheet(self.male_radio.styleSheet())
-
-        self.gender_group.addButton(self.male_radio)
-        self.gender_group.addButton(self.female_radio)
+        self.male_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
+        self.female_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
 
         gender_layout = QHBoxLayout()
         gender_layout.setSpacing(20)
@@ -92,17 +79,19 @@ class InputPanel(QWidget):
         gender_layout.addWidget(self.female_radio)
 
         calendar_label = QLabel('历法:')
-        calendar_label.setStyleSheet("color: #5D4037; font-weight: bold;")
+        calendar_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+        """)
 
         self.calendar_group = QButtonGroup()
         self.solar_radio = QRadioButton('公历')
         self.lunar_radio = QRadioButton('农历')
         self.solar_radio.setChecked(True)
-        self.solar_radio.setStyleSheet(self.male_radio.styleSheet())
-        self.lunar_radio.setStyleSheet(self.male_radio.styleSheet())
-
-        self.calendar_group.addButton(self.solar_radio)
-        self.calendar_group.addButton(self.lunar_radio)
+        self.solar_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
+        self.lunar_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
 
         calendar_layout = QHBoxLayout()
         calendar_layout.setSpacing(20)
@@ -115,33 +104,29 @@ class InputPanel(QWidget):
         form_layout.addLayout(calendar_layout, row, 3)
 
         row += 1
+
         date_label = QLabel('日期:')
-        date_label.setStyleSheet("color: #5D4037; font-weight: bold;")
+        date_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+        """)
 
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setDisplayFormat('yyyy-MM-dd')
         self.date_edit.setCalendarPopup(True)
-        self.date_edit.setFixedHeight(38)
-        self.date_edit.setMinimumWidth(130)
-        self.date_edit.setStyleSheet("""
-            QDateEdit {
-                padding: 8px 12px;
-                border: 2px solid #D4AF37;
-                border-radius: 6px;
-                font-size: 13px;
-                background-color: white;
-            }
-            QDateEdit:focus {
-                border-color: #5D4037;
-            }
-        """)
+        self.date_edit.setStyleSheet(Stylesheets.DATE_EDIT)
 
         hour_label = QLabel('时辰:')
-        hour_label.setStyleSheet("color: #5D4037; font-weight: bold;")
+        hour_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_BOLD};
+        """)
 
         self.hour_combo = QComboBox()
-        self.hour_combo.setFixedHeight(38)
-        self.hour_combo.setMinimumWidth(180)
         for i, name in enumerate(HOUR_NAMES):
             start, end = HOUR_RANGES[i]
             if start == 23:
@@ -154,29 +139,7 @@ class InputPanel(QWidget):
         default_idx = self.get_hour_index(today_hour)
         self.hour_combo.setCurrentIndex(default_idx)
 
-        self.hour_combo.setStyleSheet("""
-            QComboBox {
-                padding: 8px 12px;
-                border: 2px solid #D4AF37;
-                border-radius: 6px;
-                font-size: 13px;
-                background-color: white;
-            }
-            QComboBox:focus {
-                border-color: #5D4037;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 25px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #D4AF37;
-                margin-right: 5px;
-            }
-        """)
+        self.hour_combo.setStyleSheet(Stylesheets.COMBO_BOX)
 
         form_layout.addWidget(date_label, row, 0)
         form_layout.addWidget(self.date_edit, row, 1)
@@ -185,67 +148,66 @@ class InputPanel(QWidget):
 
         main_layout.addLayout(form_layout)
 
+        self.validation_hint = QLabel('')
+        self.validation_hint.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_SMALL};
+            color: {Colors.ERROR};
+            font-family: {Fonts.FAMILY};
+            padding: 8px;
+            background-color: rgba(220, 20, 60, 0.05);
+            border-radius: 4px;
+            margin-top: 5px;
+        """)
+        self.validation_hint.setVisible(False)
+        main_layout.addWidget(self.validation_hint)
+
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.quick_btn = QPushButton('⚡ 快速排盘')
-        self.quick_btn.setFixedHeight(40)
-        self.quick_btn.setMinimumWidth(130)
-        self.quick_btn.clicked.connect(self.on_quick_input)
-        self.quick_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F5E6D3;
-                color: #5D4037;
-                border: 2px solid #D4AF37;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #EBD9C4;
-            }
-            QPushButton:pressed {
-                background-color: #D4AF37;
-                color: white;
-            }
-        """)
+        self.submit_btn = QPushButton('开始排盘')
+        self.submit_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
+        self.submit_btn.setEnabled(False)
 
-        self.submit_btn = QPushButton('✨ 开始排盘')
-        self.submit_btn.setFixedHeight(40)
-        self.submit_btn.setMinimumWidth(130)
-        self.submit_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5D4037, stop:1 #3D2A20);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #6B4423, stop:1 #4A3428);
-            }
-            QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3D2A20, stop:1 #2D1F18);
-            }
-        """)
-
-        button_layout.addWidget(self.quick_btn)
         button_layout.addWidget(self.submit_btn)
 
         main_layout.addLayout(button_layout)
 
         self.setLayout(main_layout)
 
-    def on_quick_input(self):
-        from PyQt5.QtCore import QDate, QTime
-        current_date = QDate.currentDate()
-        self.date_edit.setDate(current_date)
-        current_hour = QTime.currentTime().hour()
-        self.hour_combo.setCurrentIndex(self.get_hour_index(current_hour))
+    def setup_validation(self):
+        self.name_lineedit.installEventFilter(self)
+        self.submit_btn.clicked.connect(self.on_submit_clicked)
+
+    def eventFilter(self, obj, event):
+        if obj == self.name_lineedit and event.type() == QEvent.FocusOut:
+            self.validate_input()
+        return super().eventFilter(obj, event)
+
+    def on_input_changed(self, text):
+        self.validate_input()
+
+    def validate_input(self):
+        name = self.name_lineedit.text().strip()
+
+        if not name:
+            self.validation_hint.setText('请输入姓名')
+            self.validation_hint.setVisible(True)
+            self.submit_btn.setEnabled(False)
+            return False
+
+        if len(name) > 20:
+            self.validation_hint.setText('姓名不能超过20个字符')
+            self.validation_hint.setVisible(True)
+            self.submit_btn.setEnabled(False)
+            return False
+
+        self.validation_hint.setVisible(False)
+        self.submit_btn.setEnabled(True)
+        return True
+
+    def on_submit_clicked(self):
+        if not self.validate_input():
+            QMessageBox.warning(self, '输入验证', '请填写完整信息')
 
     def get_hour_index(self, hour):
         for i, (start, end) in enumerate(HOUR_RANGES):
@@ -278,3 +240,5 @@ class InputPanel(QWidget):
         self.solar_radio.setChecked(True)
         self.date_edit.setDate(QDate.currentDate())
         self.hour_combo.setCurrentIndex(self.get_hour_index(QTime.currentTime().hour()))
+        self.validation_hint.setVisible(False)
+        self.submit_btn.setEnabled(False)
