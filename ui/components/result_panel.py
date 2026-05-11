@@ -295,7 +295,7 @@ class WuxingCard(ResultCard):
     
     def update_wuxing(self, wuxing_data):
         if not wuxing_data:
-            for count_label, percent_label in self.wuxing_card.wuxing_widgets:
+            for count_label, percent_label in self.wuxing_widgets:
                 count_label.setText('--')
                 percent_label.setText('--')
             self._set_initial_state()

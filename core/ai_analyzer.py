@@ -1,5 +1,23 @@
-from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING
+import json
+import requests
+import traceback
+import time
+import warnings
+from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING, DI_ZHI_HIDDEN_GAN
 
+# 禁用未验证HTTPS请求警告（仅用于开发测试环境，生产环境应启用证书验证）
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+# API配置
+API_KEY = "Bearer FNAbWpKiIOGUuBkvwhSK:hFQKWgODImKpIssPyIqs"
+API_URL = "https://spark-api-open.xf-yun.com/v2/chat/completions"
+
+# 重试配置
+MAX_RETRIES = 2
+RETRY_DELAY = 2  # 重试间隔（秒）
+REQUEST_TIMEOUT = 60  # 请求超时时间（秒）
+
+# 本地分析数据（作为降级方案）
 PERSONALITY_TRAITS = {
     '木': {
         'positive': ['积极向上', '富有创造力', '善于创新', '有进取心', '正直善良'],
@@ -56,56 +74,274 @@ ELEMENT_RECOMMENDATIONS = {
     }
 }
 
+
 class AIAnalyzer:
     def __init__(self):
-        pass
+        self.use_api = True
 
-    def analyze(self, bazhi, wuxing_result, shishen_result, mingli_result):
-        rizhu = bazhi['rizhu']
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+    def analyze(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+        """
+        主分析方法，优先使用API分析，失败时降级到本地分析
+        """
+        print(f"[AI分析器] 开始分析八字: {bazhi.get('四柱', '未知')}")
         
-        analysis = {
-            'overview': self._generate_overview(bazhi, wuxing_result, shishen_result),
-            'personality': self._generate_personality(rizhu_wx, wuxing_result),
-            'life_trends': self._generate_life_trends(wuxing_result, shishen_result),
-            'opportunities': self._generate_opportunities(wuxing_result, shishen_result),
-            'challenges': self._generate_challenges(wuxing_result, shishen_result),
-            'compatibility': self._generate_compatibility(wuxing_result),
-            'recommendations': self._generate_recommendations(rizhu_wx, wuxing_result)
+        if self.use_api:
+            try:
+                result = self._analyze_via_api(bazhi, wuxing_result, shishen_result, mingli_result)
+                print(f"[AI分析器] API分析成功，返回字段: {list(result.keys())}")
+                return result
+            except Exception as e:
+                print(f"[AI分析器] API分析失败，降级到本地分析: {str(e)}")
+                result = self._analyze_locally(bazhi, wuxing_result, shishen_result, mingli_result)
+                print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
+                return result
+        else:
+            result = self._analyze_locally(bazhi, wuxing_result, shishen_result, mingli_result)
+            print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
+            return result
+
+    def _analyze_via_api(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+        """
+        通过API进行AI分析，支持流式响应和重试机制
+        参考 spark_api_reference.py 的实现方式
+        """
+        prompt = self._build_prompt(bazhi, wuxing_result, shishen_result, mingli_result)
+        
+        headers = {
+            'Authorization': API_KEY,
+            'Content-Type': 'application/json'
         }
         
-        return analysis
+        body = {
+            "model": "x1",
+            "user": "fs_shi",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神等知识。请基于用户提供的八字信息进行专业分析，输出格式要求：用JSON格式输出，包含以下字段：personality（性格特质，数组）、career（事业财运，数组）、marriage（婚姻感情，数组）、health（健康注意，数组）、suggestions（综合建议，数组）。每个字段都是字符串数组，每个字符串是一个要点。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "stream": True,
+            "tools": [
+                {
+                    "type": "web_search",
+                    "web_search": {
+                        "enable": True,
+                        "search_mode": "deep"
+                    }
+                }
+            ]
+        }
+        
+        last_exception = None
+        
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                full_response = ""
+                response = requests.post(
+                    url=API_URL,
+                    json=body,
+                    headers=headers,
+                    stream=True,
+                    timeout=REQUEST_TIMEOUT,
+                    verify=False
+                )
+                response.raise_for_status()
+                
+                print(f"[AI分析器] 开始接收流式响应...")
+                
+                for chunks in response.iter_lines():
+                    if chunks and '[DONE]' not in str(chunks):
+                        print(f"[AI分析器] 接收到数据块: {str(chunks)[:200]}")
+                        
+                        # 移除数据头（"data: "）
+                        chunk_str = str(chunks)
+                        if chunk_str.startswith("b'data: "):
+                            data_org = chunks[6:]
+                        elif chunk_str.startswith("b\"data: "):
+                            data_org = chunks[6:]
+                        elif chunk_str.startswith("data: "):
+                            data_org = chunks[5:]
+                        else:
+                            data_org = chunks
+                            
+                        try:
+                            chunk = json.loads(data_org)
+                            text = chunk['choices'][0]['delta']
+                            
+                            if 'content' in text and '' != text['content']:
+                                content = text["content"]
+                                full_response += content
+                                print(f"[AI分析器] 追加内容: {content[:50]}...")
+                        except json.JSONDecodeError as e:
+                            print(f"[AI分析器] JSON解析失败: {str(e)}")
+                            continue
+                
+                print(f"[AI分析器] 完整响应: {full_response[:500]}")
+                
+                if full_response:
+                    # 移除Markdown代码块标记
+                    full_response = full_response.strip()
+                    if full_response.startswith('```json'):
+                        full_response = full_response[7:]  # 移除 ```json
+                    elif full_response.startswith('```'):
+                        full_response = full_response[3:]   # 移除 ```
+                    
+                    if full_response.endswith('```'):
+                        full_response = full_response[:-3]  # 移除结尾的 ```
+                    
+                    full_response = full_response.strip()
+                    
+                    print(f"[AI分析器] 处理后响应: {full_response[:300]}")
+                    
+                    try:
+                        result = json.loads(full_response)
+                        print(f"[AI分析器] JSON解析成功")
+                        return self._validate_and_format_result(result)
+                    except json.JSONDecodeError as e:
+                        print(f"[AI分析器] JSON解析失败: {str(e)}")
+                        print(f"[AI分析器] 尝试文本解析")
+                        return self._parse_text_response(full_response)
+                
+                print(f"[AI分析器] 响应为空，使用降级结果")
+                return self._create_fallback_result()
+                
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < MAX_RETRIES:
+                    print(f"API请求失败(第{attempt+1}次)，{RETRY_DELAY}秒后重试: {str(e)}")
+                    time.sleep(RETRY_DELAY)
+                else:
+                    print(f"API请求失败(第{attempt+1}次，已达最大重试次数): {str(e)}")
+        
+        raise Exception(f"API请求失败: {str(last_exception)}")
 
-    def _generate_overview(self, bazhi, wuxing_result, shishen_result):
+    def _build_prompt(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+        """
+        构建API请求的提示词
+        """
+        parts = []
+        
+        parts.append(f"八字信息：年柱{bazhi['year']} 月柱{bazhi['month']} 日柱{bazhi['day']} 时柱{bazhi['hour']}")
+        parts.append(f"日主：{bazhi['rizhu']}")
+        
+        if wuxing_result.get('summary'):
+            parts.append(f"五行分析：{wuxing_result['summary']}")
+            for wx in ['木', '火', '土', '金', '水']:
+                count = wuxing_result.get(wx, {}).get('count', 0)
+                percentage = wuxing_result.get(wx, {}).get('percentage', 0)
+                parts.append(f"  {wx}：{count:.1f} ({percentage}%)")
+        
+        if shishen_result.get('summary'):
+            shishen_list = [f"{shishen}{count}个" for shishen, count in shishen_result['summary'].items()]
+            parts.append(f"十神分布：{'、'.join(shishen_list)}")
+        
+        if mingli_result:
+            if mingli_result.get('shensha', {}).get('positive'):
+                positive_shensha = [s['name'] for s in mingli_result['shensha']['positive']]
+                parts.append(f"吉神：{'、'.join(positive_shensha)}")
+            if mingli_result.get('shensha', {}).get('negative'):
+                negative_shensha = [s['name'] for s in mingli_result['shensha']['negative']]
+                parts.append(f"凶煞：{'、'.join(negative_shensha)}")
+        
+        return '\n'.join(parts)
+
+    def _validate_and_format_result(self, result):
+        """
+        验证并格式化API返回结果
+        """
+        required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions']
+        formatted = {}
+        
+        for field in required_fields:
+            value = result.get(field, [])
+            if isinstance(value, list):
+                formatted[field] = [str(item) for item in value if item]
+            elif isinstance(value, str):
+                formatted[field] = [value]
+            else:
+                formatted[field] = []
+        
+        return formatted
+
+    def _parse_text_response(self, content):
+        """
+        解析非JSON格式的文本响应
+        """
+        sections = {
+            '性格': 'personality',
+            '事业': 'career',
+            '财运': 'career',
+            '婚姻': 'marriage',
+            '感情': 'marriage',
+            '健康': 'health',
+            '建议': 'suggestions'
+        }
+        
+        result = {
+            'personality': [],
+            'career': [],
+            'marriage': [],
+            'health': [],
+            'suggestions': []
+        }
+        
+        current_section = None
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            for keyword, field in sections.items():
+                if keyword in line:
+                    current_section = field
+                    continue
+            
+            if current_section and line:
+                if line[0] in ['•', '·', '-', '●', '★', '1.', '2.', '3.', '（', '(']:
+                    result[current_section].append(line.lstrip('•·-●★1234567890.（() '))
+        
+        return result
+
+    def _create_fallback_result(self):
+        """
+        创建降级结果
+        """
+        return {
+            'personality': ['API暂时不可用，请稍后重试'],
+            'career': ['API暂时不可用，请稍后重试'],
+            'marriage': ['API暂时不可用，请稍后重试'],
+            'health': ['API暂时不可用，请稍后重试'],
+            'suggestions': ['API暂时不可用，请稍后重试']
+        }
+
+    def _analyze_locally(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+        """
+        本地分析（降级方案）
+        """
         rizhu = bazhi['rizhu']
         rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
         
-        parts = []
-        parts.append(f"您的日主为{rizhu}，五行属{rizhu_wx}")
-        
-        if wuxing_result['summary']:
-            parts.append(f"五行分析显示：{wuxing_result['summary']}")
-        
-        shishen_summary = shishen_result['summary']
-        if shishen_summary:
-            shishen_list = []
-            for shishen, count in shishen_summary.items():
-                shishen_list.append(f"{shishen}{count}个")
-            parts.append(f"十神分布：{'、'.join(shishen_list)}")
-        
-        return '；'.join(parts)
+        return {
+            'personality': self._generate_personality(rizhu_wx, wuxing_result),
+            'career': self._generate_career(rizhu_wx, wuxing_result, shishen_result),
+            'marriage': self._generate_marriage(shishen_result),
+            'health': self._generate_health(rizhu_wx, wuxing_result),
+            'suggestions': self._generate_recommendations(rizhu_wx, wuxing_result)
+        }
 
     def _generate_personality(self, rizhu_wx, wuxing_result):
         traits = PERSONALITY_TRAITS.get(rizhu_wx, {'positive': [], 'negative': []})
-        
         positive_traits = traits['positive'][:3]
-        negative_traits = traits['negative'][:2]
         
         dominant_elements = []
         for wx in ['木', '火', '土', '金', '水']:
-            if wuxing_result[wx]['count'] >= 6:
-                dominant_elements.append(wx)
-            elif wuxing_result[wx]['count'] >= 4:
+            if wuxing_result.get(wx, {}).get('count', 0) >= 4:
                 dominant_elements.append(wx)
         
         for wx in dominant_elements:
@@ -115,109 +351,88 @@ class AIAnalyzer:
         
         return list(set(positive_traits))[:5]
 
-    def _generate_life_trends(self, wuxing_result, shishen_result):
-        trends = []
-        
-        wuxing_summary = wuxing_result['summary']
-        if '旺极' in wuxing_summary:
-            trends.append('整体运势较强，但需注意物极必反')
-        elif '偏旺' in wuxing_summary:
-            trends.append('运势较旺，适合积极进取')
-        elif '偏弱' in wuxing_summary:
-            trends.append('运势偏弱，需要积累和等待时机')
-        elif '五行均衡' in wuxing_summary:
-            trends.append('五行均衡，运势平稳发展')
-        
-        shishen_summary = shishen_result['summary']
-        if '正官' in shishen_summary or '七杀' in shishen_summary:
-            trends.append('事业上有一定的压力和挑战')
-        if '正印' in shishen_summary or '偏印' in shishen_summary:
-            trends.append('学业和智慧方面有优势')
-        if '正财' in shishen_summary or '偏财' in shishen_summary:
-            trends.append('财运方面有机会')
-        
-        return '；'.join(trends)
-
-    def _generate_opportunities(self, wuxing_result, shishen_result):
-        opportunities = []
-        
-        max_wx = max(['木', '火', '土', '金', '水'], key=lambda x: wuxing_result[x]['count'])
-        opportunities.append(f'{max_wx}元素旺盛，在相关领域会有机会')
-        
-        shishen_summary = shishen_result['summary']
-        if '正印' in shishen_summary:
-            opportunities.append('学业、知识学习方面有良机')
-        if '偏财' in shishen_summary:
-            opportunities.append('投资、副业等方面有机会')
-        if '食神' in shishen_summary:
-            opportunities.append('创意、艺术方面有发挥空间')
-        if '正官' in shishen_summary:
-            opportunities.append('事业晋升、职位提升有机会')
-        
-        return opportunities
-
-    def _generate_challenges(self, wuxing_result, shishen_result):
-        challenges = []
-        
-        min_wx = min(['木', '火', '土', '金', '水'], key=lambda x: wuxing_result[x]['count'])
-        if wuxing_result[min_wx]['count'] <= 2:
-            challenges.append(f'{min_wx}元素较弱，需要注意相关方面的不足')
-        
-        shishen_summary = shishen_result['summary']
-        if '七杀' in shishen_summary:
-            challenges.append('可能面临竞争压力和挑战')
-        if '劫财' in shishen_summary:
-            challenges.append('需要注意财务方面的损耗')
-        if '伤官' in shishen_summary and '正官' in shishen_summary:
-            challenges.append('需要注意人际关系的协调')
-        
-        return challenges
-
-    def _generate_compatibility(self, wuxing_result):
-        elements = ['木', '火', '土', '金', '水']
-        counts = [(wx, wuxing_result[wx]['count']) for wx in elements]
-        counts.sort(key=lambda x: x[1], reverse=True)
-        
-        dominant = counts[0][0]
-        secondary = counts[1][0]
-        
-        compatibility = []
-        
-        element_pairs = {
-            '木': ['水', '火'],
-            '火': ['木', '土'],
-            '土': ['火', '金'],
-            '金': ['土', '水'],
-            '水': ['金', '木']
-        }
-        
-        compatible = element_pairs.get(dominant, [])
-        if secondary in compatible:
-            compatibility.append(f'{dominant}与{secondary}相生，整体格局协调')
-        else:
-            compatibility.append(f'{dominant}为主导，{secondary}为辅助')
-        
-        for wx, count in counts[-2:]:
-            if count <= 2:
-                compatibility.append(f'{wx}元素较弱，建议适当补充')
-        
-        return '；'.join(compatibility)
-
-    def _generate_recommendations(self, rizhu_wx, wuxing_result):
-        recommendations = []
+    def _generate_career(self, rizhu_wx, wuxing_result, shishen_result):
+        result = []
         
         rec = ELEMENT_RECOMMENDATIONS.get(rizhu_wx, {})
         if 'career' in rec:
-            recommendations.append(f"职业选择：{rec['career']}")
+            result.append(rec['career'])
+        
+        shishen_summary = shishen_result.get('summary', {})
+        if '正官' in shishen_summary or '七杀' in shishen_summary:
+            result.append('适合从事管理、领导类工作')
+        if '正财' in shishen_summary or '偏财' in shishen_summary:
+            result.append('有较好的财运，适合经商或投资理财')
+        if '正印' in shishen_summary or '偏印' in shishen_summary:
+            result.append('适合从事教育、学术研究或技术工作')
+        if '食神' in shishen_summary or '伤官' in shishen_summary:
+            result.append('适合从事创意、艺术或设计类工作')
+        
+        return result[:5]
+
+    def _generate_marriage(self, shishen_result):
+        result = []
+        
+        shishen_summary = shishen_result.get('summary', {})
+        if '正财' in shishen_summary:
+            result.append('感情较为稳定，注重实际')
+        elif '偏财' in shishen_summary:
+            result.append('异性缘较好，感情生活丰富')
+        if '七杀' in shishen_summary:
+            result.append('感情上可能会有一些挑战和考验')
+        if '正官' in shishen_summary:
+            result.append('配偶能力较强，婚姻较为稳定')
+        
+        if not result:
+            result.append('感情运势需要结合具体八字分析')
+        
+        return result
+
+    def _generate_health(self, rizhu_wx, wuxing_result):
+        result = []
+        
+        weak_elements = []
+        for wx in ['木', '火', '土', '金', '水']:
+            if wuxing_result.get(wx, {}).get('count', 0) <= 2:
+                weak_elements.append(wx)
+        
+        health_map = {
+            '木': '注意肝胆、神经系统健康',
+            '火': '注意心脏、血液循环系统健康',
+            '土': '注意脾胃、消化系统健康',
+            '金': '注意肺部、呼吸系统健康',
+            '水': '注意肾脏、泌尿系统健康'
+        }
+        
+        for wx in weak_elements:
+            result.append(health_map.get(wx, f'注意与{wx}相关的健康问题'))
+        
+        if not result:
+            result.append('整体健康状况较好，注意保持规律生活')
+        
+        return result
+
+    def _generate_recommendations(self, rizhu_wx, wuxing_result):
+        result = []
+        
+        rec = ELEMENT_RECOMMENDATIONS.get(rizhu_wx, {})
         if 'color' in rec:
-            recommendations.append(f"幸运颜色：{rec['color']}")
+            result.append(f"幸运颜色：{rec['color']}")
+        if 'direction' in rec:
+            result.append(f"有利方向：{rec['direction']}")
         if 'advice' in rec:
-            recommendations.append(f"生活建议：{rec['advice']}")
+            result.append(f"生活建议：{rec['advice']}")
         
-        min_wx = min(['木', '火', '土', '金', '水'], key=lambda x: wuxing_result[x]['count'])
-        if wuxing_result[min_wx]['count'] <= 2:
+        min_wx = None
+        min_count = float('inf')
+        for wx in ['木', '火', '土', '金', '水']:
+            count = wuxing_result.get(wx, {}).get('count', 0)
+            if count < min_count:
+                min_count = count
+                min_wx = wx
+        
+        if min_wx and min_count <= 2:
             wx_rec = ELEMENT_RECOMMENDATIONS.get(min_wx, {})
-            if 'advice' in wx_rec:
-                recommendations.append(f"注意补充{min_wx}元素：{wx_rec['advice']}")
+            result.append(f"建议适当补充{min_wx}元素，如：{wx_rec.get('color', '')}色系")
         
-        return recommendations
+        return result

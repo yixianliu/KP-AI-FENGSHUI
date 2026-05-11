@@ -2,7 +2,7 @@ import sys
 import traceback
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QFrame, QProgressBar,
-                             QStatusBar, QMessageBox, QShortcut, QFileDialog, 
+                             QStatusBar, QMessageBox, QShortcut, QFileDialog,
                              QApplication, QPushButton)
 from PyQt5.QtCore import Qt, QTimer, QRect
 from PyQt5.QtGui import QKeySequence
@@ -15,6 +15,7 @@ from core.yunshi import YunShiCalculator
 from core.mingli import MingLiAnalyzer
 from core.ai_analyzer import AIAnalyzer
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -42,9 +43,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(header_frame)
 
         content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(int(Spacing.MODULE_GAP.replace('px', '')), 
-                                          int(Spacing.MODULE_GAP.replace('px', '')), 
-                                          int(Spacing.MODULE_GAP.replace('px', '')), 
+        content_layout.setContentsMargins(int(Spacing.MODULE_GAP.replace('px', '')),
+                                          int(Spacing.MODULE_GAP.replace('px', '')),
+                                          int(Spacing.MODULE_GAP.replace('px', '')),
                                           int(Spacing.MODULE_GAP.replace('px', '')))
         content_layout.setSpacing(int(Spacing.MODULE_GAP.replace('px', '')))
 
@@ -55,7 +56,7 @@ class MainWindow(QMainWindow):
 
         self.input_panel = InputPanel()
         self.input_panel.submit_btn.clicked.connect(self.on_calculate)
-        
+
         left_layout.addWidget(self.input_panel)
         left_layout.addStretch()
 
@@ -88,7 +89,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(Stylesheets.MAIN_WINDOW)
 
         self.loading_overlay = self.create_loading_overlay()
-    
+
     def create_header(self):
         header_frame = QFrame()
         header_frame.setFixedHeight(60)
@@ -259,12 +260,17 @@ class MainWindow(QMainWindow):
             self.hide_loading()
 
     def update_results(self, bazhi, wuxing_result, shishen_result,
-                      major_fortune, mingli_result, ai_analysis, input_data):
+                       major_fortune, mingli_result, ai_analysis, input_data):
+        print(f"[主窗口] 更新结果开始")
+        print(f"[主窗口] AI分析数据: {ai_analysis}")
+        
         self.result_panel.update_basic_info(bazhi, input_data)
         self.result_panel.update_bazi(bazhi, shishen_result)
         self.result_panel.update_wuxing(wuxing_result)
         self.result_panel.update_fortune(major_fortune)
         self.result_panel.update_ai_analysis(ai_analysis)
+        
+        print(f"[主窗口] 更新结果完成")
 
         self.current_data = {
             'input': input_data,
@@ -318,13 +324,13 @@ class MainWindow(QMainWindow):
 
     def on_about(self):
         QMessageBox.about(self, '关于',
-            '<div style="text-align: center;">'
-            '<h2>八字排盘</h2>'
-            '<p>专业精准排盘 · AI智能分析</p>'
-            '<p style="margin-top: 15px;">基于传统八字命理理论，'
-            '提供四柱、五行、十神、大运等综合分析。</p>'
-            '</div>'
-        )
+                          '<div style="text-align: center;">'
+                          '<h2>八字排盘</h2>'
+                          '<p>专业精准排盘 · AI智能分析</p>'
+                          '<p style="margin-top: 15px;">基于传统八字命理理论，'
+                          '提供四柱、五行、十神、大运等综合分析。</p>'
+                          '</div>'
+                          )
 
     def show_error(self, message):
         msg_box = QMessageBox()

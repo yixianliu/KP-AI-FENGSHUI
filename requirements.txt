@@ -1,0 +1,2 @@
+PyQt5==5.15.11
+lunarcalendar==0.0.9
