@@ -28,8 +28,8 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('八字排盘 - 完整版')
-        self.setGeometry(100, 100, 1200, 900)
-        self.setMinimumSize(1000, 700)
+        self.setGeometry(100, 100, 1280, 960)
+        self.setMinimumSize(1100, 750)
 
         self.create_menu_bar()
         self.create_tool_bar()
@@ -47,8 +47,8 @@ class MainWindow(QMainWindow):
 
         self.content_widget = QWidget()
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(25, 25, 25, 25)
-        self.content_layout.setSpacing(20)
+        self.content_layout.setContentsMargins(30, 30, 30, 30)
+        self.content_layout.setSpacing(24)
 
         self.input_panel = InputPanel()
         self.input_panel.submit_btn.clicked.connect(self.on_calculate)
@@ -66,8 +66,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('就绪')
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedWidth(250)
-        self.progress_bar.setMaximumHeight(10)
+        self.progress_bar.setFixedWidth(280)
+        self.progress_bar.setMaximumHeight(12)
         self.progress_bar.setStyleSheet(Stylesheets.PROGRESS_BAR)
         self.statusBar().addPermanentWidget(self.progress_bar)
         self.progress_bar.hide()

@@ -4,10 +4,10 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QButtonGroup, QFrame, QGridLayout,
                              QToolTip, QMessageBox)
 from PyQt5.QtCore import QDate, QTime, Qt, QEvent
-from ui.styles import Stylesheets, Colors, Fonts
+from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 HOUR_NAMES = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时',
-              '午时', '未时', '申时', '酉时', '戌时', '亥时']
+            '午时', '未时', '申时', '酉时', '戌时', '亥时']
 
 HOUR_RANGES = [(23, 1), (1, 3), (3, 5), (5, 7), (7, 9), (9, 11),
                (11, 13), (13, 15), (15, 17), (17, 19), (19, 21), (21, 23)]
@@ -22,8 +22,8 @@ class InputPanel(QWidget):
         self.setStyleSheet(Stylesheets.CARD)
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(16)
 
         title_label = QLabel('八字排盘')
         title_label.setStyleSheet(f"""
@@ -31,39 +31,48 @@ class InputPanel(QWidget):
             font-weight: {Fonts.WEIGHT_BOLD};
             color: {Colors.PRIMARY};
             font-family: {Fonts.FAMILY_BOLD};
-            margin-bottom: 10px;
+            padding-bottom: 4px;
         """)
         main_layout.addWidget(title_label)
 
+        subtitle_label = QLabel('请输入您的出生信息')
+        subtitle_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.TEXT_SECONDARY};
+            font-family: {Fonts.FAMILY};
+            padding-bottom: 12px;
+        """)
+        main_layout.addWidget(subtitle_label)
+
         form_layout = QGridLayout()
-        form_layout.setSpacing(10)
-        form_layout.setVerticalSpacing(12)
+        form_layout.setSpacing(16)
+        form_layout.setVerticalSpacing(20)
 
         row = 0
 
-        name_label = QLabel('姓名:')
+        name_label = QLabel('姓名')
         name_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_BOLD};
+            font-weight: {Fonts.WEIGHT_MEDIUM};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY};
         """)
         self.name_lineedit = QLineEdit()
         self.name_lineedit.setPlaceholderText('请输入姓名')
         self.name_lineedit.setStyleSheet(Stylesheets.LINE_EDIT)
         self.name_lineedit.textChanged.connect(self.on_input_changed)
 
-        form_layout.addWidget(name_label, row, 0)
+        form_layout.addWidget(name_label, row, 0, 1, 1)
         form_layout.addWidget(self.name_lineedit, row, 1, 1, 3)
 
         row += 1
 
-        gender_label = QLabel('性别:')
+        gender_label = QLabel('性别')
         gender_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_BOLD};
+            font-weight: {Fonts.WEIGHT_MEDIUM};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY};
         """)
 
         self.gender_group = QButtonGroup()
@@ -74,16 +83,17 @@ class InputPanel(QWidget):
         self.female_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
 
         gender_layout = QHBoxLayout()
-        gender_layout.setSpacing(20)
+        gender_layout.setSpacing(24)
         gender_layout.addWidget(self.male_radio)
         gender_layout.addWidget(self.female_radio)
+        gender_layout.addStretch()
 
-        calendar_label = QLabel('历法:')
+        calendar_label = QLabel('历法')
         calendar_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_BOLD};
+            font-weight: {Fonts.WEIGHT_MEDIUM};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY};
         """)
 
         self.calendar_group = QButtonGroup()
@@ -94,9 +104,10 @@ class InputPanel(QWidget):
         self.lunar_radio.setStyleSheet(Stylesheets.RADIO_BUTTON)
 
         calendar_layout = QHBoxLayout()
-        calendar_layout.setSpacing(20)
+        calendar_layout.setSpacing(24)
         calendar_layout.addWidget(self.solar_radio)
         calendar_layout.addWidget(self.lunar_radio)
+        calendar_layout.addStretch()
 
         form_layout.addWidget(gender_label, row, 0)
         form_layout.addLayout(gender_layout, row, 1)
@@ -105,12 +116,12 @@ class InputPanel(QWidget):
 
         row += 1
 
-        date_label = QLabel('日期:')
+        date_label = QLabel('出生日期')
         date_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_BOLD};
+            font-weight: {Fonts.WEIGHT_MEDIUM};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY};
         """)
 
         self.date_edit = QDateEdit(QDate.currentDate())
@@ -118,12 +129,12 @@ class InputPanel(QWidget):
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setStyleSheet(Stylesheets.DATE_EDIT)
 
-        hour_label = QLabel('时辰:')
+        hour_label = QLabel('出生时辰')
         hour_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_BOLD};
+            font-weight: {Fonts.WEIGHT_MEDIUM};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY};
         """)
 
         self.hour_combo = QComboBox()
@@ -153,10 +164,11 @@ class InputPanel(QWidget):
             font-size: {Fonts.SIZE_SMALL};
             color: {Colors.ERROR};
             font-family: {Fonts.FAMILY};
-            padding: 8px;
-            background-color: rgba(220, 20, 60, 0.05);
-            border-radius: 4px;
-            margin-top: 5px;
+            padding: 12px 16px;
+            background-color: {Colors.BACKGROUND_SOFT};
+            border: 1px solid rgba(198, 40, 40, 0.2);
+            border-radius: 6px;
+            margin-top: 8px;
         """)
         self.validation_hint.setVisible(False)
         main_layout.addWidget(self.validation_hint)
