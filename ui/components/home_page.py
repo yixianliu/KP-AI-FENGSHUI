@@ -1,8 +1,8 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QComboBox, QPushButton, QLineEdit,
                              QRadioButton, QButtonGroup, QSpacerItem,
                              QSizePolicy, QScrollArea)
-from PyQt5.QtCore import Qt, pyqtSignal, QDate
+from PySide6.QtCore import Qt, Signal, QDate
 from ui.styles import Stylesheets, Colors, Fonts
 from utils.calendar import solar_to_lunar, lunar_to_solar
 from utils.solar_time import (CITIES, get_city_data, calculate_true_solar_time,
@@ -15,8 +15,8 @@ HOUR_RANGES = [(23, 1), (1, 3), (3, 5), (5, 7), (7, 9), (9, 11),
 
 
 class HomePage(QWidget):
-    start_panpan = pyqtSignal(dict)
-    back_to_home = pyqtSignal()
+    start_panpan = Signal(dict)
+    back_to_home = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)

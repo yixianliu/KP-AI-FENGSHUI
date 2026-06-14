@@ -1,6 +1,8 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-                             QComboBox, QPushButton, QFrame, QCheckBox, QSizePolicy)
-from PyQt5.QtCore import QDate, QTime, Qt, QEvent
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+                             QComboBox, QPushButton, QFrame, QCheckBox, QSizePolicy,
+                             QGraphicsOpacityEffect, QSpacerItem)
+from PySide6.QtCore import QDate, QTime, Qt, QEvent, QPropertyAnimation, QEasingCurve, QTimer
+from PySide6.QtGui import QEnterEvent, QMouseEvent
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 HOUR_NAMES = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时',
@@ -31,6 +33,7 @@ CITIES = [
     ('佛山', (113.1064, 23.0208)),
 ]
 
+
 class InputPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,7 +42,13 @@ class InputPanel(QWidget):
         self.installEventFilter(self)
 
     def init_ui(self):
-        self.setStyleSheet(Stylesheets.CARD)
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Colors.CARD};
+                border: 1px solid {Colors.BORDER};
+                border-radius: {Spacing.CARD_RADIUS};
+            }}
+        """)
 
         main_layout = QVBoxLayout()
         card_padding = int(Spacing.CARD_PADDING.replace('px', ''))
@@ -47,42 +56,73 @@ class InputPanel(QWidget):
         main_layout.setContentsMargins(card_padding, card_padding, card_padding, card_padding)
         main_layout.setSpacing(module_gap)
 
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(6)
+        # ===== 标题区域 =====
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(10)
+        title_layout.setAlignment(Qt.AlignCenter)
 
-        title_label = QLabel('八字排盘 · 专业精准排盘')
-        title_label.setStyleSheet(Stylesheets.CARD_TITLE)
-        title_label.setAlignment(Qt.AlignCenter)
+        title_icon = QLabel('☯')
+        title_icon.setStyleSheet(f"font-size: 22px; color: {Colors.ACCENT};")
 
+        title_label = QLabel('八字排盘')
+        title_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_TITLE};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
+
+        title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
+
+        subtitle_label = QLabel('专业精准排盘')
+        subtitle_label.setAlignment(Qt.AlignCenter)
+        subtitle_label.setStyleSheet(Stylesheets.HEADER_SUBTITLE)
+
         main_layout.addLayout(title_layout)
+        main_layout.addWidget(subtitle_label)
 
+        # 分隔线
+        separator = QFrame()
+        separator.setFixedHeight(1)
+        separator.setStyleSheet(f"background-color: {Colors.BORDER_LIGHT};")
+        main_layout.addWidget(separator)
+
+        # ===== 表单区域 =====
         form_layout = QVBoxLayout()
-        form_layout.setSpacing(module_gap)
+        form_layout.setSpacing(14)
 
-        gender_section = self._create_gender_section()
-        form_layout.addLayout(gender_section)
+        # 姓名输入 - 带图标
+        name_section = self._create_section_card('👤', '命主姓名', self._create_name_content())
+        form_layout.addWidget(name_section)
 
-        name_section = self._create_name_section()
-        form_layout.addLayout(name_section)
+        # 性别选择
+        gender_section = self._create_section_card('⚥', '性别', self._create_gender_content())
+        form_layout.addWidget(gender_section)
 
-        calendar_section = self._create_calendar_section()
-        form_layout.addLayout(calendar_section)
+        # 历法选择
+        calendar_section = self._create_section_card('📅', '历法', self._create_calendar_content())
+        form_layout.addWidget(calendar_section)
 
-        date_section = self._create_date_section()
-        form_layout.addLayout(date_section)
+        # 出生日期
+        date_section = self._create_section_card('🎂', '出生日期', self._create_date_content())
+        form_layout.addWidget(date_section)
 
-        hour_section = self._create_hour_section()
-        form_layout.addLayout(hour_section)
+        # 出生时辰
+        hour_section = self._create_section_card('⏰', '出生时辰', self._create_hour_content())
+        form_layout.addWidget(hour_section)
 
-        location_section = self._create_location_section()
-        form_layout.addLayout(location_section)
+        # 出生地点
+        location_section = self._create_section_card('📍', '出生地点', self._create_location_content())
+        form_layout.addWidget(location_section)
 
+        # 高级设置
         advanced_section = self._create_advanced_section()
-        form_layout.addLayout(advanced_section)
+        form_layout.addWidget(advanced_section)
 
         main_layout.addLayout(form_layout)
 
+        # ===== 验证提示 =====
         self.validation_hint = QLabel('')
         self.validation_hint.setStyleSheet(f"""
             font-size: {Fonts.SIZE_SMALL};
@@ -91,22 +131,24 @@ class InputPanel(QWidget):
             padding: 8px 12px;
             background-color: rgba(156, 68, 68, 0.06);
             border-radius: {Spacing.CONTROL_RADIUS};
+            border-left: 3px solid {Colors.WARNING};
         """)
         self.validation_hint.setVisible(False)
         self.validation_hint.setWordWrap(True)
         main_layout.addWidget(self.validation_hint)
 
+        # ===== 按钮区域 =====
         button_layout = QHBoxLayout()
         button_layout.setSpacing(14)
         button_layout.setAlignment(Qt.AlignCenter)
 
-        self.reset_btn = QPushButton('重置清空')
-        self.reset_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
-        self.reset_btn.setMinimumWidth(100)
+        self.reset_btn = QPushButton('🔄 重置清空')
+        self.reset_btn.setStyleSheet(self._secondary_btn_style())
+        self.reset_btn.setCursor(Qt.PointingHandCursor)
 
-        self.submit_btn = QPushButton('精准排盘')
-        self.submit_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
-        self.submit_btn.setMinimumWidth(120)
+        self.submit_btn = QPushButton('✨ 精准排盘')
+        self.submit_btn.setStyleSheet(self._primary_btn_style())
+        self.submit_btn.setCursor(Qt.PointingHandCursor)
         self.submit_btn.setEnabled(False)
 
         button_layout.addWidget(self.reset_btn)
@@ -116,137 +158,314 @@ class InputPanel(QWidget):
 
         self.setLayout(main_layout)
 
-    def _create_gender_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
+    # ===== 样式生成方法 =====
+    def _section_card_style(self):
+        return f"""
+            QFrame {{
+                background-color: {Colors.BACKGROUND};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Spacing.CONTROL_RADIUS};
+            }}
+        """
 
-        label = QLabel('性别')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
+    def _input_style(self):
+        return f"""
+            QLineEdit {{
+                background-color: {Colors.CARD};
+                border: 2px solid {Colors.BORDER};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                font-size: {Fonts.SIZE_BODY};
+                font-family: {Fonts.FAMILY_CN};
+                padding: 8px 12px;
+                min-height: 36px;
+                color: {Colors.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {Colors.ACCENT};
+            }}
+            QLineEdit::placeholder {{
+                color: {Colors.TEXT_TERTIARY};
+                font-style: italic;
+            }}
+        """
 
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+    def _combo_style(self):
+        return f"""
+            QComboBox {{
+                background-color: {Colors.CARD};
+                border: 2px solid {Colors.BORDER};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                font-size: {Fonts.SIZE_BODY};
+                font-family: {Fonts.FAMILY_CN};
+                padding: 6px 10px;
+                min-height: 36px;
+                color: {Colors.TEXT_PRIMARY};
+            }}
+            QComboBox:focus, QComboBox:on {{
+                border: 2px solid {Colors.ACCENT};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 28px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid {Colors.ACCENT};
+            }}
+            QComboBox QAbstractItemView {{
+                border: 1px solid {Colors.BORDER};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                background-color: {Colors.CARD};
+                selection-background-color: {Colors.ACCENT};
+                selection-color: white;
+                padding: 4px;
+                font-size: {Fonts.SIZE_BODY};
+                font-family: {Fonts.FAMILY_CN};
+            }}
+        """
 
-        self.male_btn = QPushButton('乾造（男）')
-        self.male_btn.setStyleSheet(Stylesheets.BUTTON_TOGGLE)
-        self.male_btn.setCheckable(True)
-        self.male_btn.setChecked(True)
+    def _toggle_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {Colors.CARD};
+                color: {Colors.TEXT_SECONDARY};
+                border: 2px solid {Colors.BORDER};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                font-size: {Fonts.SIZE_BODY};
+                font-weight: {Fonts.WEIGHT_NORMAL};
+                font-family: {Fonts.FAMILY_CN};
+                padding: 7px 16px;
+                min-width: 80px;
+                min-height: 34px;
+            }}
+            QPushButton:hover {{
+                border-color: {Colors.ACCENT};
+                color: {Colors.ACCENT};
+                background-color: rgba(42, 74, 63, 0.04);
+            }}
+            QPushButton:checked {{
+                background-color: {Colors.ACCENT};
+                color: white;
+                border-color: {Colors.ACCENT};
+            }}
+            QPushButton:checked:hover {{
+                background-color: {Colors.ACCENT_LIGHT};
+            }}
+        """
 
-        self.female_btn = QPushButton('坤造（女）')
-        self.female_btn.setStyleSheet(Stylesheets.BUTTON_TOGGLE)
-        self.female_btn.setCheckable(True)
+    def _primary_btn_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {Colors.ACCENT};
+                color: white;
+                border: none;
+                border-radius: {Spacing.CARD_RADIUS};
+                font-size: 15px;
+                font-weight: {Fonts.WEIGHT_BOLD};
+                font-family: {Fonts.FAMILY_CN};
+                padding: 10px 28px;
+                min-height: 42px;
+                min-width: 130px;
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.ACCENT_LIGHT};
+            }}
+            QPushButton:pressed {{
+                background-color: {Colors.ACCENT_DARK};
+            }}
+            QPushButton:disabled {{
+                background-color: {Colors.BORDER};
+                color: {Colors.TEXT_TERTIARY};
+            }}
+        """
 
-        button_layout.addWidget(self.male_btn)
-        button_layout.addWidget(self.female_btn)
-        button_layout.addStretch()
+    def _secondary_btn_style(self):
+        return f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {Colors.TEXT_SECONDARY};
+                border: 1px solid {Colors.BUTTON_SECONDARY_BORDER};
+                border-radius: {Spacing.CARD_RADIUS};
+                font-size: {Fonts.SIZE_BODY};
+                font-weight: {Fonts.WEIGHT_NORMAL};
+                font-family: {Fonts.FAMILY_CN};
+                padding: 8px 20px;
+                min-height: 42px;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                border-color: {Colors.ACCENT};
+                color: {Colors.ACCENT};
+                background-color: rgba(42, 74, 63, 0.04);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(42, 74, 63, 0.08);
+            }}
+        """
 
-        layout.addWidget(label)
-        layout.addLayout(button_layout)
+    def _label_style(self):
+        return f"""
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.TEXT_PRIMARY};
+            font-family: {Fonts.FAMILY_CN};
+        """
 
-        return layout
+    def _hint_style(self):
+        return f"""
+            font-size: {Fonts.SIZE_SMALL};
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+            padding-left: 2px;
+        """
 
-    def _create_name_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
+    # ===== 分组卡片构建器 =====
+    def _create_section_card(self, icon, title, content_widget):
+        """创建一个带图标标题的分组卡片"""
+        card = QFrame()
+        card.setStyleSheet(self._section_card_style())
 
-        label = QLabel('姓名')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        # 标题行：图标 + 文字
+        header = QHBoxLayout()
+        header.setSpacing(8)
+
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet(f"font-size: 16px;")
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet(self._label_style())
+
+        header.addWidget(icon_label)
+        header.addWidget(title_label)
+        header.addStretch()
+
+        layout.addLayout(header)
+        layout.addWidget(content_widget)
+
+        return card
+
+    # ===== 各字段内容构建 =====
+    def _create_name_content(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         self.name_lineedit = QLineEdit()
-        self.name_lineedit.setStyleSheet(Stylesheets.LINE_EDIT)
-        self.name_lineedit.setPlaceholderText('请输入姓名')
-        self.name_lineedit.setMinimumHeight(32)
+        self.name_lineedit.setStyleSheet(self._input_style())
+        self.name_lineedit.setPlaceholderText('请输入命主姓名')
+        self.name_lineedit.setMinimumHeight(36)
         self.name_lineedit.textChanged.connect(self._on_name_changed)
 
-        layout.addWidget(label)
         layout.addWidget(self.name_lineedit)
+        return widget
 
-        return layout
+    def _create_gender_content(self):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-    def _create_calendar_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
+        self.male_btn = QPushButton('乾造（男）')
+        self.male_btn.setStyleSheet(self._toggle_style())
+        self.male_btn.setCheckable(True)
+        self.male_btn.setChecked(True)
+        self.male_btn.setCursor(Qt.PointingHandCursor)
 
-        label = QLabel('历法')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
+        self.female_btn = QPushButton('坤造（女）')
+        self.female_btn.setStyleSheet(self._toggle_style())
+        self.female_btn.setCheckable(True)
+        self.female_btn.setCursor(Qt.PointingHandCursor)
 
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        layout.addWidget(self.male_btn)
+        layout.addWidget(self.female_btn)
+        layout.addStretch()
+
+        return widget
+
+    def _create_calendar_content(self):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
         self.solar_btn = QPushButton('公历')
-        self.solar_btn.setStyleSheet(Stylesheets.BUTTON_TOGGLE)
+        self.solar_btn.setStyleSheet(self._toggle_style())
         self.solar_btn.setCheckable(True)
         self.solar_btn.setChecked(True)
+        self.solar_btn.setCursor(Qt.PointingHandCursor)
 
         self.lunar_btn = QPushButton('农历')
-        self.lunar_btn.setStyleSheet(Stylesheets.BUTTON_TOGGLE)
+        self.lunar_btn.setStyleSheet(self._toggle_style())
         self.lunar_btn.setCheckable(True)
+        self.lunar_btn.setCursor(Qt.PointingHandCursor)
 
-        button_layout.addWidget(self.solar_btn)
-        button_layout.addWidget(self.lunar_btn)
-        button_layout.addStretch()
+        layout.addWidget(self.solar_btn)
+        layout.addWidget(self.lunar_btn)
+        layout.addStretch()
 
-        layout.addWidget(label)
-        layout.addLayout(button_layout)
+        return widget
 
-        return layout
+    def _create_date_content(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-    def _create_date_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
-
-        label = QLabel('出生日期')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
-
-        date_layout = QHBoxLayout()
-        date_layout.setSpacing(8)
+        date_row = QHBoxLayout()
+        date_row.setSpacing(8)
 
         self.year_combo = QComboBox()
-        self.year_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.year_combo.setMinimumWidth(110)
+        self.year_combo.setStyleSheet(self._combo_style())
+        self.year_combo.setMinimumWidth(100)
         current_year = QDate.currentDate().year()
         for year in range(1900, current_year + 1):
             self.year_combo.addItem(f'{year}年', year)
         self.year_combo.setCurrentIndex(self.year_combo.count() - 1)
 
         self.month_combo = QComboBox()
-        self.month_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.month_combo.setMinimumWidth(75)
+        self.month_combo.setStyleSheet(self._combo_style())
+        self.month_combo.setMinimumWidth(70)
         for month in range(1, 13):
             self.month_combo.addItem(f'{month}月', month)
         self.month_combo.setCurrentIndex(QDate.currentDate().month() - 1)
 
         self.day_combo = QComboBox()
-        self.day_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.day_combo.setMinimumWidth(75)
+        self.day_combo.setStyleSheet(self._combo_style())
+        self.day_combo.setMinimumWidth(70)
         self._update_day_combo()
         self.day_combo.setCurrentIndex(QDate.currentDate().day() - 1)
 
-        date_layout.addWidget(self.year_combo)
-        date_layout.addWidget(self.month_combo)
-        date_layout.addWidget(self.day_combo)
-        date_layout.addStretch()
+        date_row.addWidget(self.year_combo)
+        date_row.addWidget(self.month_combo)
+        date_row.addWidget(self.day_combo)
+        date_row.addStretch()
 
-        hint_label = QLabel('提示：选择日期后将自动匹配节气')
-        hint_label.setStyleSheet(Stylesheets.LABEL_SMALL)
+        hint_label = QLabel('选择日期后将自动匹配节气')
+        hint_label.setStyleSheet(self._hint_style())
 
-        layout.addWidget(label)
-        layout.addLayout(date_layout)
+        layout.addLayout(date_row)
         layout.addWidget(hint_label)
 
-        return layout
+        return widget
 
-    def _create_hour_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
+    def _create_hour_content(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-        label = QLabel('出生时辰')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
-
-        hour_layout = QHBoxLayout()
-        hour_layout.setSpacing(8)
+        hour_row = QHBoxLayout()
+        hour_row.setSpacing(8)
 
         self.hour_combo = QComboBox()
-        self.hour_combo.setStyleSheet(Stylesheets.COMBO_BOX)
+        self.hour_combo.setStyleSheet(self._combo_style())
         self.hour_combo.setMinimumWidth(140)
         self.hour_combo.setMaximumWidth(180)
 
@@ -259,18 +478,19 @@ class InputPanel(QWidget):
             self.hour_combo.addItem(f"{name} ({time_range})", i)
 
         self.time_edit = QLineEdit()
-        self.time_edit.setStyleSheet(Stylesheets.LINE_EDIT)
+        self.time_edit.setStyleSheet(self._input_style())
         self.time_edit.setPlaceholderText('时:分')
         self.time_edit.setMaximumWidth(85)
         self.time_edit.setText('12:00')
         self.time_edit.textChanged.connect(self._on_time_changed)
 
-        hour_layout.addWidget(self.hour_combo)
-        hour_layout.addWidget(self.time_edit)
-        hour_layout.addStretch()
+        hour_row.addWidget(self.hour_combo)
+        hour_row.addWidget(self.time_edit)
+        hour_row.addStretch()
 
-        zi_switch_layout = QHBoxLayout()
-        zi_switch_layout.setSpacing(8)
+        # 早晚子时行
+        zi_row = QHBoxLayout()
+        zi_row.setSpacing(8)
 
         zi_label = QLabel('早晚子时')
         zi_label.setStyleSheet(Stylesheets.LABEL_SMALL)
@@ -282,153 +502,140 @@ class InputPanel(QWidget):
         zi_desc = QLabel('启用早子时')
         zi_desc.setStyleSheet(Stylesheets.LABEL_SMALL)
 
-        zi_switch_layout.addWidget(zi_label)
-        zi_switch_layout.addWidget(self.early_zi_switch)
-        zi_switch_layout.addWidget(zi_desc)
-        zi_switch_layout.addStretch()
+        zi_row.addWidget(zi_label)
+        zi_row.addWidget(self.early_zi_switch)
+        zi_row.addWidget(zi_desc)
+        zi_row.addStretch()
 
-        layout.addWidget(label)
-        layout.addLayout(hour_layout)
-        layout.addLayout(zi_switch_layout)
+        layout.addLayout(hour_row)
+        layout.addLayout(zi_row)
 
-        return layout
+        return widget
 
-    def _create_location_section(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(int(Spacing.CONTROL_VERTICAL_GAP.replace('px', '')))
-
-        label = QLabel('出生地点')
-        label.setStyleSheet(Stylesheets.LABEL_BODY)
-
-        location_layout = QHBoxLayout()
-        location_layout.setSpacing(8)
+    def _create_location_content(self):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
         self.city_combo = QComboBox()
-        self.city_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.city_combo.setMinimumWidth(160)
+        self.city_combo.setStyleSheet(self._combo_style())
+        self.city_combo.setMinimumWidth(140)
         for city, coords in CITIES:
             self.city_combo.addItem(city, coords)
 
         self.lat_label = QLabel('')
-        self.lat_label.setStyleSheet(Stylesheets.LABEL_SMALL)
+        self.lat_label.setStyleSheet(self._hint_style())
         self.lat_label.setMaximumWidth(150)
 
-        location_layout.addWidget(self.city_combo)
-        location_layout.addWidget(self.lat_label)
-        location_layout.addStretch()
+        layout.addWidget(self.city_combo)
+        layout.addWidget(self.lat_label)
+        layout.addStretch()
 
         self._update_coords_label()
 
-        layout.addWidget(label)
-        layout.addLayout(location_layout)
-
-        return layout
+        return widget
 
     def _create_advanced_section(self):
-        layout = QVBoxLayout()
+        """高级设置 - 可折叠卡片"""
+        card = QFrame()
+        card.setStyleSheet(self._section_card_style())
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.advanced_frame = QFrame()
-        self.advanced_frame.setStyleSheet(Stylesheets.CARD_NO_SHADOW)
-
-        advanced_header = QFrame()
-        advanced_header.setStyleSheet(Stylesheets.COLLAPSE_HEADER)
-        header_layout = QHBoxLayout(advanced_header)
-        header_layout.setContentsMargins(14, 10, 14, 10)
-
-        self.advanced_toggle = QPushButton('▼ 高级设置')
-        self.advanced_toggle.setStyleSheet(f"""
-            QPushButton {{
+        # 头部（可点击折叠）
+        header = QFrame()
+        header.setCursor(Qt.PointingHandCursor)
+        header.setStyleSheet(f"""
+            QFrame {{
                 background-color: transparent;
-                color: {Colors.TEXT_SECONDARY};
-                border: none;
-                font-size: {Fonts.SIZE_BODY};
-                font-family: {Fonts.FAMILY_CN};
-                padding: 0;
-                text-align: left;
+                border-radius: {Spacing.CONTROL_RADIUS};
             }}
-            QPushButton:hover {{
-                color: {Colors.ACCENT};
+            QFrame:hover {{
+                background-color: rgba(42, 74, 63, 0.03);
             }}
         """)
-        self.advanced_toggle.setCursor(Qt.PointingHandCursor)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(14, 10, 14, 10)
+        header_layout.setSpacing(8)
 
-        header_layout.addWidget(self.advanced_toggle)
+        header_icon = QLabel('⚙️')
+        header_icon.setStyleSheet("font-size: 16px;")
+
+        header_title = QLabel('高级设置')
+        header_title.setStyleSheet(self._label_style())
+
+        self.advanced_arrow = QLabel('▼')
+        self.advanced_arrow.setStyleSheet(f"color: {Colors.TEXT_TERTIARY}; font-size: 12px;")
+
+        header_layout.addWidget(header_icon)
+        header_layout.addWidget(header_title)
         header_layout.addStretch()
+        header_layout.addWidget(self.advanced_arrow)
 
+        # 内容区域（默认折叠）
         self.advanced_content = QWidget()
         self.advanced_content.setVisible(False)
-        advanced_content_layout = QVBoxLayout(self.advanced_content)
-        advanced_content_layout.setContentsMargins(14, 12, 14, 12)
-        advanced_content_layout.setSpacing(int(Spacing.MODULE_GAP.replace('px', '')))
+        content_layout = QVBoxLayout(self.advanced_content)
+        content_layout.setContentsMargins(14, 0, 14, 14)
+        content_layout.setSpacing(10)
 
-        solar_time_layout = QHBoxLayout()
-        solar_time_layout.setSpacing(8)
+        # 真太阳时校正
+        solar_time_row = self._create_combo_row('真太阳时校正', ['自动', '启用', '禁用'])
+        content_layout.addLayout(solar_time_row)
 
-        solar_time_label = QLabel('真太阳时校正')
-        solar_time_label.setStyleSheet(Stylesheets.LABEL_BODY)
-        solar_time_label.setMinimumWidth(90)
+        # 起运计算规则
+        age_rule_row = self._create_combo_row('起运计算规则', ['虚岁', '周岁'])
+        content_layout.addLayout(age_rule_row)
 
-        self.solar_time_combo = QComboBox()
-        self.solar_time_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.solar_time_combo.setMinimumWidth(130)
-        self.solar_time_combo.addItems(['自动', '启用', '禁用'])
+        # 闰月处理方式
+        leap_rule_row = self._create_combo_row('闰月处理方式', ['归前', '归后', '独立'])
+        content_layout.addLayout(leap_rule_row)
 
-        solar_time_layout.addWidget(solar_time_label)
-        solar_time_layout.addWidget(self.solar_time_combo)
-        solar_time_layout.addStretch()
+        layout.addWidget(header)
+        layout.addWidget(self.advanced_content)
 
-        age_rule_layout = QHBoxLayout()
-        age_rule_layout.setSpacing(8)
+        # 点击头部切换折叠
+        header.mousePressEvent = lambda e: self._toggle_advanced()
 
-        age_rule_label = QLabel('起运计算规则')
-        age_rule_label.setStyleSheet(Stylesheets.LABEL_BODY)
-        age_rule_label.setMinimumWidth(90)
+        return card
 
-        self.age_rule_combo = QComboBox()
-        self.age_rule_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.age_rule_combo.setMinimumWidth(130)
-        self.age_rule_combo.addItems(['虚岁', '周岁'])
+    def _create_combo_row(self, label_text, items):
+        """创建标签+下拉框的行"""
+        row = QHBoxLayout()
+        row.setSpacing(10)
 
-        age_rule_layout.addWidget(age_rule_label)
-        age_rule_layout.addWidget(self.age_rule_combo)
-        age_rule_layout.addStretch()
+        label = QLabel(label_text)
+        label.setStyleSheet(Stylesheets.LABEL_BODY)
+        label.setMinimumWidth(90)
 
-        leap_rule_layout = QHBoxLayout()
-        leap_rule_layout.setSpacing(8)
+        combo = QComboBox()
+        combo.setStyleSheet(self._combo_style())
+        combo.setMinimumWidth(130)
+        combo.addItems(items)
 
-        leap_rule_label = QLabel('闰月处理方式')
-        leap_rule_label.setStyleSheet(Stylesheets.LABEL_BODY)
-        leap_rule_label.setMinimumWidth(90)
+        # 保存引用
+        if label_text == '真太阳时校正':
+            self.solar_time_combo = combo
+        elif label_text == '起运计算规则':
+            self.age_rule_combo = combo
+        elif label_text == '闰月处理方式':
+            self.leap_rule_combo = combo
 
-        self.leap_rule_combo = QComboBox()
-        self.leap_rule_combo.setStyleSheet(Stylesheets.COMBO_BOX)
-        self.leap_rule_combo.setMinimumWidth(130)
-        self.leap_rule_combo.addItems(['归前', '归后', '独立'])
+        row.addWidget(label)
+        row.addWidget(combo)
+        row.addStretch()
 
-        leap_rule_layout.addWidget(leap_rule_label)
-        leap_rule_layout.addWidget(self.leap_rule_combo)
-        leap_rule_layout.addStretch()
+        return row
 
-        advanced_content_layout.addLayout(solar_time_layout)
-        advanced_content_layout.addLayout(age_rule_layout)
-        advanced_content_layout.addLayout(leap_rule_layout)
-
-        advanced_main_layout = QVBoxLayout(self.advanced_frame)
-        advanced_main_layout.setContentsMargins(0, 0, 0, 0)
-        advanced_main_layout.addWidget(advanced_header)
-        advanced_main_layout.addWidget(self.advanced_content)
-
-        layout.addWidget(self.advanced_frame)
-
-        return layout
-
+    # ===== 数据更新方法 =====
     def _update_day_combo(self):
         year = self.year_combo.currentData() if self.year_combo else QDate.currentDate().year()
         month = self.month_combo.currentData() if self.month_combo else QDate.currentDate().month()
 
         days_in_month = self._get_days_in_month(year, month)
-
         current_day = self.day_combo.currentData()
 
         self.day_combo.clear()
@@ -469,9 +676,9 @@ class InputPanel(QWidget):
         else:
             return True
 
+    # ===== 事件与验证 =====
     def setup_validation(self):
         self.city_combo.currentIndexChanged.connect(self._update_coords_label)
-        self.advanced_toggle.clicked.connect(self._toggle_advanced)
         self.submit_btn.clicked.connect(self.on_submit_clicked)
         self.reset_btn.clicked.connect(self.clear)
         self.male_btn.clicked.connect(lambda: self._on_gender_toggle(True))
@@ -491,7 +698,7 @@ class InputPanel(QWidget):
     def _toggle_advanced(self):
         is_visible = not self.advanced_content.isVisible()
         self.advanced_content.setVisible(is_visible)
-        self.advanced_toggle.setText('▲ 高级设置' if is_visible else '▼ 高级设置')
+        self.advanced_arrow.setText('▲' if is_visible else '▼')
 
     def _on_gender_toggle(self, is_male):
         self.male_btn.setChecked(is_male)
@@ -509,22 +716,6 @@ class InputPanel(QWidget):
         else:
             self.time_edit.setText(f"{start:02d}:00")
 
-    def _update_hour_from_time(self):
-        try:
-            hh, mm = map(int, self.time_edit.text().split(':'))
-            adjusted_hh = hh if hh < 24 else 0
-
-            for i, (start, end) in enumerate(HOUR_RANGES):
-                if start == 23:
-                    if adjusted_hh >= 23 or adjusted_hh < end:
-                        self.hour_combo.setCurrentIndex(i)
-                        break
-                elif start <= adjusted_hh < end:
-                    self.hour_combo.setCurrentIndex(i)
-                    break
-        except:
-            pass
-
     def eventFilter(self, obj, event):
         if event.type() == QEvent.FocusOut:
             if obj == self.name_lineedit:
@@ -536,19 +727,19 @@ class InputPanel(QWidget):
         time_text = self.time_edit.text().strip()
 
         if not name:
-            self.validation_hint.setText('✘ 请输入姓名')
+            self.validation_hint.setText('请输入姓名')
             self.validation_hint.setVisible(True)
             self.submit_btn.setEnabled(False)
             return False
 
         if len(name) > 20:
-            self.validation_hint.setText('✘ 姓名不能超过20个字符')
+            self.validation_hint.setText('姓名不能超过20个字符')
             self.validation_hint.setVisible(True)
             self.submit_btn.setEnabled(False)
             return False
 
         if not time_text:
-            self.validation_hint.setText('✘ 请输入出生时间')
+            self.validation_hint.setText('请输入出生时间')
             self.validation_hint.setVisible(True)
             self.submit_btn.setEnabled(False)
             return False
@@ -556,12 +747,12 @@ class InputPanel(QWidget):
         try:
             hh, mm = map(int, time_text.split(':'))
             if hh < 0 or hh > 23 or mm < 0 or mm > 59:
-                self.validation_hint.setText('✘ 时间格式错误，请输入有效的时分（00:00-23:59）')
+                self.validation_hint.setText('时间格式错误，请输入有效的时分（00:00-23:59）')
                 self.validation_hint.setVisible(True)
                 self.submit_btn.setEnabled(False)
                 return False
         except:
-            self.validation_hint.setText('✘ 时间格式错误，请使用 时:分 格式')
+            self.validation_hint.setText('时间格式错误，请使用 时:分 格式')
             self.validation_hint.setVisible(True)
             self.submit_btn.setEnabled(False)
             return False
@@ -626,7 +817,7 @@ class InputPanel(QWidget):
         self.age_rule_combo.setCurrentIndex(0)
         self.leap_rule_combo.setCurrentIndex(0)
         self.advanced_content.setVisible(False)
-        self.advanced_toggle.setText('▼ 高级设置')
+        self.advanced_arrow.setText('▼')
         self.validation_hint.setVisible(False)
         self.submit_btn.setEnabled(False)
 

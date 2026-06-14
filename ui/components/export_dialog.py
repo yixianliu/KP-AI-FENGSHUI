@@ -1,11 +1,11 @@
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QCheckBox, QPushButton,
                              QGroupBox, QLineEdit, QButtonGroup, QRadioButton,
                              QFileDialog, QMessageBox)
-from PyQt5.QtCore import pyqtSignal, Qt
+from PySide6.QtCore import Signal, Qt
 
 class ExportDialog(QDialog):
-    export_signal = pyqtSignal(str)
+    export_signal = Signal(str)
 
     def __init__(self, data, parent=None):
         super().__init__(parent)

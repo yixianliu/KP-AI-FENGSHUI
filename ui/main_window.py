@@ -1,11 +1,11 @@
 import sys
 import traceback
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QFrame, QProgressBar,
-                             QStatusBar, QMessageBox, QShortcut, QFileDialog,
-                             QApplication, QPushButton)
-from PyQt5.QtCore import Qt, QTimer, QRect
-from PyQt5.QtGui import QKeySequence
+                             QStatusBar, QMessageBox, QFileDialog,
+                             QApplication, QPushButton, QScrollArea)
+from PySide6.QtCore import Qt, QTimer, QRect
+from PySide6.QtGui import QKeySequence, QShortcut
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from core.baazi import BaZiCalculator
@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
                                           int(Spacing.MODULE_GAP.replace('px', '')))
         content_layout.setSpacing(int(Spacing.MODULE_GAP.replace('px', '')))
 
+        # 左侧输入面板 - 带滚动区域
         left_container = QWidget()
         left_layout = QVBoxLayout(left_container)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -58,11 +59,39 @@ class MainWindow(QMainWindow):
         self.input_panel = InputPanel()
         self.input_panel.submit_btn.clicked.connect(self.on_calculate)
 
-        left_layout.addWidget(self.input_panel)
-        left_layout.addStretch()
+        # 用 QScrollArea 包裹输入面板，解决高度不足导致的变形
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.input_panel)
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                border: none;
+                background-color: transparent;
+            }}
+            QScrollBar:vertical {{
+                background: {Colors.BACKGROUND};
+                width: 6px;
+                border-radius: 3px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {Colors.BORDER};
+                border-radius: 3px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {Colors.ACCENT};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        left_layout.addWidget(scroll_area)
 
         content_layout.addWidget(left_container)
 
+        # 右侧结果面板 - 自适应宽度
         right_container = QWidget()
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -88,8 +117,6 @@ class MainWindow(QMainWindow):
         self.progress_bar.hide()
 
         self.setStyleSheet(Stylesheets.MAIN_WINDOW)
-
-        self.loading_overlay = self.create_loading_overlay()
 
     def create_header(self):
         header_frame = QFrame()
@@ -127,50 +154,6 @@ class MainWindow(QMainWindow):
 
         return header_frame
 
-    def create_loading_overlay(self):
-        overlay = QFrame()
-        overlay.setStyleSheet(f"""
-            QFrame {{
-                background-color: rgba(249, 247, 243, 0.96);
-            }}
-        """)
-        overlay.setGeometry(QRect(0, 0, self.width(), self.height()))
-        overlay.hide()
-
-        overlay_layout = QVBoxLayout(overlay)
-        overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.setAlignment(Qt.AlignCenter)
-
-        loading_container = QWidget()
-        loading_container.setStyleSheet(Stylesheets.CARD)
-        loading_layout = QVBoxLayout(loading_container)
-        loading_layout.setContentsMargins(40, 40, 40, 40)
-        loading_layout.setSpacing(20)
-
-        loading_icon = QLabel('☯')
-        loading_icon.setStyleSheet(f"font-size: 48px;")
-        loading_icon.setAlignment(Qt.AlignCenter)
-        loading_layout.addWidget(loading_icon)
-
-        self.loading_text = QLabel('正在分析您的命理信息...')
-        self.loading_text.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_SECTION};
-            color: {Colors.TEXT_PRIMARY};
-            font-family: {Fonts.FAMILY_CN};
-            font-weight: {Fonts.WEIGHT_BOLD};
-        """)
-        self.loading_text.setAlignment(Qt.AlignCenter)
-        loading_layout.addWidget(self.loading_text)
-
-        self.loading_progress = QProgressBar()
-        self.loading_progress.setFixedWidth(220)
-        self.loading_progress.setStyleSheet(Stylesheets.PROGRESS_BAR)
-        loading_layout.addWidget(self.loading_progress)
-
-        overlay_layout.addWidget(loading_container)
-
-        return overlay
-
     def init_shortcuts(self):
         QShortcut(QKeySequence('Ctrl+Return'), self, self.on_calculate)
         QShortcut(QKeySequence('Ctrl+R'), self, self.on_reset)
@@ -190,19 +173,21 @@ class MainWindow(QMainWindow):
             self.log_error(f"初始化本地数据库失败: {str(e)}")
 
     def show_loading(self):
-        self.loading_overlay.setGeometry(QRect(0, 0, self.width(), self.height()))
-        self.loading_overlay.show()
-        self.loading_progress.setValue(0)
+        """在右侧结果面板内显示加载状态（不再使用全屏覆盖层）"""
+        self.result_panel.show_loading()
         self.is_calculating = True
+        self.input_panel.submit_btn.setEnabled(False)
         self.statusBar().showMessage('正在排盘中...')
 
     def hide_loading(self):
-        self.loading_overlay.hide()
+        """隐藏加载状态"""
+        self.result_panel.hide_loading()
         self.is_calculating = False
+        self.input_panel.validate_input()  # 恢复按钮状态
 
     def update_loading_progress(self, value, text):
-        self.loading_progress.setValue(value)
-        self.loading_text.setText(text)
+        """更新加载进度（在右侧面板内显示）"""
+        self.result_panel.update_loading_progress(value, text)
         QApplication.processEvents()
 
     def on_reset(self):
@@ -492,8 +477,3 @@ class MainWindow(QMainWindow):
             import datetime
             f.write(f"[{datetime.datetime.now()}] {message}\n")
             traceback.print_exc(file=f)
-
-    def resizeEvent(self, event):
-        if self.loading_overlay:
-            self.loading_overlay.setGeometry(QRect(0, 0, self.width(), self.height()))
-        super().resizeEvent(event)
