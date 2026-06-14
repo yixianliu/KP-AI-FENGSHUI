@@ -54,6 +54,9 @@ class BasicInfoCard(ResultCard):
         
         left_layout = QVBoxLayout()
         left_layout.setSpacing(6)
+
+        self.name_label = QLabel('')
+        self.name_label.setStyleSheet(Stylesheets.CARD_TITLE_ACCENT)
         
         self.gender_label = QLabel('')
         self.gender_label.setStyleSheet(Stylesheets.LABEL_KEY)
@@ -61,6 +64,7 @@ class BasicInfoCard(ResultCard):
         self.solar_date_label = QLabel('')
         self.solar_date_label.setStyleSheet(Stylesheets.LABEL_SMALL)
         
+        left_layout.addWidget(self.name_label)
         left_layout.addWidget(self.gender_label)
         left_layout.addWidget(self.solar_date_label)
         
@@ -72,9 +76,13 @@ class BasicInfoCard(ResultCard):
         
         self.solar_time_label = QLabel('')
         self.solar_time_label.setStyleSheet(Stylesheets.LABEL_SMALL)
+
+        self.archive_label = QLabel('')
+        self.archive_label.setStyleSheet(Stylesheets.LABEL_SMALL)
         
         right_layout.addWidget(self.lunar_date_label)
         right_layout.addWidget(self.solar_time_label)
+        right_layout.addWidget(self.archive_label)
         
         content_layout.addLayout(left_layout)
         content_layout.addLayout(right_layout)
@@ -85,21 +93,30 @@ class BasicInfoCard(ResultCard):
         self._set_initial_state()
     
     def _set_initial_state(self):
+        self.name_label.setText('命主：')
         self.gender_label.setText('请输入信息进行排盘')
         self.solar_date_label.setText('公历：')
         self.lunar_date_label.setText('农历：')
         self.solar_time_label.setText('真太阳时：未校正')
+        self.archive_label.setText('本地存档：尚未生成')
     
-    def update_info(self, bazhi_data, input_data):
+    def update_info(self, bazhi_data, input_data, save_info=None):
         if not input_data or not bazhi_data:
             self._set_initial_state()
             return
-        
+
+        self.name_label.setText(f'命主：{input_data.get("name", "")}')
         gender_text = '乾造（男）' if input_data.get('gender', '') == '男' else '坤造（女）'
         self.gender_label.setText(gender_text)
         self.solar_date_label.setText(f'公历：{bazhi_data.get("solar_date", "")}')
         self.lunar_date_label.setText(f'农历：{bazhi_data.get("lunar_date", "")}')
         self.solar_time_label.setText(f'真太阳时：{bazhi_data.get("solar_time", "未校正")}')
+        if save_info and save_info.get('record_id'):
+            self.archive_label.setText(
+                f'本地存档：#{save_info["record_id"]} · {save_info.get("created_at", "")}'
+            )
+        else:
+            self.archive_label.setText('本地存档：未保存')
 
 class BaziCard(ResultCard):
     def __init__(self, parent=None):
@@ -333,7 +350,7 @@ class FortuneCard(ResultCard):
         content_layout.setSpacing(14)
         
         self.fortune_table = QTableWidget(0, 5)
-        self.fortune_table.setHorizontalHeaderLabels(['大运', '年龄', '干支', '十神', '运势简述'])
+        self.fortune_table.setHorizontalHeaderLabels(['大运', '年龄', '干支', '方向', '运势简述'])
         self.fortune_table.verticalHeader().setVisible(False)
         self.fortune_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.fortune_table.setStyleSheet(Stylesheets.TABLE_WIDGET)
@@ -388,13 +405,14 @@ class FortuneCard(ResultCard):
             item2.setTextAlignment(Qt.AlignCenter)
             self.fortune_table.setItem(i, 2, item2)
             
-            item3 = QTableWidgetItem(period.get('shishen', ''))
+            item3 = QTableWidgetItem(period.get('direction', ''))
             item3.setTextAlignment(Qt.AlignCenter)
             self.fortune_table.setItem(i, 3, item3)
             
-            item4 = QTableWidgetItem(period.get('description', ''))
+            description = period.get('description') or period.get('analysis', '')
+            item4 = QTableWidgetItem(description)
             item4.setTextAlignment(Qt.AlignLeft)
-            item4.setToolTip(period.get('description', ''))
+            item4.setToolTip(description)
             self.fortune_table.setItem(i, 4, item4)
 
 class AIAnalysisCard(ResultCard):
@@ -518,8 +536,8 @@ class ResultPanel(QWidget):
         
         self.setLayout(self.layout)
     
-    def update_basic_info(self, bazhi_data, input_data):
-        self.basic_info_card.update_info(bazhi_data, input_data)
+    def update_basic_info(self, bazhi_data, input_data, save_info=None):
+        self.basic_info_card.update_info(bazhi_data, input_data, save_info)
     
     def update_bazi(self, bazhi_data, shishen_data):
         self.bazi_card.update_bazi(bazhi_data, shishen_data)

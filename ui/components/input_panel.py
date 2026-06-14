@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QComboBox, QPushButton, QFrame, QCheckBox, QSizePolicy)
-from PyQt5.QtCore import QDate, Qt, QEvent
+from PyQt5.QtCore import QDate, QTime, Qt, QEvent
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 HOUR_NAMES = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时',
@@ -204,9 +204,9 @@ class InputPanel(QWidget):
         self.year_combo.setStyleSheet(Stylesheets.COMBO_BOX)
         self.year_combo.setMinimumWidth(110)
         current_year = QDate.currentDate().year()
-        for year in range(1900, 2025):
+        for year in range(1900, current_year + 1):
             self.year_combo.addItem(f'{year}年', year)
-        self.year_combo.setCurrentIndex(self.year_combo.count() - 11)
+        self.year_combo.setCurrentIndex(self.year_combo.count() - 1)
 
         self.month_combo = QComboBox()
         self.month_combo.setStyleSheet(Stylesheets.COMBO_BOX)
@@ -613,12 +613,12 @@ class InputPanel(QWidget):
         self.female_btn.setChecked(False)
         self.solar_btn.setChecked(True)
         self.lunar_btn.setChecked(False)
-        self.year_combo.setCurrentIndex(current_year - 1900)
+        self.year_combo.setCurrentIndex(self.year_combo.count() - 1)
         self.month_combo.setCurrentIndex(current_month - 1)
         self._update_day_combo()
         self.day_combo.setCurrentIndex(current_day - 1)
         self.time_edit.setText('12:00')
-        self.hour_combo.setCurrentIndex(self.get_hour_index(QDate.currentDate().currentTime().hour()))
+        self.hour_combo.setCurrentIndex(self.get_hour_index(QTime.currentTime().hour()))
         self.early_zi_switch.setChecked(False)
         self.city_combo.setCurrentIndex(0)
         self._update_coords_label()

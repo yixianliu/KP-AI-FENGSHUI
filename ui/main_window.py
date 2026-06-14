@@ -14,6 +14,7 @@ from core.shishen import ShiShenAnalyzer
 from core.yunshi import YunShiCalculator
 from core.mingli import MingLiAnalyzer
 from core.ai_analyzer import AIAnalyzer
+from core.local_database import LocalAnalysisDatabase
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 
@@ -181,6 +182,12 @@ class MainWindow(QMainWindow):
         self.yunshi_calculator = YunShiCalculator()
         self.mingli_analyzer = MingLiAnalyzer()
         self.ai_analyzer = AIAnalyzer()
+        self.analysis_database = None
+
+        try:
+            self.analysis_database = LocalAnalysisDatabase()
+        except Exception as e:
+            self.log_error(f"初始化本地数据库失败: {str(e)}")
 
     def show_loading(self):
         self.loading_overlay.setGeometry(QRect(0, 0, self.width(), self.height()))
@@ -199,6 +206,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
     def on_reset(self):
+        self.current_data = None
         self.input_panel.clear()
         self.result_panel.clear()
         self.statusBar().showMessage('已重置')
@@ -244,12 +252,19 @@ class MainWindow(QMainWindow):
             mingli_result = self.mingli_analyzer.analyze_all(bazhi)
 
             self.update_loading_progress(85, '正在生成AI分析...')
-            ai_analysis = self.ai_analyzer.analyze(bazhi, wuxing_result, shishen_result, mingli_result)
+            professional_chart = self.build_professional_chart(
+                bazhi, wuxing_result, shishen_result,
+                major_fortune, mingli_result, data
+            )
+            ai_analysis = self.ai_analyzer.analyze(
+                bazhi, wuxing_result, shishen_result,
+                mingli_result, major_fortune, data
+            )
 
             self.update_loading_progress(95, '正在渲染结果...')
             QTimer.singleShot(200, lambda: self.update_results(
                 bazhi, wuxing_result, shishen_result,
-                major_fortune, mingli_result, ai_analysis, data
+                major_fortune, mingli_result, ai_analysis, data, professional_chart
             ))
 
         except Exception as e:
@@ -260,11 +275,20 @@ class MainWindow(QMainWindow):
             self.hide_loading()
 
     def update_results(self, bazhi, wuxing_result, shishen_result,
-                       major_fortune, mingli_result, ai_analysis, input_data):
+                       major_fortune, mingli_result, ai_analysis, input_data,
+                       professional_chart=None):
         print(f"[主窗口] 更新结果开始")
         print(f"[主窗口] AI分析数据: {ai_analysis}")
-        
-        self.result_panel.update_basic_info(bazhi, input_data)
+
+        if professional_chart is None:
+            professional_chart = self.build_professional_chart(
+                bazhi, wuxing_result, shishen_result,
+                major_fortune, mingli_result, input_data
+            )
+
+        save_info = self.save_analysis_record(input_data, professional_chart, ai_analysis)
+
+        self.result_panel.update_basic_info(bazhi, input_data, save_info)
         self.result_panel.update_bazi(bazhi, shishen_result)
         self.result_panel.update_wuxing(wuxing_result)
         self.result_panel.update_fortune(major_fortune)
@@ -279,10 +303,15 @@ class MainWindow(QMainWindow):
             'shishen': shishen_result,
             'major_fortune': major_fortune,
             'mingli': mingli_result,
-            'ai_analysis': ai_analysis
+            'professional_chart': professional_chart,
+            'ai_analysis': ai_analysis,
+            'save_info': save_info
         }
 
-        self.statusBar().showMessage("排盘完成")
+        if save_info and save_info.get('record_id'):
+            self.statusBar().showMessage(f"排盘完成，已保存到本地数据库 #{save_info['record_id']}")
+        else:
+            self.statusBar().showMessage("排盘完成")
         self.status_icon.setText('✓')
 
         self.update_loading_progress(100, '完成')
@@ -331,6 +360,104 @@ class MainWindow(QMainWindow):
                           '提供四柱、五行、十神、大运等综合分析。</p>'
                           '</div>'
                           )
+
+    def build_professional_chart(self, bazhi, wuxing_result, shishen_result,
+                                 major_fortune, mingli_result, input_data):
+        positive_shensha = [
+            item.get('name', '')
+            for item in mingli_result.get('shensha', {}).get('positive', [])
+            if item.get('name')
+        ]
+        negative_shensha = [
+            item.get('name', '')
+            for item in mingli_result.get('shensha', {}).get('negative', [])
+            if item.get('name')
+        ]
+        hidden_stems = [
+            item.get('description', '')
+            for item in mingli_result.get('hidden_stems', {}).get('hidden_stems', [])
+            if item.get('description')
+        ]
+        fortune_periods = []
+        for period in major_fortune.get('periods', [])[:8]:
+            fortune_periods.append({
+                'period': period.get('period'),
+                'age_range': f"{period.get('start_age', '')}-{period.get('end_age', '')}岁",
+                'ganzhi': period.get('ganzhi', ''),
+                'direction': period.get('direction', ''),
+                'description': period.get('description') or period.get('analysis', '')
+            })
+
+        return {
+            'user_profile': {
+                'name': input_data.get('name', ''),
+                'gender': input_data.get('gender', ''),
+                'birth_date': f"{input_data.get('year', '')}-{input_data.get('month', 0):02d}-{input_data.get('day', 0):02d}",
+                'birth_time': f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}",
+                'calendar_type': '农历' if input_data.get('is_lunar') else '公历',
+                'city': input_data.get('city', '')
+            },
+            'basic_chart': {
+                'solar_date': bazhi.get('solar_date', ''),
+                'lunar_date': bazhi.get('lunar_date', ''),
+                'pillars': {
+                    'year': bazhi.get('year', ''),
+                    'month': bazhi.get('month', ''),
+                    'day': bazhi.get('day', ''),
+                    'hour': bazhi.get('hour', '')
+                },
+                'day_master': bazhi.get('rizhu', '')
+            },
+            'wuxing_analysis': {
+                'summary': wuxing_result.get('summary', ''),
+                'day_master_element': wuxing_result.get('rizhu_wuxing', ''),
+                'strength': wuxing_result.get('strength', ''),
+                'favorable_elements': wuxing_result.get('ying_shen', ''),
+                'unfavorable_elements': wuxing_result.get('ji_shen', ''),
+                'distribution': {
+                    element: wuxing_result.get(element, {})
+                    for element in ['木', '火', '土', '金', '水']
+                }
+            },
+            'shishen_analysis': {
+                'summary': shishen_result.get('summary', {}),
+                'details': shishen_result.get('details', [])
+            },
+            'mingli_analysis': {
+                'self_seat': mingli_result.get('self_seat', {}),
+                'kongwang': mingli_result.get('kongwang', {}),
+                'ganzhi_relations': mingli_result.get('ganzhi_relations', {}),
+                'hidden_stems': hidden_stems,
+                'positive_shensha': positive_shensha,
+                'negative_shensha': negative_shensha
+            },
+            'major_fortune': {
+                'direction': major_fortune.get('direction', ''),
+                'periods': fortune_periods
+            }
+        }
+
+    def save_analysis_record(self, input_data, professional_chart, ai_analysis):
+        if not self.analysis_database:
+            return {
+                'record_id': None,
+                'created_at': '',
+                'db_path': ''
+            }
+
+        try:
+            return self.analysis_database.save_analysis(
+                input_data=input_data,
+                professional_chart=professional_chart,
+                ai_analysis=ai_analysis
+            )
+        except Exception as e:
+            self.log_error(f"保存分析记录失败: {str(e)}")
+            return {
+                'record_id': None,
+                'created_at': '',
+                'db_path': ''
+            }
 
     def show_error(self, message):
         msg_box = QMessageBox()

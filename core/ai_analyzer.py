@@ -79,7 +79,8 @@ class AIAnalyzer:
     def __init__(self):
         self.use_api = True
 
-    def analyze(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+    def analyze(self, bazhi, wuxing_result, shishen_result,
+                mingli_result=None, major_fortune=None, input_data=None):
         """
         主分析方法，优先使用API分析，失败时降级到本地分析
         """
@@ -87,12 +88,17 @@ class AIAnalyzer:
         
         if self.use_api:
             try:
-                result = self._analyze_via_api(bazhi, wuxing_result, shishen_result, mingli_result)
+                result = self._analyze_via_api(
+                    bazhi, wuxing_result, shishen_result,
+                    mingli_result, major_fortune, input_data
+                )
                 print(f"[AI分析器] API分析成功，返回字段: {list(result.keys())}")
                 return result
             except Exception as e:
                 print(f"[AI分析器] API分析失败，降级到本地分析: {str(e)}")
-                result = self._analyze_locally(bazhi, wuxing_result, shishen_result, mingli_result)
+                result = self._analyze_locally(
+                    bazhi, wuxing_result, shishen_result, mingli_result
+                )
                 print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
                 return result
         else:
@@ -100,12 +106,16 @@ class AIAnalyzer:
             print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
             return result
 
-    def _analyze_via_api(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+    def _analyze_via_api(self, bazhi, wuxing_result, shishen_result,
+                         mingli_result=None, major_fortune=None, input_data=None):
         """
         通过API进行AI分析，支持流式响应和重试机制
         参考 spark_api_reference.py 的实现方式
         """
-        prompt = self._build_prompt(bazhi, wuxing_result, shishen_result, mingli_result)
+        prompt = self._build_prompt(
+            bazhi, wuxing_result, shishen_result,
+            mingli_result, major_fortune, input_data
+        )
         
         headers = {
             'Authorization': API_KEY,
@@ -220,14 +230,24 @@ class AIAnalyzer:
         
         raise Exception(f"API请求失败: {str(last_exception)}")
 
-    def _build_prompt(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+    def _build_prompt(self, bazhi, wuxing_result, shishen_result,
+                      mingli_result=None, major_fortune=None, input_data=None):
         """
         构建API请求的提示词
         """
         parts = []
+
+        if input_data:
+            parts.append(
+                f"命主信息：姓名{input_data.get('name', '')}，性别{input_data.get('gender', '')}，"
+                f"出生{input_data.get('year', '')}-{input_data.get('month', 0):02d}-{input_data.get('day', 0):02d} "
+                f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}，"
+                f"{'农历' if input_data.get('is_lunar') else '公历'}，出生地{input_data.get('city', '')}"
+            )
         
         parts.append(f"八字信息：年柱{bazhi['year']} 月柱{bazhi['month']} 日柱{bazhi['day']} 时柱{bazhi['hour']}")
         parts.append(f"日主：{bazhi['rizhu']}")
+        parts.append(f"排盘日期：公历{bazhi.get('solar_date', '')}；农历{bazhi.get('lunar_date', '')}")
         
         if wuxing_result.get('summary'):
             parts.append(f"五行分析：{wuxing_result['summary']}")
@@ -239,6 +259,15 @@ class AIAnalyzer:
         if shishen_result.get('summary'):
             shishen_list = [f"{shishen}{count}个" for shishen, count in shishen_result['summary'].items()]
             parts.append(f"十神分布：{'、'.join(shishen_list)}")
+        if shishen_result.get('details'):
+            detail_parts = []
+            for detail in shishen_result['details']:
+                detail_parts.append(
+                    f"{detail.get('pillar', '')}{detail.get('ganzhi', '')}"
+                    f" 天干十神{detail.get('gan_shishen', '')}"
+                    f" 地支藏干十神{'、'.join(detail.get('zhi_shishens', []))}"
+                )
+            parts.append(f"十神详情：{'；'.join(detail_parts)}")
         
         if mingli_result:
             if mingli_result.get('shensha', {}).get('positive'):
@@ -247,6 +276,29 @@ class AIAnalyzer:
             if mingli_result.get('shensha', {}).get('negative'):
                 negative_shensha = [s['name'] for s in mingli_result['shensha']['negative']]
                 parts.append(f"凶煞：{'、'.join(negative_shensha)}")
+            if mingli_result.get('self_seat', {}).get('description'):
+                parts.append(f"日主自坐：{mingli_result['self_seat']['description']}")
+            if mingli_result.get('ganzhi_relations'):
+                gan_relations = '、'.join(mingli_result['ganzhi_relations'].get('gan_relations', []))
+                zhi_relations = '、'.join(mingli_result['ganzhi_relations'].get('zhi_relations', []))
+                if gan_relations:
+                    parts.append(f"天干关系：{gan_relations}")
+                if zhi_relations:
+                    parts.append(f"地支关系：{zhi_relations}")
+            if mingli_result.get('kongwang', {}).get('description'):
+                parts.append(f"空亡信息：{mingli_result['kongwang']['description']}")
+
+        if major_fortune and major_fortune.get('periods'):
+            fortune_lines = []
+            for period in major_fortune['periods'][:6]:
+                fortune_lines.append(
+                    f"{period.get('start_age', '')}-{period.get('end_age', '')}岁"
+                    f"{period.get('ganzhi', '')}：{period.get('description') or period.get('analysis', '')}"
+                )
+            parts.append(
+                f"大运走势（{major_fortune.get('direction', '')}）："
+                + '；'.join(fortune_lines)
+            )
         
         return '\n'.join(parts)
 
