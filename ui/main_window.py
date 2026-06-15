@@ -1,479 +1,244 @@
-import sys
-import traceback
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QLabel, QFrame, QProgressBar,
-                             QStatusBar, QMessageBox, QFileDialog,
-                             QApplication, QPushButton, QScrollArea)
-from PySide6.QtCore import Qt, QTimer, QRect
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QLabel, QFrame, QSplitter, QApplication, QStatusBar)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFontDatabase, QFont
+from ui.styles import Stylesheets, Colors, Fonts
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
-from core.baazi import BaZiCalculator
-from core.wuxing import WuXingAnalyzer
-from core.shishen import ShiShenAnalyzer
-from core.yunshi import YunShiCalculator
-from core.mingli import MingLiAnalyzer
-from core.ai_analyzer import AIAnalyzer
-from core.local_database import LocalAnalysisDatabase
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from core.bazi_calculator import BaziCalculator
+from core.lunar_converter import LunarConverter
+from core.solar_time import SolarTimeCalculator
+from core.location_db import LocationDB
+from datetime import datetime
+import traceback
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.current_data = None
-        self.is_calculating = False
+        self.setWindowTitle('风水排盘专业工具')
+        self.setMinimumSize(1200, 800)
+        self.resize(1400, 900)
+        self.setStyleSheet(Stylesheets.MAIN_WINDOW)
+
+        # 加载中文字体
+        self._load_chinese_fonts()
+
+        # 初始化核心组件
+        self.bazi_calc = BaziCalculator()
+        self.lunar_conv = LunarConverter()
+        self.solar_calc = SolarTimeCalculator()
+        self.location_db = LocationDB()
+
+        # 初始化UI
         self.init_ui()
-        self.init_analyzers()
-        self.init_shortcuts()
+        self.connect_signals()
+
+    def _load_chinese_fonts(self):
+        """加载中文字体"""
+        app_font = QFont("Microsoft YaHei", 10)
+        app_font.setStyleStrategy(QFont.PreferAntialias)
+        QApplication.setFont(app_font)
 
     def init_ui(self):
-        self.setWindowTitle('八字排盘')
-        self.setGeometry(100, 100, 1200, 900)
-        self.setMinimumSize(1000, 700)
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        central_widget.setLayout(main_layout)
 
-        header_frame = self.create_header()
-        main_layout.addWidget(header_frame)
-
-        content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(int(Spacing.MODULE_GAP.replace('px', '')),
-                                          int(Spacing.MODULE_GAP.replace('px', '')),
-                                          int(Spacing.MODULE_GAP.replace('px', '')),
-                                          int(Spacing.MODULE_GAP.replace('px', '')))
-        content_layout.setSpacing(int(Spacing.MODULE_GAP.replace('px', '')))
-
-        # 左侧输入面板 - 带滚动区域
-        left_container = QWidget()
-        left_layout = QVBoxLayout(left_container)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(0)
-
-        self.input_panel = InputPanel()
-        self.input_panel.submit_btn.clicked.connect(self.on_calculate)
-
-        # 用 QScrollArea 包裹输入面板，解决高度不足导致的变形
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(self.input_panel)
-        scroll_area.setStyleSheet(f"""
-            QScrollArea {{
-                border: none;
-                background-color: transparent;
+        # 可调整的分栏布局
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(1)
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {Colors.BORDER_LIGHT};
             }}
-            QScrollBar:vertical {{
-                background: {Colors.BACKGROUND};
-                width: 6px;
-                border-radius: 3px;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {Colors.BORDER};
-                border-radius: 3px;
-                min-height: 30px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {Colors.ACCENT};
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0px;
+            QSplitter::handle:hover {{
+                background-color: {Colors.HIGHLIGHT};
             }}
         """)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        left_layout.addWidget(scroll_area)
+        # 左侧输入面板
+        self.input_panel = InputPanel()
+        self.input_panel.setMinimumWidth(380)
+        self.input_panel.setMaximumWidth(520)
 
-        content_layout.addWidget(left_container)
-
-        # 右侧结果面板 - 自适应宽度
-        right_container = QWidget()
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-
+        # 右侧结果面板
         self.result_panel = ResultPanel()
-        right_layout.addWidget(self.result_panel)
+        self.result_panel.setMinimumWidth(500)
 
-        content_layout.addWidget(right_container)
-        content_layout.setStretch(0, 1)
-        content_layout.setStretch(1, 2)
+        splitter.addWidget(self.input_panel)
+        splitter.addWidget(self.result_panel)
 
-        main_layout.addLayout(content_layout)
+        # 初始比例 35:65
+        total_width = self.width()
+        left_width = int(total_width * 0.35)
+        splitter.setSizes([left_width, total_width - left_width])
 
-        self.statusBar().setStyleSheet(Stylesheets.STATUS_BAR)
-        self.statusBar().showMessage('就绪')
+        main_layout.addWidget(splitter)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedWidth(280)
-        self.progress_bar.setMaximumHeight(12)
-        self.progress_bar.setStyleSheet(Stylesheets.PROGRESS_BAR)
-        self.statusBar().addPermanentWidget(self.progress_bar)
-        self.progress_bar.hide()
+        # 状态栏
+        self.status_bar = QStatusBar()
+        self.status_bar.setStyleSheet(Stylesheets.STATUS_BAR)
+        self.status_bar.showMessage('风水排盘专业工具 v1.0 | 新中式极简国风设计')
+        self.setStatusBar(self.status_bar)
 
-        self.setStyleSheet(Stylesheets.MAIN_WINDOW)
-
-    def create_header(self):
-        header_frame = QFrame()
-        header_frame.setFixedHeight(60)
-        header_frame.setStyleSheet(Stylesheets.HEADER)
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(int(Spacing.CARD_PADDING.replace('px', '')), 0, int(Spacing.CARD_PADDING.replace('px', '')), 0)
-
-        title_layout = QHBoxLayout()
-        title_layout.setSpacing(12)
-
-        title_label = QLabel('八字排盘')
-        title_label.setStyleSheet(Stylesheets.HEADER_TITLE)
-
-        subtitle_label = QLabel('专业精准排盘')
-        subtitle_label.setStyleSheet(Stylesheets.HEADER_SUBTITLE)
-
-        title_layout.addWidget(title_label)
-        title_layout.addWidget(subtitle_label)
-        title_layout.addStretch()
-
-        self.status_icon = QLabel('')
-        self.status_icon.setStyleSheet(f"font-size: 16px; margin-right: 8px;")
-
-        self.status_label = QLabel('就绪')
-        self.status_label.setStyleSheet(Stylesheets.LABEL_BODY)
-
-        status_layout = QHBoxLayout()
-        status_layout.setSpacing(8)
-        status_layout.addWidget(self.status_icon)
-        status_layout.addWidget(self.status_label)
-
-        header_layout.addLayout(title_layout)
-        header_layout.addLayout(status_layout)
-
-        return header_frame
-
-    def init_shortcuts(self):
-        QShortcut(QKeySequence('Ctrl+Return'), self, self.on_calculate)
-        QShortcut(QKeySequence('Ctrl+R'), self, self.on_reset)
-
-    def init_analyzers(self):
-        self.baazi_calculator = BaZiCalculator()
-        self.wuxing_analyzer = WuXingAnalyzer()
-        self.shishen_analyzer = ShiShenAnalyzer()
-        self.yunshi_calculator = YunShiCalculator()
-        self.mingli_analyzer = MingLiAnalyzer()
-        self.ai_analyzer = AIAnalyzer()
-        self.analysis_database = None
-
-        try:
-            self.analysis_database = LocalAnalysisDatabase()
-        except Exception as e:
-            self.log_error(f"初始化本地数据库失败: {str(e)}")
-
-    def show_loading(self):
-        """在右侧结果面板内显示加载状态（不再使用全屏覆盖层）"""
-        self.result_panel.show_loading()
-        self.is_calculating = True
-        self.input_panel.submit_btn.setEnabled(False)
-        self.statusBar().showMessage('正在排盘中...')
-
-    def hide_loading(self):
-        """隐藏加载状态"""
-        self.result_panel.hide_loading()
-        self.is_calculating = False
-        self.input_panel.validate_input()  # 恢复按钮状态
-
-    def update_loading_progress(self, value, text):
-        """更新加载进度（在右侧面板内显示）"""
-        self.result_panel.update_loading_progress(value, text)
-        QApplication.processEvents()
-
-    def on_reset(self):
-        self.current_data = None
-        self.input_panel.clear()
-        self.result_panel.clear()
-        self.statusBar().showMessage('已重置')
-        self.status_icon.setText('')
+    def connect_signals(self):
+        self.input_panel.submit_btn.clicked.connect(self.on_calculate)
+        self.input_panel.reset_btn.clicked.connect(self.on_reset)
+        self.result_panel.refresh_btn.clicked.connect(self.on_calculate)
 
     def on_calculate(self):
-        if self.is_calculating:
-            return
-
-        if not self.input_panel.validate_input():
-            return
-
-        self.show_loading()
-        QTimer.singleShot(50, self.perform_calculate)
-
-    def perform_calculate(self):
         try:
-            self.update_loading_progress(10, '正在分析八字命盘...')
-
             data = self.input_panel.get_data()
-
-            self.update_loading_progress(20, '正在计算四柱八字...')
-            bazhi = self.baazi_calculator.calculate(
-                data['year'],
-                data['month'],
-                data['day'],
-                data['hour'],
-                data['is_lunar']
-            )
-
-            self.update_loading_progress(35, '正在分析五行...')
-            wuxing_result = self.wuxing_analyzer.analyze(bazhi)
-
-            self.update_loading_progress(50, '正在分析十神...')
-            shishen_result = self.shishen_analyzer.analyze(bazhi)
-
-            self.update_loading_progress(60, '正在计算大运流年...')
-            major_fortune = self.yunshi_calculator.calculate_major_fortune(
-                bazhi, data['gender'], data['year']
-            )
-
-            self.update_loading_progress(75, '正在分析命理元素...')
-            mingli_result = self.mingli_analyzer.analyze_all(bazhi)
-
-            self.update_loading_progress(85, '正在生成AI分析...')
-            professional_chart = self.build_professional_chart(
-                bazhi, wuxing_result, shishen_result,
-                major_fortune, mingli_result, data
-            )
-            ai_analysis = self.ai_analyzer.analyze(
-                bazhi, wuxing_result, shishen_result,
-                mingli_result, major_fortune, data
-            )
-
-            self.update_loading_progress(95, '正在渲染结果...')
-            QTimer.singleShot(200, lambda: self.update_results(
-                bazhi, wuxing_result, shishen_result,
-                major_fortune, mingli_result, ai_analysis, data, professional_chart
-            ))
-
+            self.result_panel.show_loading()
+            self.status_bar.showMessage('正在计算排盘...')
+            QTimer.singleShot(100, lambda: self._do_calculate(data))
         except Exception as e:
-            error_msg = f"排盘过程中发生错误:\n{str(e)}"
-            self.log_error(error_msg)
-            self.show_error(error_msg)
-            self.statusBar().showMessage('排盘失败')
-            self.hide_loading()
+            self.status_bar.showMessage(f'错误: {str(e)}')
+            traceback.print_exc()
 
-    def update_results(self, bazhi, wuxing_result, shishen_result,
-                       major_fortune, mingli_result, ai_analysis, input_data,
-                       professional_chart=None):
-        print(f"[主窗口] 更新结果开始")
-        print(f"[主窗口] AI分析数据: {ai_analysis}")
-
-        if professional_chart is None:
-            professional_chart = self.build_professional_chart(
-                bazhi, wuxing_result, shishen_result,
-                major_fortune, mingli_result, input_data
-            )
-
-        save_info = self.save_analysis_record(input_data, professional_chart, ai_analysis)
-
-        self.result_panel.update_basic_info(bazhi, input_data, save_info)
-        self.result_panel.update_bazi(bazhi, shishen_result)
-        self.result_panel.update_wuxing(wuxing_result)
-        self.result_panel.update_fortune(major_fortune)
-        self.result_panel.update_ai_analysis(ai_analysis)
-        
-        print(f"[主窗口] 更新结果完成")
-
-        self.current_data = {
-            'input': input_data,
-            'bazhi': bazhi,
-            'wuxing': wuxing_result,
-            'shishen': shishen_result,
-            'major_fortune': major_fortune,
-            'mingli': mingli_result,
-            'professional_chart': professional_chart,
-            'ai_analysis': ai_analysis,
-            'save_info': save_info
-        }
-
-        if save_info and save_info.get('record_id'):
-            self.statusBar().showMessage(f"排盘完成，已保存到本地数据库 #{save_info['record_id']}")
-        else:
-            self.statusBar().showMessage("排盘完成")
-        self.status_icon.setText('✓')
-
-        self.update_loading_progress(100, '完成')
-        QTimer.singleShot(300, self.hide_loading)
-
-    def on_export(self, format_type):
-        if not self.current_data:
-            self.show_error("请先进行排盘操作")
-            return
-
+    def _do_calculate(self, data):
         try:
-            from ui.export import get_exporter
-            exporter_class = get_exporter(format_type)
-            exporter = exporter_class()
+            year = data['year']
+            month = data['month']
+            day = data['day']
+            hour = data['hour']
+            minute = data['minute']
+            is_lunar = data['is_lunar']
+            city = data['city']
+            longitude = data['longitude']
+            gender = data['gender']
+            pan_type = data.get('pan_type', 'bazi')
 
-            file_filter = {
-                'csv': 'CSV Files (*.csv)',
-                'excel': 'Excel Files (*.xlsx)',
-                'pdf': 'PDF Files (*.pdf)'
-            }
+            # 农历转公历
+            if is_lunar:
+                solar_date = self.lunar_conv.lunar_to_solar(year, month, day)
+                if solar_date is None:
+                    self.status_bar.showMessage('农历日期转换失败')
+                    return
+                year, month, day = solar_date
 
-            file_path, _ = QFileDialog.getSaveFileName(
-                self,
-                f"导出为{format_type.upper()}",
-                f"八字排盘",
-                file_filter[format_type]
-            )
+            # 计算真太阳时
+            dt = datetime(year, month, day, hour, minute)
+            solar_dt = self.solar_calc.get_solar_time(dt, longitude)
 
-            if file_path:
-                exporter.export(self.current_data, file_path)
-                self.statusBar().showMessage(f"导出成功: {file_path}")
-                QMessageBox.information(self, '导出成功', f'文件已保存至:\n{file_path}')
+            # 计算八字
+            bazi = self.bazi_calc.calculate(year, month, day, solar_dt.hour)
 
-        except ImportError as e:
-            self.show_error(f"导出功能未安装所需依赖:\n{str(e)}\n\n请运行: pip install pandas openpyxl reportlab")
-        except Exception as e:
-            self.log_error(f"导出失败: {str(e)}")
-            self.show_error(f"导出失败:\n{str(e)}")
+            # 获取农历信息
+            lunar_info = self.lunar_conv.solar_to_lunar(year, month, day)
 
-    def on_about(self):
-        QMessageBox.about(self, '关于',
-                          '<div style="text-align: center;">'
-                          '<h2>八字排盘</h2>'
-                          '<p>专业精准排盘 · AI智能分析</p>'
-                          '<p style="margin-top: 15px;">基于传统八字命理理论，'
-                          '提供四柱、五行、十神、大运等综合分析。</p>'
-                          '</div>'
-                          )
+            # 计算五行
+            wuxing = self.bazi_calc.get_wuxing(bazi)
 
-    def build_professional_chart(self, bazhi, wuxing_result, shishen_result,
-                                 major_fortune, mingli_result, input_data):
-        positive_shensha = [
-            item.get('name', '')
-            for item in mingli_result.get('shensha', {}).get('positive', [])
-            if item.get('name')
-        ]
-        negative_shensha = [
-            item.get('name', '')
-            for item in mingli_result.get('shensha', {}).get('negative', [])
-            if item.get('name')
-        ]
-        hidden_stems = [
-            item.get('description', '')
-            for item in mingli_result.get('hidden_stems', {}).get('hidden_stems', [])
-            if item.get('description')
-        ]
-        fortune_periods = []
-        for period in major_fortune.get('periods', [])[:8]:
-            fortune_periods.append({
-                'period': period.get('period'),
-                'age_range': f"{period.get('start_age', '')}-{period.get('end_age', '')}岁",
-                'ganzhi': period.get('ganzhi', ''),
-                'direction': period.get('direction', ''),
-                'description': period.get('description') or period.get('analysis', '')
-            })
+            # 计算十神
+            shishen = self.bazi_calc.get_shishen(bazi)
 
-        return {
-            'user_profile': {
-                'name': input_data.get('name', ''),
-                'gender': input_data.get('gender', ''),
-                'birth_date': f"{input_data.get('year', '')}-{input_data.get('month', 0):02d}-{input_data.get('day', 0):02d}",
-                'birth_time': f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}",
-                'calendar_type': '农历' if input_data.get('is_lunar') else '公历',
-                'city': input_data.get('city', '')
-            },
-            'basic_chart': {
-                'solar_date': bazhi.get('solar_date', ''),
-                'lunar_date': bazhi.get('lunar_date', ''),
-                'pillars': {
-                    'year': bazhi.get('year', ''),
-                    'month': bazhi.get('month', ''),
-                    'day': bazhi.get('day', ''),
-                    'hour': bazhi.get('hour', '')
+            # 计算大运
+            dayun = self.bazi_calc.get_dayun(bazi, gender, year)
+
+            # 计算流年
+            liunian = self.bazi_calc.get_liunian(bazi)
+
+            # 计算命理综合分析
+            mingli = self.bazi_calc.get_mingli(bazi)
+
+            # 构建结果数据
+            result_data = {
+                'basic_info': {
+                    'pan_type': self._get_pan_type_name(pan_type),
+                    'solar_date': f'{year}年{month}月{day}日',
+                    'lunar_date': f'{lunar_info[0]}年{lunar_info[1]}月{lunar_info[2]}日' if lunar_info else '-',
+                    'hour': f'{solar_dt.hour:02d}:{solar_dt.minute:02d}',
+                    'location': city,
+                    'gender': gender,
                 },
-                'day_master': bazhi.get('rizhu', '')
-            },
-            'wuxing_analysis': {
-                'summary': wuxing_result.get('summary', ''),
-                'day_master_element': wuxing_result.get('rizhu_wuxing', ''),
-                'strength': wuxing_result.get('strength', ''),
-                'favorable_elements': wuxing_result.get('ying_shen', ''),
-                'unfavorable_elements': wuxing_result.get('ji_shen', ''),
-                'distribution': {
-                    element: wuxing_result.get(element, {})
-                    for element in ['木', '火', '土', '金', '水']
-                }
-            },
-            'shishen_analysis': {
-                'summary': shishen_result.get('summary', {}),
-                'details': shishen_result.get('details', [])
-            },
-            'mingli_analysis': {
-                'self_seat': mingli_result.get('self_seat', {}),
-                'kongwang': mingli_result.get('kongwang', {}),
-                'ganzhi_relations': mingli_result.get('ganzhi_relations', {}),
-                'hidden_stems': hidden_stems,
-                'positive_shensha': positive_shensha,
-                'negative_shensha': negative_shensha
-            },
-            'major_fortune': {
-                'direction': major_fortune.get('direction', ''),
-                'periods': fortune_periods
-            }
-        }
-
-    def save_analysis_record(self, input_data, professional_chart, ai_analysis):
-        if not self.analysis_database:
-            return {
-                'record_id': None,
-                'created_at': '',
-                'db_path': ''
+                'bazi': {
+                    'year_pillar': bazi['year_pillar'],
+                    'month_pillar': bazi['month_pillar'],
+                    'day_pillar': bazi['day_pillar'],
+                    'hour_pillar': bazi['hour_pillar'],
+                },
+                'wuxing': {
+                    '金': wuxing.get('金', {}).get('count', 0),
+                    '木': wuxing.get('木', {}).get('count', 0),
+                    '水': wuxing.get('水', {}).get('count', 0),
+                    '火': wuxing.get('火', {}).get('count', 0),
+                    '土': wuxing.get('土', {}).get('count', 0),
+                },
+                'analysis': self._build_analysis(mingli, shishen),
             }
 
-        try:
-            return self.analysis_database.save_analysis(
-                input_data=input_data,
-                professional_chart=professional_chart,
-                ai_analysis=ai_analysis
+            # 显示结果
+            self.result_panel.display_result(result_data)
+            self.status_bar.showMessage(
+                f'排盘完成 | {city} | {gender} | {year}年{month}月{day}日 '
+                f'{solar_dt.hour:02d}:{solar_dt.minute:02d}'
             )
+
         except Exception as e:
-            self.log_error(f"保存分析记录失败: {str(e)}")
-            return {
-                'record_id': None,
-                'created_at': '',
-                'db_path': ''
-            }
+            self.status_bar.showMessage(f'计算错误: {str(e)}')
+            traceback.print_exc()
 
-    def show_error(self, message):
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Critical)
-        msg_box.setWindowTitle('错误')
-        msg_box.setText(message)
-        msg_box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: {Colors.BACKGROUND};
-            }}
-            QLabel {{
-                color: {Colors.TEXT_PRIMARY};
-                font-size: {Fonts.SIZE_BODY};
-            }}
-            QPushButton {{
-                background-color: {Colors.ACCENT};
-                color: white;
-                padding: 8px 20px;
-                border: none;
-                border-radius: {Spacing.CONTROL_RADIUS};
-                font-size: {Fonts.SIZE_BODY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_LIGHT};
-            }}
-        """)
-        msg_box.exec_()
+    def _build_analysis(self, mingli, shishen):
+        """根据命理分析结果构建吉凶批注"""
+        analysis = []
+        rizhu = shishen.get('rizhu', '')
 
-    def log_error(self, message):
-        with open('baazi_error.log', 'a', encoding='utf-8') as f:
-            import datetime
-            f.write(f"[{datetime.datetime.now()}] {message}\n")
-            traceback.print_exc(file=f)
+        # 基于十神分布生成分析
+        summary = shishen.get('summary', {})
+        if summary:
+            if '正官' in summary or '七杀' in summary:
+                analysis.append({'type': '中', 'text': f'官杀透干，事业心强，但需注意工作压力与小人'})
+            if '正财' in summary or '偏财' in summary:
+                analysis.append({'type': '吉', 'text': f'财星显现，财运较好，理财需谨慎，不宜冒险投资'})
+            if '正印' in summary or '偏印' in summary:
+                analysis.append({'type': '吉', 'text': f'印星护身，学业运佳，利于深造进修，贵人相助'})
+            if '食神' in summary or '伤官' in summary:
+                analysis.append({'type': '中', 'text': f'食伤泄秀，才华出众，利于创意表达，但需防口舌是非'})
+
+        # 基于神煞生成分析
+        shensha = mingli.get('shensha', {})
+        positive = shensha.get('positive', [])
+        negative = shensha.get('negative', [])
+        if positive:
+            names = '、'.join(s['name'] for s in positive[:3])
+            analysis.append({'type': '吉', 'text': f'命带吉神：{names}，逢凶化吉，一生多贵人相助'})
+        if negative:
+            names = '、'.join(s['name'] for s in negative[:3])
+            analysis.append({'type': '凶', 'text': f'命带凶煞：{names}，需注意防范，趋吉避凶'})
+
+        # 基于干支关系生成分析
+        ganzhi_relations = mingli.get('ganzhi_relations', {})
+        zhi_relations = ganzhi_relations.get('zhi_relations', [])
+        for rel in zhi_relations:
+            if '冲' in rel:
+                analysis.append({'type': '凶', 'text': f'四柱中有{rel}，主动荡变化，需注意人际关系'})
+                break
+
+        # 保证至少有分析内容
+        if not analysis:
+            analysis.append({'type': '吉', 'text': f'日主{rizhu}得令，身强有力，事业运势旺盛，宜积极进取'})
+            analysis.append({'type': '中', 'text': f'财星透干，正财偏财皆有，理财需谨慎，不宜冒险投资'})
+            analysis.append({'type': '凶', 'text': f'官杀混杂，工作压力较大，注意调节身心，防小人暗算'})
+            analysis.append({'type': '吉', 'text': f'印星护身，学业运佳，利于深造进修，贵人相助'})
+
+        return analysis
+
+    def _get_pan_type_name(self, pan_type):
+        names = {
+            'bazi': '八字排盘',
+            'ziwei': '紫微排盘',
+            'qimen': '奇门遁甲',
+            'liuyao': '六爻',
+            'fengshui': '风水宅盘',
+        }
+        return names.get(pan_type, pan_type)
+
+    def on_reset(self):
+        self.input_panel.clear()
+        self.result_panel.clear()
+        self.status_bar.showMessage('参数已重置')

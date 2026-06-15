@@ -1,23 +1,55 @@
+"""
+风水排盘专业工具 - 新中式极简国风设计系统
+配色方案：藏青、朱砂红、鎏金浅黄、米白、墨黑
+"""
+
+
 class Colors:
-    BACKGROUND = '#F9F7F3'
-    CARD = '#FFFFFF'
+    # 主色调 - 藏青
+    PRIMARY = '#2C3E5C'
+    PRIMARY_LIGHT = '#3D5A80'
+    PRIMARY_DARK = '#1A2536'
+
+    # 点缀色 - 朱砂红
+    ACCENT = '#C45C48'
+    ACCENT_LIGHT = '#D97B6A'
+    ACCENT_DARK = '#9E3D2B'
+
+    # 高光色 - 鎏金
+    HIGHLIGHT = '#D4A843'
+    HIGHLIGHT_LIGHT = '#E8C876'
+    HIGHLIGHT_GLOW = 'rgba(212, 168, 67, 0.15)'
+
+    # 中性色
+    BACKGROUND = '#F5F0E8'
+    CARD = '#FAF7F2'
+    INPUT_BG = '#FFFFFF'
+    HOVER_BG = '#EDE8DE'
+
+    # 文字色
     TEXT_PRIMARY = '#1A1A1A'
-    TEXT_SECONDARY = '#333333'
+    TEXT_SECONDARY = '#4A4A4A'
     TEXT_TERTIARY = '#8A8A8A'
-    ACCENT = '#2A4A3F'
-    ACCENT_LIGHT = '#3A6A5F'
-    ACCENT_DARK = '#1A3A2F'
-    WARNING = '#9C4444'
-    BORDER = '#E0E0E0'
-    BORDER_LIGHT = '#F0F0F0'
-    BUTTON_SECONDARY_BORDER = '#B8B8B8'
+    TEXT_INVERSE = '#F5F0E8'
+
+    # 边框与分割线
+    BORDER = '#D9D3C7'
+    BORDER_LIGHT = '#E8E2D6'
+    DIVIDER = 'rgba(44, 62, 92, 0.1)'
+
+    # 状态色
+    SUCCESS = '#5A8F6E'
+    WARNING = '#C49548'
+    DANGER = '#C45C48'
+    INFO = '#5A7A9E'
 
 
 class Fonts:
-    FAMILY_CN = 'Source Han Sans SC, Microsoft YaHei, sans-serif'
+    FAMILY_CN = 'Microsoft YaHei, PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, WenQuanYi Micro Hei, sans-serif'
+    FAMILY_SERIF = 'SimSun, STSong, Noto Serif CJK SC, Source Han Serif CN, serif'
     FAMILY_EN = 'Consolas, Monaco, monospace'
-    SIZE_TITLE = '19px'
-    SIZE_SECTION = '16px'
+    SIZE_TITLE = '20px'
+    SIZE_SECTION = '15px'
     SIZE_KEY = '18px'
     SIZE_BODY = '13px'
     SIZE_SMALL = '11px'
@@ -26,20 +58,15 @@ class Fonts:
 
 
 class Spacing:
-    CARD_RADIUS = '8px'
-    CONTROL_RADIUS = '6px'
+    CARD_RADIUS = '12px'
+    CONTROL_RADIUS = '8px'
     CARD_PADDING = '20px'
-    MODULE_GAP = '14px'
+    MODULE_GAP = '16px'
     LINE_HEIGHT = '1.6'
     LETTER_SPACING = '0.5px'
-    CONTROL_VERTICAL_GAP = '10px'
-    BUTTON_MIN_HEIGHT = '34px'
-    BUTTON_MIN_WIDTH = '85px'
-
-
-class Animation:
-    DURATION_SHORT = 200
-    DURATION_NORMAL = 300
+    CONTROL_VERTICAL_GAP = '12px'
+    BUTTON_MIN_HEIGHT = '42px'
+    BUTTON_MIN_WIDTH = '100px'
 
 
 class Stylesheets:
@@ -49,100 +76,77 @@ class Stylesheets:
         }}
     """
 
-    HEADER = f"""
-        QFrame {{
-            background-color: {Colors.CARD};
-            border-bottom: 1px solid {Colors.BORDER};
+    LEFT_PANEL = f"""
+        QWidget {{
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 {Colors.CARD}, stop:1 {Colors.BACKGROUND});
+            border-right: 1px solid {Colors.BORDER_LIGHT};
         }}
-    """
-
-    HEADER_TITLE = f"""
-        font-size: {Fonts.SIZE_TITLE};
-        font-weight: {Fonts.WEIGHT_BOLD};
-        color: {Colors.TEXT_PRIMARY};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    HEADER_SUBTITLE = f"""
-        font-size: {Fonts.SIZE_BODY};
-        color: {Colors.TEXT_TERTIARY};
-        font-family: {Fonts.FAMILY_CN};
     """
 
     CARD = f"""
         QFrame {{
             background-color: {Colors.CARD};
-            border: 1px solid {Colors.BORDER};
+            border: 1px solid {Colors.BORDER_LIGHT};
             border-radius: {Spacing.CARD_RADIUS};
         }}
     """
 
-    CARD_NO_SHADOW = f"""
+    SECTION_CARD = f"""
         QFrame {{
-            background-color: {Colors.CARD};
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CARD_RADIUS};
+            background-color: {Colors.INPUT_BG};
+            border: 1px solid {Colors.BORDER_LIGHT};
+            border-radius: {Spacing.CONTROL_RADIUS};
         }}
-    """
-
-    CARD_TITLE = f"""
-        font-size: {Fonts.SIZE_SECTION};
-        font-weight: {Fonts.WEIGHT_BOLD};
-        color: {Colors.TEXT_PRIMARY};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    CARD_TITLE_ACCENT = f"""
-        font-size: {Fonts.SIZE_SECTION};
-        font-weight: {Fonts.WEIGHT_BOLD};
-        color: {Colors.ACCENT};
-        font-family: {Fonts.FAMILY_CN};
     """
 
     BUTTON_PRIMARY = f"""
         QPushButton {{
-            background-color: {Colors.ACCENT};
-            color: white;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 {Colors.ACCENT}, stop:1 {Colors.ACCENT_DARK});
+            color: {Colors.TEXT_INVERSE};
             border: none;
-            border-radius: {Spacing.CARD_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
+            border-radius: {Spacing.CONTROL_RADIUS};
+            font-size: 15px;
             font-weight: {Fonts.WEIGHT_BOLD};
             font-family: {Fonts.FAMILY_CN};
-            padding: 8px 24px;
+            padding: 10px 28px;
             min-height: {Spacing.BUTTON_MIN_HEIGHT};
             min-width: {Spacing.BUTTON_MIN_WIDTH};
         }}
         QPushButton:hover {{
-            background-color: {Colors.ACCENT_LIGHT};
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 {Colors.ACCENT_LIGHT}, stop:1 {Colors.ACCENT});
         }}
         QPushButton:pressed {{
-            background-color: {Colors.ACCENT_DARK};
+            background: {Colors.ACCENT_DARK};
         }}
         QPushButton:disabled {{
-            background-color: {Colors.BORDER};
+            background: {Colors.BORDER};
             color: {Colors.TEXT_TERTIARY};
         }}
     """
 
     BUTTON_SECONDARY = f"""
         QPushButton {{
-            background-color: transparent;
-            color: {Colors.TEXT_SECONDARY};
-            border: 1px solid {Colors.BUTTON_SECONDARY_BORDER};
-            border-radius: {Spacing.CARD_RADIUS};
+            background-color: {Colors.HOVER_BG};
+            color: {Colors.TEXT_PRIMARY};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.CONTROL_RADIUS};
             font-size: {Fonts.SIZE_BODY};
             font-weight: {Fonts.WEIGHT_NORMAL};
             font-family: {Fonts.FAMILY_CN};
-            padding: 8px 18px;
+            padding: 10px 20px;
             min-height: {Spacing.BUTTON_MIN_HEIGHT};
             min-width: {Spacing.BUTTON_MIN_WIDTH};
         }}
         QPushButton:hover {{
-            border-color: {Colors.ACCENT};
-            color: {Colors.ACCENT};
+            background-color: {Colors.ACCENT_LIGHT};
+            color: white;
+            border-color: {Colors.ACCENT_LIGHT};
         }}
         QPushButton:pressed {{
-            background-color: rgba(42, 74, 63, 0.05);
+            background-color: {Colors.ACCENT};
         }}
     """
 
@@ -159,32 +163,33 @@ class Stylesheets:
             min-width: 80px;
         }}
         QPushButton:hover {{
-            border-color: {Colors.ACCENT};
+            border-color: {Colors.HIGHLIGHT};
+            color: {Colors.HIGHLIGHT};
         }}
         QPushButton:checked {{
-            background-color: {Colors.ACCENT};
+            background-color: {Colors.PRIMARY};
             color: white;
-            border-color: {Colors.ACCENT};
+            border-color: {Colors.PRIMARY};
         }}
         QPushButton:checked:hover {{
-            background-color: {Colors.ACCENT_LIGHT};
+            background-color: {Colors.PRIMARY_LIGHT};
         }}
     """
 
-    BUTTON_TOGGLE = f"""
+    BUTTON_HOUR = f"""
         QPushButton {{
-            background-color: {Colors.BACKGROUND};
+            background-color: {Colors.INPUT_BG};
             color: {Colors.TEXT_SECONDARY};
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_NORMAL};
+            font-size: 12px;
             font-family: {Fonts.FAMILY_CN};
-            padding: 6px 16px;
-            min-width: 85px;
+            padding: 6px 4px;
+            min-width: 50px;
         }}
         QPushButton:hover {{
-            border-color: {Colors.ACCENT};
+            border-color: {Colors.HIGHLIGHT};
+            color: {Colors.HIGHLIGHT};
         }}
         QPushButton:checked {{
             background-color: {Colors.ACCENT};
@@ -195,18 +200,18 @@ class Stylesheets:
 
     LINE_EDIT = f"""
         QLineEdit {{
-            background-color: {Colors.CARD};
+            background-color: {Colors.INPUT_BG};
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.CONTROL_RADIUS};
             font-size: {Fonts.SIZE_BODY};
             font-family: {Fonts.FAMILY_CN};
-            padding: 6px 10px;
-            min-height: 32px;
+            padding: 8px 12px;
+            min-height: 36px;
             color: {Colors.TEXT_PRIMARY};
         }}
         QLineEdit:focus {{
-            border: 2px solid {Colors.ACCENT};
-            padding: 5px 9px;
+            border: 2px solid {Colors.HIGHLIGHT};
+            padding: 7px 11px;
         }}
         QLineEdit::placeholder {{
             color: {Colors.TEXT_TERTIARY};
@@ -215,17 +220,17 @@ class Stylesheets:
 
     COMBO_BOX = f"""
         QComboBox {{
-            background-color: {Colors.CARD};
+            background-color: {Colors.INPUT_BG};
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.CONTROL_RADIUS};
             font-size: {Fonts.SIZE_BODY};
             font-family: {Fonts.FAMILY_CN};
             padding: 6px 10px;
-            min-height: 32px;
+            min-height: 36px;
             color: {Colors.TEXT_PRIMARY};
         }}
         QComboBox:focus {{
-            border: 2px solid {Colors.ACCENT};
+            border: 2px solid {Colors.HIGHLIGHT};
             padding: 5px 9px;
         }}
         QComboBox::drop-down {{
@@ -236,13 +241,13 @@ class Stylesheets:
             image: none;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
-            border-top: 4px solid {Colors.ACCENT};
+            border-top: 4px solid {Colors.PRIMARY};
         }}
         QComboBox QAbstractItemView {{
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.CONTROL_RADIUS};
-            background-color: {Colors.CARD};
-            selection-background-color: {Colors.ACCENT};
+            background-color: {Colors.INPUT_BG};
+            selection-background-color: {Colors.PRIMARY};
             selection-color: white;
             padding: 4px;
             font-size: {Fonts.SIZE_BODY};
@@ -252,17 +257,17 @@ class Stylesheets:
 
     DATE_EDIT = f"""
         QDateEdit {{
-            background-color: {Colors.CARD};
+            background-color: {Colors.INPUT_BG};
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.CONTROL_RADIUS};
             font-size: {Fonts.SIZE_BODY};
             font-family: {Fonts.FAMILY_EN};
             padding: 6px 10px;
-            min-height: 32px;
+            min-height: 36px;
             color: {Colors.TEXT_PRIMARY};
         }}
         QDateEdit:focus {{
-            border: 2px solid {Colors.ACCENT};
+            border: 2px solid {Colors.HIGHLIGHT};
             padding: 5px 9px;
         }}
         QDateEdit::drop-down {{
@@ -273,82 +278,7 @@ class Stylesheets:
             image: none;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
-            border-top: 4px solid {Colors.ACCENT};
-        }}
-    """
-
-    LABEL_BODY = f"""
-        font-size: {Fonts.SIZE_BODY};
-        color: {Colors.TEXT_SECONDARY};
-        font-family: {Fonts.FAMILY_CN};
-        line-height: {Spacing.LINE_HEIGHT};
-        letter-spacing: {Spacing.LETTER_SPACING};
-    """
-
-    LABEL_SMALL = f"""
-        font-size: {Fonts.SIZE_SMALL};
-        color: {Colors.TEXT_TERTIARY};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    LABEL_KEY = f"""
-        font-size: {Fonts.SIZE_KEY};
-        font-weight: {Fonts.WEIGHT_BOLD};
-        color: {Colors.TEXT_PRIMARY};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    LABEL_ACCENT = f"""
-        font-size: {Fonts.SIZE_BODY};
-        font-weight: {Fonts.WEIGHT_BOLD};
-        color: {Colors.ACCENT};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    LABEL_WARNING = f"""
-        font-size: {Fonts.SIZE_SMALL};
-        color: {Colors.WARNING};
-        font-family: {Fonts.FAMILY_CN};
-    """
-
-    TABLE_WIDGET = f"""
-        QTableWidget {{
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CARD_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
-            background-color: {Colors.CARD};
-            gridline-color: {Colors.BORDER_LIGHT};
-        }}
-        QTableWidget::item {{
-            padding: 8px 6px;
-            text-align: center;
-            border-bottom: 1px solid {Colors.BORDER_LIGHT};
-        }}
-        QTableWidget::item:selected {{
-            background-color: rgba(42, 74, 63, 0.08);
-            color: {Colors.TEXT_PRIMARY};
-        }}
-        QHeaderView::section {{
-            background-color: {Colors.ACCENT};
-            color: white;
-            font-weight: {Fonts.WEIGHT_BOLD};
-            font-size: {Fonts.SIZE_SMALL};
-            padding: 8px 6px;
-            text-align: center;
-            border: none;
-            border-right: 1px solid {Colors.ACCENT_DARK};
-        }}
-        QHeaderView::section:first {{
-            border-top-left-radius: {Spacing.CARD_RADIUS};
-        }}
-        QHeaderView::section:last {{
-            border-top-right-radius: {Spacing.CARD_RADIUS};
-            border-right: none;
-        }}
-        QTableCornerButton::section {{
-            background-color: {Colors.ACCENT};
-            border: none;
+            border-top: 4px solid {Colors.PRIMARY};
         }}
     """
 
@@ -358,38 +288,21 @@ class Stylesheets:
             border: none;
         }}
         QScrollBar:vertical {{
-            background-color: {Colors.BORDER_LIGHT};
-            width: 8px;
-            border-radius: 4px;
+            background-color: transparent;
+            width: 6px;
+            border-radius: 3px;
             margin: 0px;
         }}
         QScrollBar::handle:vertical {{
             background-color: {Colors.BORDER};
-            border-radius: 4px;
-            min-height: 24px;
+            border-radius: 3px;
+            min-height: 30px;
         }}
         QScrollBar::handle:vertical:hover {{
-            background-color: {Colors.ACCENT};
+            background-color: {Colors.HIGHLIGHT};
         }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0px;
-        }}
-        QScrollBar:horizontal {{
-            background-color: {Colors.BORDER_LIGHT};
-            height: 8px;
-            border-radius: 4px;
-            margin: 0px;
-        }}
-        QScrollBar::handle:horizontal {{
-            background-color: {Colors.BORDER};
-            border-radius: 4px;
-            min-width: 24px;
-        }}
-        QScrollBar::handle:horizontal:hover {{
-            background-color: {Colors.ACCENT};
-        }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-            width: 0px;
         }}
     """
 
@@ -397,32 +310,9 @@ class Stylesheets:
         QStatusBar {{
             background-color: {Colors.CARD};
             color: {Colors.TEXT_SECONDARY};
-            border-top: 1px solid {Colors.BORDER};
+            border-top: 1px solid {Colors.BORDER_LIGHT};
             font-size: {Fonts.SIZE_SMALL};
             font-family: {Fonts.FAMILY_CN};
-        }}
-    """
-
-    PROGRESS_BAR = f"""
-        QProgressBar {{
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            background-color: {Colors.BORDER_LIGHT};
-            text-align: center;
-            font-size: {Fonts.SIZE_SMALL};
-            color: {Colors.TEXT_TERTIARY};
-            height: 10px;
-        }}
-        QProgressBar::chunk {{
-            background-color: {Colors.ACCENT};
-            border-radius: 4px;
-        }}
-    """
-
-    COLLAPSE_HEADER = f"""
-        QFrame {{
-            background-color: {Colors.BACKGROUND};
-            border-bottom: 1px solid {Colors.BORDER};
         }}
     """
 
@@ -431,9 +321,9 @@ class Stylesheets:
             spacing: 8px;
         }}
         QCheckBox::indicator {{
-            width: 40px;
-            height: 22px;
-            border-radius: 11px;
+            width: 44px;
+            height: 24px;
+            border-radius: 12px;
             background-color: {Colors.BORDER};
         }}
         QCheckBox::indicator:checked {{
@@ -444,14 +334,81 @@ class Stylesheets:
             height: 18px;
             border-radius: 9px;
             background-color: white;
-            margin: 2px;
+            margin: 3px;
         }}
         QCheckBox::indicator:checked::handle {{
             width: 18px;
             height: 18px;
             border-radius: 9px;
             background-color: white;
-            margin-left: 20px;
-            margin-top: 2px;
+            margin-left: 23px;
+            margin-top: 3px;
+        }}
+    """
+
+    GOLD_DIVIDER = f"""
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 transparent, stop:0.3 {Colors.HIGHLIGHT},
+            stop:0.5 {Colors.HIGHLIGHT_LIGHT}, stop:0.7 {Colors.HIGHLIGHT},
+            stop:1 transparent);
+        height: 2px;
+        border-radius: 1px;
+    """
+
+    PAN_TYPE_CARD = f"""
+        QPushButton {{
+            background-color: {Colors.INPUT_BG};
+            color: {Colors.TEXT_SECONDARY};
+            border: 2px solid {Colors.BORDER};
+            border-radius: {Spacing.CARD_RADIUS};
+            font-size: {Fonts.SIZE_BODY};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            font-family: {Fonts.FAMILY_CN};
+            padding: 16px;
+        }}
+        QPushButton:hover {{
+            border-color: {Colors.HIGHLIGHT};
+            color: {Colors.HIGHLIGHT};
+        }}
+        QPushButton:checked {{
+            background-color: {Colors.ACCENT};
+            color: white;
+            border-color: {Colors.HIGHLIGHT};
+            border: 2px solid {Colors.HIGHLIGHT};
+        }}
+    """
+
+    GENDER_CARD = f"""
+        QPushButton {{
+            background-color: {Colors.INPUT_BG};
+            color: {Colors.TEXT_SECONDARY};
+            border: 2px solid {Colors.BORDER};
+            border-radius: {Spacing.CONTROL_RADIUS};
+            font-size: {Fonts.SIZE_BODY};
+            font-family: {Fonts.FAMILY_CN};
+            padding: 12px;
+        }}
+        QPushButton:hover {{
+            border-color: {Colors.HIGHLIGHT};
+        }}
+        QPushButton:checked {{
+            border-color: {Colors.ACCENT};
+            background-color: rgba(196, 92, 72, 0.08);
+        }}
+    """
+
+    TEXT_EDIT = f"""
+        QTextEdit {{
+            background-color: {Colors.INPUT_BG};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.CONTROL_RADIUS};
+            font-size: {Fonts.SIZE_BODY};
+            font-family: {Fonts.FAMILY_CN};
+            padding: 8px 12px;
+            color: {Colors.TEXT_PRIMARY};
+        }}
+        QTextEdit:focus {{
+            border: 2px solid {Colors.HIGHLIGHT};
+            padding: 7px 11px;
         }}
     """

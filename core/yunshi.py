@@ -1,4 +1,4 @@
-from core.baazi import TIAN_GAN, DI_ZHI, YEAR_GANZHI, MONTH_GAN
+from core.baazi import TIAN_GAN, DI_ZHI, YEAR_GANZHI, MONTH_GAN, BaZiCalculator
 
 YUNSHI_ANALYSIS = {
     '甲': {
@@ -58,24 +58,15 @@ ZHI_ANALYSIS = {
     '亥': '亥水智慧，主聪明灵活，但需防散漫无章'
 }
 
+# 复用 BaZiCalculator 实例，避免重复定义 get_year_ganzhi / get_month_ganzhi
+_core = BaZiCalculator()
+
+
 class YunShiCalculator:
     def __init__(self):
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
         self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}
-
-    def get_year_ganzhi(self, year):
-        idx = (year - 4) % 60
-        return YEAR_GANZHI[idx]
-
-    def get_month_ganzhi(self, year_gan, month):
-        month_idx = month - 1
-        for key, gan_list in MONTH_GAN:
-            if year_gan in key:
-                month_gan = gan_list[month_idx]
-                month_zhi = DI_ZHI[month_idx]
-                return month_gan + month_zhi
-        return ''
 
     def calculate_major_fortune(self, bazhi, gender, birth_year):
         rizhu = bazhi['rizhu']
@@ -84,10 +75,7 @@ class YunShiCalculator:
         is_male = gender == '男'
         is_yang = day_gan_idx % 2 == 0
         
-        if (is_male and is_yang) or (not is_male and not is_yang):
-            direction = '顺行'
-        else:
-            direction = '逆行'
+        direction = '顺行' if (is_male and is_yang) or (not is_male and not is_yang) else '逆行'
 
         month_ganzhi = bazhi['month']
         start_idx = self.ganzhi_map[month_ganzhi]
@@ -101,14 +89,8 @@ class YunShiCalculator:
             
             ganzhi = YEAR_GANZHI[ganzhi_idx]
             
-            start_age = 10 + i * 10
-            if i == 0:
-                start_age = 0
-            
+            start_age = 0 if i == 0 else 10 + i * 10
             start_year = birth_year + start_age
-            end_year = start_year + 10
-            
-            analysis = self._analyze_fortune_period(ganzhi)
             
             periods.append({
                 'period': i + 1,
@@ -116,9 +98,9 @@ class YunShiCalculator:
                 'start_age': start_age,
                 'end_age': start_age + 9,
                 'start_year': start_year,
-                'end_year': end_year - 1,
+                'end_year': start_year + 9,
                 'direction': direction,
-                'analysis': analysis
+                'analysis': self._analyze_fortune_period(ganzhi)
             })
         
         return {'periods': periods, 'direction': direction}
@@ -128,16 +110,14 @@ class YunShiCalculator:
         
         for i in range(years_count):
             year = start_year + i
-            year_ganzhi = self.get_year_ganzhi(year)
-            
+            year_ganzhi = _core.get_year_ganzhi(year)
             minor_fortune = self._calculate_minor_fortune(bazhi, year)
-            analysis = self._analyze_annual_fortune(bazhi, year_ganzhi)
             
             years.append({
                 'year': year,
                 'ganzhi': year_ganzhi,
                 'minor_fortune': minor_fortune,
-                'analysis': analysis
+                'analysis': self._analyze_annual_fortune(bazhi, year_ganzhi)
             })
         
         return {'years': years}
@@ -145,32 +125,9 @@ class YunShiCalculator:
     def _calculate_minor_fortune(self, bazhi, year):
         rizhu = bazhi['rizhu']
         rizhu_idx = self.tian_gan_map[rizhu]
-        
         year_idx = (year - 4) % 60
         minor_idx = (rizhu_idx * 2 + year_idx) % 60
-        
         return YEAR_GANZHI[minor_idx]
-
-    def calculate_monthly_fortune(self, bazhi, target_year=None):
-        if target_year is None:
-            target_year = 2024
-        
-        months = []
-        year_gan = self.get_year_ganzhi(target_year)[0]
-        
-        for month in range(1, 13):
-            month_ganzhi = self.get_month_ganzhi(year_gan, month)
-            analysis = self._analyze_monthly_fortune(bazhi, month_ganzhi)
-            
-            months.append({
-                'year': target_year,
-                'month': month,
-                'ganzhi': month_ganzhi,
-                'month_name': DI_ZHI[month - 1] + '月',
-                'analysis': analysis
-            })
-        
-        return {'months': months}
 
     def _analyze_fortune_period(self, ganzhi):
         gan = ganzhi[0]
@@ -201,42 +158,21 @@ class YunShiCalculator:
         year_gan_idx = self.tian_gan_map[year_gan]
         diff = (year_gan_idx - rizhu_idx) % 10
         
-        relationship = ''
-        if diff == 0:
-            relationship = '本年与日主相同，主得朋友相助'
-        elif diff in (1, 9):
-            relationship = '本年生助日主，主得贵人扶持'
-        elif diff in (2, 8):
-            relationship = '本年克制日主，主压力较大'
-        elif diff in (3, 7):
-            relationship = '本年被日主克制，主财运不错'
-        elif diff in (4, 6):
-            relationship = '本年生助日主，主学业或事业进步'
-        
-        if relationship:
-            parts.append(relationship)
+        relationship_map = {
+            0: '本年与日主相同，主得朋友相助',
+            (1, 9): '本年生助日主，主得贵人扶持',
+            (2, 8): '本年克制日主，主压力较大',
+            (3, 7): '本年被日主克制，主财运不错',
+            (4, 6): '本年生助日主，主学业或事业进步',
+        }
+        for key, text in relationship_map.items():
+            if diff == key or (isinstance(key, tuple) and diff in key):
+                parts.append(text)
+                break
         
         if 'positive' in gan_info:
             parts.append(f'天干{year_gan}：{gan_info["positive"]}')
-        
         if zhi_info:
             parts.append(f'地支{year_zhi}：{zhi_info}')
-        
-        return '；'.join(parts)
-
-    def _analyze_monthly_fortune(self, bazhi, month_ganzhi):
-        month_gan = month_ganzhi[0]
-        month_zhi = month_ganzhi[1]
-        
-        gan_info = YUNSHI_ANALYSIS.get(month_gan, {})
-        zhi_info = ZHI_ANALYSIS.get(month_zhi, '')
-        
-        parts = []
-        
-        if 'positive' in gan_info:
-            parts.append(f'{month_gan}月：{gan_info["positive"]}')
-        
-        if zhi_info:
-            parts.append(zhi_info)
         
         return '；'.join(parts)

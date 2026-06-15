@@ -1,4 +1,5 @@
 from core.baazi import TIAN_GAN
+from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_HIDDEN_GAN
 
 SHISHEN_MAP = {
     '生我': '印星',
@@ -61,7 +62,7 @@ class ShiShenAnalyzer:
         
         result = {
             'rizhu': rizhu,
-            'rizhu_wuxing': self.get_wuxing(rizhu),
+            'rizhu_wuxing': TIAN_GAN_WUXING.get(rizhu, ''),
             'details': [],
             'summary': {}
         }
@@ -72,11 +73,11 @@ class ShiShenAnalyzer:
             
             shishen_gan = self.get_shishen_name(rizhu, gan)
             
+            # 直接引用 wuxing.py 中的 DI_ZHI_HIDDEN_GAN，避免重复定义
             zhi_shishens = []
-            for hidden_gan in ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']:
-                if self.has_hidden_gan(zhi, hidden_gan):
-                    shishen = self.get_shishen_name(rizhu, hidden_gan)
-                    zhi_shishens.append(f"{hidden_gan}({shishen})")
+            for hidden_gan in DI_ZHI_HIDDEN_GAN.get(zhi, []):
+                shishen = self.get_shishen_name(rizhu, hidden_gan)
+                zhi_shishens.append(f"{hidden_gan}({shishen})")
             
             result['details'].append({
                 'pillar': pillar,
@@ -89,36 +90,6 @@ class ShiShenAnalyzer:
         
         self._generate_summary(result)
         return result
-    
-    def get_wuxing(self, tian_gan):
-        idx = self.tian_gan_map[tian_gan]
-        if idx < 2:
-            return '木'
-        elif idx < 4:
-            return '火'
-        elif idx < 6:
-            return '土'
-        elif idx < 8:
-            return '金'
-        else:
-            return '水'
-    
-    def has_hidden_gan(self, zhi, gan):
-        hidden_map = {
-            '子': ['癸'],
-            '丑': ['己', '辛', '癸'],
-            '寅': ['甲', '丙', '戊'],
-            '卯': ['乙'],
-            '辰': ['戊', '乙', '癸'],
-            '巳': ['丙', '戊', '庚'],
-            '午': ['丁', '己'],
-            '未': ['己', '丁', '乙'],
-            '申': ['庚', '壬', '戊'],
-            '酉': ['辛'],
-            '戌': ['戊', '辛', '丁'],
-            '亥': ['壬', '甲']
-        }
-        return gan in hidden_map.get(zhi, [])
     
     def _generate_summary(self, result):
         shishen_counts = {}

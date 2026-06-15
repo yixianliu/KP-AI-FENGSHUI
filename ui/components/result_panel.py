@@ -1,734 +1,605 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout,
-                             QTableWidget, QTableWidgetItem, QPushButton, QScrollArea,
-                             QHeaderView, QSizePolicy, QProgressBar)
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+                             QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
+                             QScrollArea, QSizePolicy, QSpacerItem, QProgressBar)
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QAbstractAnimation
+from PySide6.QtGui import QFont
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-
-
-class ResultCard(QFrame):
-    def __init__(self, title, parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.init_ui()
-
-    def init_ui(self):
-        self.setStyleSheet(Stylesheets.CARD)
-
-        self.main_layout = QVBoxLayout()
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-
-        self.header_frame = QFrame()
-        self.header_frame.setStyleSheet(Stylesheets.COLLAPSE_HEADER)
-        self.header_layout = QHBoxLayout(self.header_frame)
-        self.header_layout.setContentsMargins(int(Spacing.CARD_PADDING.replace('px', '')), 12,
-                                              int(Spacing.CARD_PADDING.replace('px', '')), 12)
-        self.header_layout.setSpacing(10)
-
-        self.title_label = QLabel(self.title)
-        self.title_label.setStyleSheet(Stylesheets.CARD_TITLE)
-
-        self.header_layout.addWidget(self.title_label)
-        self.header_layout.addStretch()
-
-        self.main_layout.addWidget(self.header_frame)
-
-        self.content_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(
-            int(Spacing.CARD_PADDING.replace('px', '')),
-            int(Spacing.CARD_PADDING.replace('px', '')),
-            int(Spacing.CARD_PADDING.replace('px', '')),
-            int(Spacing.CARD_PADDING.replace('px', ''))
-        )
-        self.content_layout.setSpacing(14)
-
-        self.main_layout.addWidget(self.content_widget)
-
-        self.setLayout(self.main_layout)
-
-    def set_content(self, widget):
-        self.content_layout.addWidget(widget)
-
-
-class BasicInfoCard(ResultCard):
-    def __init__(self, parent=None):
-        super().__init__('命主基础信息', parent)
-        self.init_content()
-
-    def init_content(self):
-        content_widget = QWidget()
-        content_layout = QHBoxLayout(content_widget)
-        content_layout.setSpacing(24)
-        content_layout.addStretch()
-
-        left_layout = QVBoxLayout()
-        left_layout.setSpacing(6)
-
-        self.name_label = QLabel('')
-        self.name_label.setStyleSheet(Stylesheets.CARD_TITLE_ACCENT)
-
-        self.gender_label = QLabel('')
-        self.gender_label.setStyleSheet(Stylesheets.LABEL_KEY)
-
-        self.solar_date_label = QLabel('')
-        self.solar_date_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-
-        left_layout.addWidget(self.name_label)
-        left_layout.addWidget(self.gender_label)
-        left_layout.addWidget(self.solar_date_label)
-
-        right_layout = QVBoxLayout()
-        right_layout.setSpacing(6)
-
-        self.lunar_date_label = QLabel('')
-        self.lunar_date_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-
-        self.solar_time_label = QLabel('')
-        self.solar_time_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-
-        self.archive_label = QLabel('')
-        self.archive_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-
-        right_layout.addWidget(self.lunar_date_label)
-        right_layout.addWidget(self.solar_time_label)
-        right_layout.addWidget(self.archive_label)
-
-        content_layout.addLayout(left_layout)
-        content_layout.addLayout(right_layout)
-        content_layout.addStretch()
-
-        self.set_content(content_widget)
-
-        self._set_initial_state()
-
-    def _set_initial_state(self):
-        self.name_label.setText('命主：')
-        self.gender_label.setText('请输入信息进行排盘')
-        self.solar_date_label.setText('公历：')
-        self.lunar_date_label.setText('农历：')
-        self.solar_time_label.setText('真太阳时：未校正')
-        self.archive_label.setText('本地存档：尚未生成')
-
-    def update_info(self, bazhi_data, input_data, save_info=None):
-        if not input_data or not bazhi_data:
-            self._set_initial_state()
-            return
-
-        self.name_label.setText(f'命主：{input_data.get("name", "")}')
-        gender_text = '乾造（男）' if input_data.get('gender', '') == '男' else '坤造（女）'
-        self.gender_label.setText(gender_text)
-        self.solar_date_label.setText(f'公历：{bazhi_data.get("solar_date", "")}')
-        self.lunar_date_label.setText(f'农历：{bazhi_data.get("lunar_date", "")}')
-        self.solar_time_label.setText(f'真太阳时：{bazhi_data.get("solar_time", "未校正")}')
-        if save_info and save_info.get('record_id'):
-            self.archive_label.setText(
-                f'本地存档：#{save_info["record_id"]} · {save_info.get("created_at", "")}'
-            )
-        else:
-            self.archive_label.setText('本地存档：未保存')
-
-
-class BaziCard(ResultCard):
-    def __init__(self, parent=None):
-        super().__init__('四柱核心排盘', parent)
-        self.init_content()
-
-    def init_content(self):
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setSpacing(16)
-
-        pillars_grid = QGridLayout()
-        pillars_grid.setSpacing(10)
-
-        self.pillar_widgets = []
-        pillar_names = ['年柱', '月柱', '日柱', '时柱']
-
-        for i, name in enumerate(pillar_names):
-            is_rizhu = (i == 2)
-            pillar_frame = QFrame()
-            pillar_frame.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {'rgba(42, 74, 63, 0.08)' if is_rizhu else '{Colors.BACKGROUND}'};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                    padding: 14px 12px;
-                    border: 1px solid {Colors.BORDER};
-                }}
-            """)
-            pillar_layout = QVBoxLayout(pillar_frame)
-            pillar_layout.setSpacing(8)
-            pillar_layout.setAlignment(Qt.AlignCenter)
-
-            name_label = QLabel(name)
-            name_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-            name_label.setAlignment(Qt.AlignCenter)
-
-            ganzhi_label = QLabel('--')
-            ganzhi_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_KEY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {Colors.TEXT_PRIMARY};
-                font-family: {Fonts.FAMILY_CN};
-            """)
-            ganzhi_label.setAlignment(Qt.AlignCenter)
-
-            shishen_label = QLabel('--')
-            shishen_label.setStyleSheet(Stylesheets.LABEL_ACCENT)
-            shishen_label.setAlignment(Qt.AlignCenter)
-
-            canggan_label = QLabel('--')
-            canggan_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-            canggan_label.setAlignment(Qt.AlignCenter)
-
-            wuxing_label = QLabel('--')
-            wuxing_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-            wuxing_label.setAlignment(Qt.AlignCenter)
-
-            pillar_layout.addWidget(name_label)
-            pillar_layout.addWidget(ganzhi_label)
-            pillar_layout.addWidget(shishen_label)
-            pillar_layout.addWidget(canggan_label)
-            pillar_layout.addWidget(wuxing_label)
-
-            pillars_grid.addWidget(pillar_frame, 0, i)
-            self.pillar_widgets.append((ganzhi_label, shishen_label, canggan_label, wuxing_label))
-
-        content_layout.addLayout(pillars_grid)
-
-        rizhu_hint = QLabel('注：日柱为日主，代表命主本人')
-        rizhu_hint.setStyleSheet(Stylesheets.LABEL_SMALL)
-        rizhu_hint.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(rizhu_hint)
-
-        self.set_content(content_widget)
-
-    def update_bazi(self, bazhi_data, shishen_data):
-        if not bazhi_data:
-            for widgets in self.pillar_widgets:
-                for widget in widgets:
-                    widget.setText('--')
-            return
-
-        pillars = [bazhi_data.get('year', '--'), bazhi_data.get('month', '--'),
-                   bazhi_data.get('day', '--'), bazhi_data.get('hour', '--')]
-
-        for i, pillar in enumerate(pillars):
-            ganzhi_label, shishen_label, canggan_label, wuxing_label = self.pillar_widgets[i]
-            ganzhi_label.setText(pillar)
-
-            if shishen_data and 'details' in shishen_data and i < len(shishen_data['details']):
-                detail = shishen_data['details'][i]
-                shishen_label.setText(detail.get('gan_shishen', '--'))
-                canggan_label.setText('藏干：' + ' '.join(detail.get('zhi_shishens', [])))
-
-                gan = pillar[0] if len(pillar) > 0 else ''
-                zhi = pillar[1] if len(pillar) > 1 else ''
-                wuxing_map = {
-                    '甲': '木', '乙': '木', '丙': '火', '丁': '火',
-                    '戊': '土', '己': '土', '庚': '金', '辛': '金',
-                    '壬': '水', '癸': '水',
-                    '子': '水', '丑': '土', '寅': '木', '卯': '木',
-                    '辰': '土', '巳': '火', '午': '火', '未': '土',
-                    '申': '金', '酉': '金', '戌': '土', '亥': '水'
-                }
-                gan_wuxing = wuxing_map.get(gan, '')
-                zhi_wuxing = wuxing_map.get(zhi, '')
-                wuxing_label.setText(f'五行：{gan_wuxing} + {zhi_wuxing}')
-            else:
-                shishen_label.setText('--')
-                canggan_label.setText('--')
-                wuxing_label.setText('--')
-
-
-class WuxingCard(ResultCard):
-    def __init__(self, parent=None):
-        super().__init__('五行格局分析', parent)
-        self.init_content()
-
-    def init_content(self):
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setSpacing(16)
-
-        wuxing_grid = QGridLayout()
-        wuxing_grid.setSpacing(10)
-
-        elements = ['木', '火', '土', '金', '水']
-        self.wuxing_widgets = []
-
-        for i, element in enumerate(elements):
-            element_frame = QFrame()
-            element_frame.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {Colors.BACKGROUND};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                    padding: 12px;
-                    border: 1px solid {Colors.BORDER};
-                }}
-            """)
-            element_layout = QVBoxLayout(element_frame)
-            element_layout.setSpacing(6)
-            element_layout.setAlignment(Qt.AlignCenter)
-
-            name_label = QLabel(element)
-            name_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_KEY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {Colors.TEXT_PRIMARY};
-                font-family: {Fonts.FAMILY_CN};
-            """)
-            name_label.setAlignment(Qt.AlignCenter)
-
-            count_label = QLabel('--')
-            count_label.setStyleSheet(Stylesheets.LABEL_BODY)
-            count_label.setAlignment(Qt.AlignCenter)
-
-            percent_label = QLabel('--')
-            percent_label.setStyleSheet(Stylesheets.LABEL_SMALL)
-            percent_label.setAlignment(Qt.AlignCenter)
-
-            element_layout.addWidget(name_label)
-            element_layout.addWidget(count_label)
-            element_layout.addWidget(percent_label)
-
-            wuxing_grid.addWidget(element_frame, 0, i)
-            self.wuxing_widgets.append((count_label, percent_label))
-
-        content_layout.addLayout(wuxing_grid)
-
-        summary_frame = QFrame()
-        summary_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Colors.BACKGROUND};
-                border-radius: {Spacing.CONTROL_RADIUS};
-                padding: 14px;
-                border: 1px solid {Colors.BORDER};
-            }}
-        """)
-        summary_layout = QVBoxLayout(summary_frame)
-
-        self.wuxing_summary = QLabel('')
-        self.wuxing_summary.setStyleSheet(Stylesheets.LABEL_BODY)
-        self.wuxing_summary.setWordWrap(True)
-        summary_layout.addWidget(self.wuxing_summary)
-
-        content_layout.addWidget(summary_frame)
-
-        self.set_content(content_widget)
-
-        self._set_initial_state()
-
-    def _set_initial_state(self):
-        self.wuxing_summary.setText('请输入信息进行排盘，五行分析结果将在此显示')
-
-    def update_wuxing(self, wuxing_data):
-        if not wuxing_data:
-            for count_label, percent_label in self.wuxing_widgets:
-                count_label.setText('--')
-                percent_label.setText('--')
-            self._set_initial_state()
-            return
-
-        elements = ['木', '火', '土', '金', '水']
-
-        for i, element in enumerate(elements):
-            count_label, percent_label = self.wuxing_widgets[i]
-            count_label.setText(f'{wuxing_data.get(element, {}).get("count", 0):.1f}')
-            percent_label.setText(f'{wuxing_data.get(element, {}).get("percentage", 0)}%')
-
-        summary_text = ''
-        if 'summary' in wuxing_data:
-            summary_text += wuxing_data['summary'] + '\n\n'
-        if 'rizhu_wuxing' in wuxing_data:
-            summary_text += f'日主五行：{wuxing_data["rizhu_wuxing"]}\n'
-        if 'strength' in wuxing_data:
-            summary_text += f'日主强弱：{wuxing_data["strength"]}\n'
-        if 'ying_shen' in wuxing_data and wuxing_data['ying_shen']:
-            summary_text += f'<span style="color: {Colors.ACCENT}; font-weight: bold;">喜用神：{wuxing_data["ying_shen"]}</span>\n'
-        if 'ji_shen' in wuxing_data and wuxing_data['ji_shen']:
-            summary_text += f'<span style="color: {Colors.WARNING}; font-weight: bold;">忌神：{wuxing_data["ji_shen"]}</span>'
-
-        self.wuxing_summary.setText(summary_text)
-
-
-class FortuneCard(ResultCard):
-    def __init__(self, parent=None):
-        super().__init__('大运流年', parent)
-        self.init_content()
-
-    def init_content(self):
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setSpacing(14)
-
-        self.fortune_table = QTableWidget(0, 5)
-        self.fortune_table.setHorizontalHeaderLabels(['大运', '年龄', '干支', '方向', '运势简述'])
-        self.fortune_table.verticalHeader().setVisible(False)
-        self.fortune_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.fortune_table.setStyleSheet(Stylesheets.TABLE_WIDGET)
-        self.fortune_table.setAlternatingRowColors(False)
-        self.fortune_table.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
-
-        header = self.fortune_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.resizeSection(0, 55)
-        header.resizeSection(1, 70)
-        header.resizeSection(2, 70)
-        header.resizeSection(3, 70)
-
-        self.fortune_table.setMinimumHeight(200)
-
-        content_layout.addWidget(self.fortune_table)
-
-        initial_hint = QLabel('请输入信息进行排盘，大运流年信息将在此显示')
-        initial_hint.setStyleSheet(Stylesheets.LABEL_SMALL)
-        initial_hint.setAlignment(Qt.AlignCenter)
-        self.initial_hint = initial_hint
-
-        content_layout.addWidget(initial_hint)
-
-        self.set_content(content_widget)
-
-    def update_fortune(self, major_fortune_data):
-        self.fortune_table.setRowCount(0)
-
-        if not major_fortune_data or 'periods' not in major_fortune_data:
-            self.initial_hint.setVisible(True)
-            return
-
-        self.initial_hint.setVisible(False)
-
-        for i, period in enumerate(major_fortune_data['periods'][:8]):
-            self.fortune_table.insertRow(i)
-
-            item0 = QTableWidgetItem(f'第{period.get("period", "")}步')
-            item0.setTextAlignment(Qt.AlignCenter)
-            self.fortune_table.setItem(i, 0, item0)
-
-            item1 = QTableWidgetItem(f'{period.get("start_age", "")}-{period.get("end_age", "")}岁')
-            item1.setTextAlignment(Qt.AlignCenter)
-            self.fortune_table.setItem(i, 1, item1)
-
-            item2 = QTableWidgetItem(period.get('ganzhi', ''))
-            item2.setTextAlignment(Qt.AlignCenter)
-            self.fortune_table.setItem(i, 2, item2)
-
-            item3 = QTableWidgetItem(period.get('direction', ''))
-            item3.setTextAlignment(Qt.AlignCenter)
-            self.fortune_table.setItem(i, 3, item3)
-
-            description = period.get('description') or period.get('analysis', '')
-            item4 = QTableWidgetItem(description)
-            item4.setTextAlignment(Qt.AlignLeft)
-            item4.setToolTip(description)
-            self.fortune_table.setItem(i, 4, item4)
-
-
-class AIAnalysisCard(ResultCard):
-    def __init__(self, parent=None):
-        super().__init__('AI智能解析', parent)
-        self.init_content()
-
-    def init_content(self):
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setSpacing(14)
-
-        sections = [
-            ('性格特质', 'personality'),
-            ('事业财运', 'career'),
-            ('婚姻感情', 'marriage'),
-            ('健康注意', 'health'),
-            ('综合建议', 'suggestions')
-        ]
-
-        self.section_labels = {}
-
-        for title, key in sections:
-            section_frame = QFrame()
-            section_frame.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {Colors.BACKGROUND};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                    padding: 12px;
-                    border: 1px solid {Colors.BORDER};
-                }}
-            """)
-            section_layout = QVBoxLayout(section_frame)
-            section_layout.setSpacing(6)
-
-            title_label = QLabel(title)
-            title_label.setStyleSheet(Stylesheets.CARD_TITLE_ACCENT)
-
-            content_label = QLabel('')
-            content_label.setStyleSheet(Stylesheets.LABEL_BODY)
-            content_label.setWordWrap(True)
-            content_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-
-            section_layout.addWidget(title_label)
-            section_layout.addWidget(content_label)
-
-            self.section_labels[key] = content_label
-            content_layout.addWidget(section_frame)
-
-        self.set_content(content_widget)
-
-        self._set_initial_state()
-
-    def _set_initial_state(self):
-        for key in self.section_labels:
-            self.section_labels[key].setText('请输入信息进行排盘')
-
-    def update_analysis(self, ai_data):
-        if not ai_data:
-            self._set_initial_state()
-            return
-
-        self.section_labels['personality'].setText(self._format_content(ai_data.get('personality', [])))
-        self.section_labels['career'].setText(self._format_content(ai_data.get('career', [])))
-        self.section_labels['marriage'].setText(self._format_content(ai_data.get('marriage', [])))
-        self.section_labels['health'].setText(self._format_content(ai_data.get('health', [])))
-        self.section_labels['suggestions'].setText(self._format_content(ai_data.get('suggestions', [])))
-
-    def _format_content(self, content_list):
-        if isinstance(content_list, list):
-            if len(content_list) == 0:
-                return '暂无内容'
-            return '\n'.join([f'• {item}' for item in content_list])
-        elif isinstance(content_list, str):
-            return content_list
-        else:
-            return '暂无内容'
 
 
 class ResultPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.has_data = False
         self.init_ui()
 
     def init_ui(self):
-        # 使用 QStackedLayout 效果：空状态 / 加载状态 / 结果状态
-        self.outer_layout = QVBoxLayout()
-        self.outer_layout.setContentsMargins(0, 0, 0, 0)
-        self.outer_layout.setSpacing(0)
-
-        # === 空状态（居中提示） ===
-        self.empty_state = QFrame()
-        self.empty_state.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Colors.CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: {Spacing.CARD_RADIUS};
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Colors.BACKGROUND};
             }}
         """)
-        empty_layout = QVBoxLayout(self.empty_state)
-        empty_layout.setAlignment(Qt.AlignCenter)
-        empty_layout.setSpacing(16)
 
-        empty_icon = QLabel('☯')
-        empty_icon.setStyleSheet(f"font-size: 48px; color: {Colors.BORDER};")
-        empty_icon.setAlignment(Qt.AlignCenter)
+        main_layout = QVBoxLayout()
+        card_padding = int(Spacing.CARD_PADDING.replace('px', ''))
+        main_layout.setContentsMargins(card_padding, card_padding, card_padding, card_padding)
+        main_layout.setSpacing(16)
 
-        empty_title = QLabel('等待排盘')
-        empty_title.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_SECTION};
+        # ===== 顶部标题栏 =====
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
+
+        title_icon = QLabel('☯')
+        title_icon.setStyleSheet(f"font-size: 22px; color: {Colors.PRIMARY};")
+
+        self.title_label = QLabel('排盘结果展示')
+        self.title_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_TITLE};
             font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.TEXT_TERTIARY};
-            font-family: {Fonts.FAMILY_CN};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_SERIF};
+            letter-spacing: 2px;
         """)
-        empty_title.setAlignment(Qt.AlignCenter)
 
-        empty_hint = QLabel('请在左侧输入命主信息，点击「精准排盘」开始')
-        empty_hint.setStyleSheet(f"""
+        header_layout.addWidget(title_icon)
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+
+        # 结果操作按钮（默认隐藏）
+        self.result_actions = QWidget()
+        actions_layout = QHBoxLayout(self.result_actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
+
+        self.refresh_btn = QPushButton('⟳ 刷新')
+        self.refresh_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.refresh_btn.setVisible(False)
+
+        self.copy_btn = QPushButton('📋 复制')
+        self.copy_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.copy_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_btn.setVisible(False)
+
+        self.save_btn = QPushButton('💾 保存')
+        self.save_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.save_btn.setCursor(Qt.PointingHandCursor)
+        self.save_btn.setVisible(False)
+
+        self.export_btn = QPushButton('📤 导出')
+        self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.setVisible(False)
+
+        actions_layout.addWidget(self.refresh_btn)
+        actions_layout.addWidget(self.copy_btn)
+        actions_layout.addWidget(self.save_btn)
+        actions_layout.addWidget(self.export_btn)
+
+        header_layout.addWidget(self.result_actions)
+
+        main_layout.addLayout(header_layout)
+
+        # ===== 状态栏 =====
+        self.status_bar = QFrame()
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Colors.CARD};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        status_layout = QHBoxLayout(self.status_bar)
+        status_layout.setContentsMargins(16, 10, 16, 10)
+        status_layout.setAlignment(Qt.AlignCenter)
+
+        self.status_label = QLabel('ℹ 请完善左侧参数，点击「开始排盘」获取专业风水分析')
+        self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.TEXT_TERTIARY};
             font-family: {Fonts.FAMILY_CN};
         """)
-        empty_hint.setAlignment(Qt.AlignCenter)
+        status_layout.addWidget(self.status_label)
 
-        empty_layout.addWidget(empty_icon)
-        empty_layout.addWidget(empty_title)
-        empty_layout.addWidget(empty_hint)
+        main_layout.addWidget(self.status_bar)
 
-        # === 加载状态（居中加载动画） ===
-        self.loading_state = QFrame()
-        self.loading_state.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Colors.CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: {Spacing.CARD_RADIUS};
-            }}
+        # ===== 内容区域 =====
+        self.content_area = QScrollArea()
+        self.content_area.setStyleSheet(Stylesheets.SCROLL_AREA)
+        self.content_area.setWidgetResizable(True)
+        self.content_area.setFrameShape(QFrame.NoFrame)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(16)
+
+        # 空状态
+        self.empty_state = self._create_empty_state()
+        self.content_layout.addWidget(self.empty_state)
+
+        self.content_area.setWidget(self.content_widget)
+        main_layout.addWidget(self.content_area)
+
+        self.setLayout(main_layout)
+
+    def _create_empty_state(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(16)
+
+        icon = QLabel('☯')
+        icon.setStyleSheet(f"""
+            font-size: 64px;
+            color: {Colors.BORDER};
+            opacity: 0.5;
         """)
-        loading_layout = QVBoxLayout(self.loading_state)
-        loading_layout.setAlignment(Qt.AlignCenter)
-        loading_layout.setSpacing(20)
+        icon.setAlignment(Qt.AlignCenter)
 
-        # 旋转图标（用文字模拟）
-        self.loading_icon_label = QLabel('☯')
-        self.loading_icon_label.setStyleSheet(f"font-size: 42px; color: {Colors.ACCENT};")
-        self.loading_icon_label.setAlignment(Qt.AlignCenter)
-
-        self.loading_text = QLabel('正在排盘分析中...')
-        self.loading_text.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_SECTION};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.TEXT_PRIMARY};
-            font-family: {Fonts.FAMILY_CN};
-        """)
-        self.loading_text.setAlignment(Qt.AlignCenter)
-
-        self.loading_detail = QLabel('正在计算四柱八字...')
-        self.loading_detail.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY};
+        title = QLabel('请完善左侧参数')
+        title.setStyleSheet(f"""
+            font-size: 18px;
             color: {Colors.TEXT_TERTIARY};
             font-family: {Fonts.FAMILY_CN};
         """)
-        self.loading_detail.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignCenter)
 
-        self.loading_progress = QProgressBar()
-        self.loading_progress.setFixedWidth(240)
-        self.loading_progress.setMaximumHeight(8)
-        self.loading_progress.setTextVisible(False)
-        self.loading_progress.setStyleSheet(f"""
-            QProgressBar {{
-                border: none;
-                border-radius: 4px;
-                background-color: {Colors.BORDER_LIGHT};
-                height: 8px;
+        subtitle = QLabel('点击「开始排盘」获取专业风水分析')
+        subtitle.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+            opacity: 0.7;
+        """)
+        subtitle.setAlignment(Qt.AlignCenter)
+
+        layout.addStretch()
+        layout.addWidget(icon)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addStretch()
+
+        widget.setMinimumHeight(400)
+        return widget
+
+    def _create_result_card(self, title, icon, content_widget, highlight=False):
+        """创建结果卡片"""
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Colors.CARD};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Spacing.CARD_RADIUS};
             }}
-            QProgressBar::chunk {{
-                background-color: {Colors.ACCENT};
-                border-radius: 4px;
+            QFrame:hover {{
+                border-color: {Colors.HIGHLIGHT};
             }}
         """)
 
-        loading_layout.addWidget(self.loading_icon_label)
-        loading_layout.addWidget(self.loading_text)
-        loading_layout.addWidget(self.loading_detail)
-        loading_layout.addWidget(self.loading_progress)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
 
-        # === 结果状态（滚动区域） ===
-        self.result_state = QFrame()
-        self.result_state.setStyleSheet("QFrame { background-color: transparent; border: none; }")
-        result_outer = QVBoxLayout(self.result_state)
-        result_outer.setContentsMargins(0, 0, 0, 0)
-        result_outer.setSpacing(0)
+        # 卡片标题
+        header = QHBoxLayout()
+        header.setSpacing(8)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet(Stylesheets.SCROLL_AREA)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet(f"""
+            font-size: 20px;
+            color: {Colors.PRIMARY};
+        """)
 
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        module_gap = int(Spacing.MODULE_GAP.replace('px', ''))
-        self.scroll_layout.setContentsMargins(module_gap, module_gap, module_gap, module_gap)
-        self.scroll_layout.setSpacing(module_gap)
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_SECTION};
+            font-weight: {Fonts.WEIGHT_BOLD};
+            color: {Colors.PRIMARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
 
-        self.basic_info_card = BasicInfoCard()
-        self.scroll_layout.addWidget(self.basic_info_card)
+        header.addWidget(icon_label)
+        header.addWidget(title_label)
+        header.addStretch()
 
-        self.bazi_card = BaziCard()
-        self.scroll_layout.addWidget(self.bazi_card)
+        # 分割线
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(f"background-color: {Colors.BORDER_LIGHT};")
 
-        self.wuxing_card = WuxingCard()
-        self.scroll_layout.addWidget(self.wuxing_card)
+        layout.addLayout(header)
+        layout.addWidget(divider)
+        layout.addWidget(content_widget)
 
-        self.fortune_card = FortuneCard()
-        self.scroll_layout.addWidget(self.fortune_card)
+        return card
 
-        self.ai_analysis_card = AIAnalysisCard()
-        self.scroll_layout.addWidget(self.ai_analysis_card)
+    def _create_info_grid(self, data):
+        """创建信息网格"""
+        widget = QWidget()
+        layout = QGridLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.setColumnStretch(1, 1)
 
-        self.scroll_layout.addStretch(1)
+        for i, (label, value) in enumerate(data):
+            label_widget = QLabel(label)
+            label_widget.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_SMALL};
+                color: {Colors.TEXT_TERTIARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
 
-        self.scroll_area.setWidget(self.scroll_content)
-        result_outer.addWidget(self.scroll_area)
+            value_widget = QLabel(str(value))
+            value_widget.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                color: {Colors.TEXT_PRIMARY};
+                font-weight: {Fonts.WEIGHT_BOLD};
+                font-family: {Fonts.FAMILY_CN};
+            """)
 
-        # 默认显示空状态
-        self.outer_layout.addWidget(self.empty_state)
-        self.outer_layout.addWidget(self.loading_state)
-        self.outer_layout.addWidget(self.result_state)
+            layout.addWidget(label_widget, i // 2, (i % 2) * 2)
+            layout.addWidget(value_widget, i // 2, (i % 2) * 2 + 1)
 
-        self.loading_state.hide()
-        self.result_state.hide()
+        return widget
 
-        self.setLayout(self.outer_layout)
+    def _create_bazi_grid(self, bazi_data):
+        """创建天干地支展示"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        pillars = [
+            ('年柱', bazi_data['year_pillar']),
+            ('月柱', bazi_data['month_pillar']),
+            ('日柱', bazi_data['day_pillar']),
+            ('时柱', bazi_data['hour_pillar']),
+        ]
+
+        for label, pillar in pillars:
+            pillar_widget = QFrame()
+            is_day = label == '日柱'
+            pillar_widget.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border-radius: {Spacing.CONTROL_RADIUS};
+                    padding: 12px;
+                }}
+                QFrame:hover {{
+                    background-color: {Colors.HOVER_BG};
+                }}
+            """)
+
+            p_layout = QVBoxLayout(pillar_widget)
+            p_layout.setContentsMargins(12, 10, 12, 10)
+            p_layout.setSpacing(6)
+            p_layout.setAlignment(Qt.AlignCenter)
+
+            label_widget = QLabel(label)
+            label_widget.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_SMALL};
+                color: {Colors.TEXT_TERTIARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            label_widget.setAlignment(Qt.AlignCenter)
+
+            gan_widget = QLabel(pillar[0])
+            gan_widget.setStyleSheet(f"""
+                font-size: 24px;
+                font-weight: {Fonts.WEIGHT_BOLD};
+                color: {Colors.ACCENT if is_day else Colors.PRIMARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            gan_widget.setAlignment(Qt.AlignCenter)
+
+            zhi_widget = QLabel(pillar[1])
+            zhi_widget.setStyleSheet(f"""
+                font-size: 24px;
+                font-weight: {Fonts.WEIGHT_BOLD};
+                color: {Colors.ACCENT if is_day else Colors.PRIMARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            zhi_widget.setAlignment(Qt.AlignCenter)
+
+            p_layout.addWidget(label_widget)
+            p_layout.addWidget(gan_widget)
+            p_layout.addWidget(zhi_widget)
+
+            layout.addWidget(pillar_widget)
+
+        return widget
+
+    def _create_wuxing_bars(self, wuxing_data):
+        """创建五行进度条"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        elements = [
+            ('金', wuxing_data.get('金', 0), '#C0C0C0', '#E8E8E8'),
+            ('木', wuxing_data.get('木', 0), '#4A7C59', '#6BA37A'),
+            ('水', wuxing_data.get('水', 0), '#2E5C8A', '#4A7FB5'),
+            ('火', wuxing_data.get('火', 0), '#C45C48', '#D97B6A'),
+            ('土', wuxing_data.get('土', 0), '#8B7355', '#A68B6B'),
+        ]
+
+        for name, value, color1, color2 in elements:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+
+            name_label = QLabel(name)
+            name_label.setFixedWidth(30)
+            name_label.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                color: {Colors.TEXT_SECONDARY};
+                font-weight: {Fonts.WEIGHT_BOLD};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            name_label.setAlignment(Qt.AlignCenter)
+
+            bar = QProgressBar()
+            bar.setValue(value)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(10)
+            bar.setStyleSheet(f"""
+                QProgressBar {{
+                    border: none;
+                    border-radius: 5px;
+                    background-color: {Colors.BACKGROUND};
+                }}
+                QProgressBar::chunk {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 {color1}, stop:1 {color2});
+                    border-radius: 5px;
+                }}
+            """)
+
+            value_label = QLabel(str(value))
+            value_label.setFixedWidth(24)
+            value_label.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_SMALL};
+                color: {Colors.TEXT_SECONDARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            value_label.setAlignment(Qt.AlignRight)
+
+            row.addWidget(name_label)
+            row.addWidget(bar, 1)
+            row.addWidget(value_label)
+
+            layout.addLayout(row)
+
+        return widget
+
+    def _create_analysis_list(self, analysis_data):
+        """创建吉凶批注列表"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        for item in analysis_data:
+            item_widget = QFrame()
+            item_type = item.get('type', '中')
+            badge_color = Colors.SUCCESS if item_type == '吉' else (Colors.DANGER if item_type == '凶' else Colors.WARNING)
+
+            item_widget.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border-radius: {Spacing.CONTROL_RADIUS};
+                    padding: 10px;
+                }}
+                QFrame:hover {{
+                    background-color: {Colors.HOVER_BG};
+                }}
+            """)
+
+            item_layout = QHBoxLayout(item_widget)
+            item_layout.setContentsMargins(12, 8, 12, 8)
+            item_layout.setSpacing(12)
+
+            badge = QLabel(item_type)
+            badge.setFixedSize(28, 28)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet(f"""
+                background-color: {badge_color};
+                color: white;
+                font-size: 12px;
+                font-weight: {Fonts.WEIGHT_BOLD};
+                border-radius: 4px;
+                font-family: {Fonts.FAMILY_CN};
+            """)
+
+            text = QLabel(item.get('text', ''))
+            text.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                color: {Colors.TEXT_SECONDARY};
+                font-family: {Fonts.FAMILY_CN};
+                line-height: 1.5;
+            """)
+            text.setWordWrap(True)
+
+            item_layout.addWidget(badge)
+            item_layout.addWidget(text, 1)
+
+            layout.addWidget(item_widget)
+
+        return widget
+
+    def display_result(self, result_data):
+        """显示排盘结果"""
+        # 清除旧内容
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 显示操作按钮
+        self.refresh_btn.setVisible(True)
+        self.copy_btn.setVisible(True)
+        self.save_btn.setVisible(True)
+        self.export_btn.setVisible(True)
+
+        # 更新状态栏
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(90, 143, 110, 0.08);
+                border: 1px solid {Colors.SUCCESS};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('✓ 排盘完成')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.SUCCESS};
+            font-family: {Fonts.FAMILY_CN};
+            font-weight: {Fonts.WEIGHT_BOLD};
+        """)
+
+        # 基础命盘信息卡片
+        basic_info = result_data.get('basic_info', {})
+        info_data = [
+            ('排盘类型', basic_info.get('pan_type', '八字排盘')),
+            ('公历日期', basic_info.get('solar_date', '-')),
+            ('农历日期', basic_info.get('lunar_date', '-')),
+            ('出生时辰', basic_info.get('hour', '-')),
+            ('出生地点', basic_info.get('location', '-')),
+            ('性别', basic_info.get('gender', '男')),
+        ]
+        info_widget = self._create_info_grid(info_data)
+        info_card = self._create_result_card('基础命盘信息', 'ℹ', info_widget)
+        self.content_layout.addWidget(info_card)
+
+        # 天干地支卡片
+        bazi_data = result_data.get('bazi', {})
+        if bazi_data:
+            bazi_widget = self._create_bazi_grid(bazi_data)
+            bazi_card = self._create_result_card('天干地支', '★', bazi_widget, highlight=True)
+            self.content_layout.addWidget(bazi_card)
+
+        # 五行分析卡片
+        wuxing_data = result_data.get('wuxing', {})
+        if wuxing_data:
+            wuxing_widget = self._create_wuxing_bars(wuxing_data)
+            wuxing_card = self._create_result_card('五行分析', '◆', wuxing_widget)
+            self.content_layout.addWidget(wuxing_card)
+
+        # 吉凶批注卡片
+        analysis_data = result_data.get('analysis', [])
+        if analysis_data:
+            analysis_widget = self._create_analysis_list(analysis_data)
+            analysis_card = self._create_result_card('吉凶批注', '⚖', analysis_widget, highlight=True)
+            self.content_layout.addWidget(analysis_card)
+
+        self.content_layout.addStretch()
 
     def show_loading(self):
         """显示加载状态"""
-        self.empty_state.hide()
-        self.result_state.hide()
-        self.loading_state.show()
-        self.loading_progress.setValue(0)
-        self.loading_detail.setText('正在计算四柱八字...')
-        self._animate_loading_icon()
+        # 更新状态栏
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.CARD}, stop:0.5 {Colors.HIGHLIGHT_GLOW}, stop:1 {Colors.CARD});
+                background-size: 200% 100%;
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('⏳ 正在精准排盘，请稍候...')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
 
-    def _animate_loading_icon(self):
-        """简单的旋转动画效果"""
-        self._loading_angle = 0
-        self._loading_timer = QTimer()
-        self._loading_timer.timeout.connect(self._rotate_icon)
-        self._loading_timer.start(80)
+        # 隐藏操作按钮
+        self.refresh_btn.setVisible(False)
+        self.copy_btn.setVisible(False)
+        self.save_btn.setVisible(False)
+        self.export_btn.setVisible(False)
 
-    def _rotate_icon(self):
-        symbols = ['☯', '✦', '✧', '☯', '✦', '✧']
-        self._loading_angle = (self._loading_angle + 1) % len(symbols)
-        self.loading_icon_label.setText(symbols[self._loading_angle])
+        # 清除内容，显示加载动画
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-    def hide_loading(self):
-        """隐藏加载状态"""
-        self._loading_timer.stop()
-        self.loading_state.hide()
+        loading_widget = self._create_loading_widget()
+        self.content_layout.addWidget(loading_widget)
+        self.content_layout.addStretch()
 
-    def update_loading_progress(self, value, text):
-        """更新加载进度"""
-        self.loading_progress.setValue(value)
-        if text:
-            self.loading_detail.setText(text)
+    def _create_loading_widget(self):
+        """创建加载动画组件"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
 
-    def show_results(self):
-        """显示结果状态"""
-        self.empty_state.hide()
-        self.loading_state.hide()
-        self.result_state.show()
-        self.has_data = True
+        # 太极图标（用Unicode代替）
+        taiji = QLabel('☯')
+        taiji.setStyleSheet(f"""
+            font-size: 80px;
+            color: {Colors.PRIMARY};
+        """)
+        taiji.setAlignment(Qt.AlignCenter)
 
-    def update_basic_info(self, bazhi_data, input_data, save_info=None):
-        self.show_results()
-        self.basic_info_card.update_info(bazhi_data, input_data, save_info)
+        # 添加旋转动画
+        self.taiji_animation = QPropertyAnimation(taiji, b"rotation")
+        self.taiji_animation.setDuration(3000)
+        self.taiji_animation.setStartValue(0)
+        self.taiji_animation.setEndValue(360)
+        self.taiji_animation.setEasingCurve(QEasingCurve.Linear)
+        self.taiji_animation.setLoopCount(-1)
+        self.taiji_animation.start()
 
-    def update_bazi(self, bazhi_data, shishen_data):
-        self.show_results()
-        self.bazi_card.update_bazi(bazhi_data, shishen_data)
+        text = QLabel('正在精准排盘，请稍候...')
+        text.setStyleSheet(f"""
+            font-size: 16px;
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+            letter-spacing: 1px;
+        """)
+        text.setAlignment(Qt.AlignCenter)
 
-    def update_wuxing(self, wuxing_data):
-        self.show_results()
-        self.wuxing_card.update_wuxing(wuxing_data)
+        layout.addStretch()
+        layout.addWidget(taiji)
+        layout.addWidget(text)
+        layout.addStretch()
 
-    def update_fortune(self, fortune_data):
-        self.show_results()
-        self.fortune_card.update_fortune(fortune_data)
-
-    def update_ai_analysis(self, ai_data):
-        self.show_results()
-        self.ai_analysis_card.update_analysis(ai_data)
+        widget.setMinimumHeight(400)
+        return widget
 
     def clear(self):
-        self.has_data = False
-        self._loading_timer.stop()
-        self.loading_state.hide()
-        self.result_state.hide()
-        self.empty_state.show()
-        self.basic_info_card.update_info({}, {})
-        self.bazi_card.update_bazi({}, {})
-        self.wuxing_card.update_wuxing({})
-        self.fortune_card.update_fortune({})
-        self.ai_analysis_card.update_analysis({})
+        """清空结果"""
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.empty_state = self._create_empty_state()
+        self.content_layout.addWidget(self.empty_state)
+
+        # 重置状态栏
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Colors.CARD};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('ℹ 请完善左侧参数，点击「开始排盘」获取专业风水分析')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
+
+        # 隐藏操作按钮
+        self.refresh_btn.setVisible(False)
+        self.copy_btn.setVisible(False)
+        self.save_btn.setVisible(False)
+        self.export_btn.setVisible(False)
