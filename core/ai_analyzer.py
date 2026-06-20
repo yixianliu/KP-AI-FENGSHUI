@@ -4,6 +4,7 @@ import traceback
 import time
 import warnings
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING, DI_ZHI_HIDDEN_GAN
+from core.knowledge_base import KnowledgeBase
 
 # 禁用未验证HTTPS请求警告（仅用于开发测试环境，生产环境应启用证书验证）
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -78,17 +79,20 @@ ELEMENT_RECOMMENDATIONS = {
 class AIAnalyzer:
     def __init__(self):
         self.use_api = True
+        self.knowledge_base = KnowledgeBase()
+
+    # ==================== 八字分析 ====================
 
     def analyze(self, bazhi, wuxing_result, shishen_result,
                 mingli_result=None, major_fortune=None, input_data=None):
         """
-        主分析方法，优先使用API分析，失败时降级到本地分析
+        八字分析主方法，优先使用API分析，失败时降级到本地分析
         """
         print(f"[AI分析器] 开始分析八字: {bazhi.get('四柱', '未知')}")
         
         if self.use_api:
             try:
-                result = self._analyze_via_api(
+                result = self._analyze_bazi_via_api(
                     bazhi, wuxing_result, shishen_result,
                     mingli_result, major_fortune, input_data
                 )
@@ -96,27 +100,89 @@ class AIAnalyzer:
                 return result
             except Exception as e:
                 print(f"[AI分析器] API分析失败，降级到本地分析: {str(e)}")
-                result = self._analyze_locally(
+                result = self._analyze_bazi_locally(
                     bazhi, wuxing_result, shishen_result, mingli_result
                 )
                 print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
                 return result
         else:
-            result = self._analyze_locally(bazhi, wuxing_result, shishen_result, mingli_result)
+            result = self._analyze_bazi_locally(bazhi, wuxing_result, shishen_result, mingli_result)
             print(f"[AI分析器] 本地分析完成，返回字段: {list(result.keys())}")
             return result
 
-    def _analyze_via_api(self, bazhi, wuxing_result, shishen_result,
-                         mingli_result=None, major_fortune=None, input_data=None):
+    def _analyze_bazi_via_api(self, bazhi, wuxing_result, shishen_result,
+                               mingli_result=None, major_fortune=None, input_data=None):
         """
-        通过API进行AI分析，支持流式响应和重试机制
-        参考 spark_api_reference.py 的实现方式
+        通过API进行八字AI分析
         """
-        prompt = self._build_prompt(
+        prompt = self._build_bazi_prompt(
             bazhi, wuxing_result, shishen_result,
             mingli_result, major_fortune, input_data
         )
         
+        system_prompt = (
+            "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神、十二长生、神煞等专业知识。"
+            "请基于用户提供的八字信息进行专业深入的分析。"
+            "输出格式要求：用JSON格式输出，包含以下字段："
+            "personality（性格特质，数组）、career（事业财运，数组）、marriage（婚姻感情，数组）、"
+            "health（健康注意，数组）、suggestions（综合建议，数组）。"
+            "每个字段都是字符串数组，每个字符串是一个要点。"
+            "请结合命理知识进行深度分析，不要泛泛而谈。"
+        )
+        
+        return self._call_api(prompt, system_prompt, ['personality', 'career', 'marriage', 'health', 'suggestions'])
+
+    # ==================== 梅花易数分析 ====================
+
+    def analyze_meihua(self, hexagram_analysis, question='', divination_method=''):
+        """
+        梅花易数分析主方法，优先使用API分析，失败时降级到本地分析
+        """
+        base_name = hexagram_analysis.get('base', {}).get('name', '未知卦')
+        print(f"[AI分析器] 开始分析梅花易数: {base_name}")
+        
+        if self.use_api:
+            try:
+                result = self._analyze_meihua_via_api(hexagram_analysis, question, divination_method)
+                print(f"[AI分析器] 梅花易数API分析成功，返回字段: {list(result.keys())}")
+                return result
+            except Exception as e:
+                print(f"[AI分析器] 梅花易数API分析失败，降级到本地分析: {str(e)}")
+                result = self._analyze_meihua_locally(hexagram_analysis, question)
+                print(f"[AI分析器] 梅花易数本地分析完成，返回字段: {list(result.keys())}")
+                return result
+        else:
+            result = self._analyze_meihua_locally(hexagram_analysis, question)
+            print(f"[AI分析器] 梅花易数本地分析完成，返回字段: {list(result.keys())}")
+            return result
+
+    def _analyze_meihua_via_api(self, hexagram_analysis, question='', divination_method=''):
+        """
+        通过API进行梅花易数AI分析
+        """
+        prompt = self._build_meihua_prompt(hexagram_analysis, question, divination_method)
+        
+        system_prompt = (
+            "你是一位精通梅花易数的专业占卜大师，深谙64卦卦辞爻辞、体用生克、互变错综等解卦之道。"
+            "请基于用户提供的卦象信息进行专业深入的解读和分析。"
+            "输出格式要求：用JSON格式输出，包含以下字段："
+            "gua_overview（卦象概述，数组）、situation_analysis（事态分析，数组）、"
+            "good_omens（吉兆机遇，数组）、bad_omens（凶兆隐患，数组）、"
+            "action_advice（行动建议，数组）、final_verdict（总结判断，字符串）。"
+            "请结合卦辞、爻辞、体用生克进行深度分析，针对所问之事给出具体实用的建议。"
+        )
+        
+        return self._call_api(
+            prompt, system_prompt,
+            ['gua_overview', 'situation_analysis', 'good_omens', 'bad_omens', 'action_advice', 'final_verdict']
+        )
+
+    # ==================== 通用API调用 ====================
+
+    def _call_api(self, prompt, system_prompt, required_fields):
+        """
+        通用API调用方法，支持流式响应和重试机制
+        """
         headers = {
             'Authorization': API_KEY,
             'Content-Type': 'application/json'
@@ -126,14 +192,8 @@ class AIAnalyzer:
             "model": "x1",
             "user": "fs_shi",
             "messages": [
-                {
-                    "role": "system",
-                    "content": "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神等知识。请基于用户提供的八字信息进行专业分析，输出格式要求：用JSON格式输出，包含以下字段：personality（性格特质，数组）、career（事业财运，数组）、marriage（婚姻感情，数组）、health（健康注意，数组）、suggestions（综合建议，数组）。每个字段都是字符串数组，每个字符串是一个要点。"
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
             ],
             "stream": True,
             "tools": [
@@ -166,8 +226,6 @@ class AIAnalyzer:
                 
                 for chunks in response.iter_lines():
                     if chunks and '[DONE]' not in str(chunks):
-                        print(f"[AI分析器] 接收到数据块: {str(chunks)[:200]}")
-                        
                         # 移除数据头（"data: "）
                         chunk_str = str(chunks)
                         if chunk_str.startswith("b'data: "):
@@ -186,39 +244,29 @@ class AIAnalyzer:
                             if 'content' in text and '' != text['content']:
                                 content = text["content"]
                                 full_response += content
-                                print(f"[AI分析器] 追加内容: {content[:50]}...")
-                        except json.JSONDecodeError as e:
-                            print(f"[AI分析器] JSON解析失败: {str(e)}")
+                        except json.JSONDecodeError:
                             continue
-                
-                print(f"[AI分析器] 完整响应: {full_response[:500]}")
                 
                 if full_response:
                     # 移除Markdown代码块标记
                     full_response = full_response.strip()
                     if full_response.startswith('```json'):
-                        full_response = full_response[7:]  # 移除 ```json
+                        full_response = full_response[7:]
                     elif full_response.startswith('```'):
-                        full_response = full_response[3:]   # 移除 ```
+                        full_response = full_response[3:]
                     
                     if full_response.endswith('```'):
-                        full_response = full_response[:-3]  # 移除结尾的 ```
+                        full_response = full_response[:-3]
                     
                     full_response = full_response.strip()
                     
-                    print(f"[AI分析器] 处理后响应: {full_response[:300]}")
-                    
                     try:
                         result = json.loads(full_response)
-                        print(f"[AI分析器] JSON解析成功")
-                        return self._validate_and_format_result(result)
-                    except json.JSONDecodeError as e:
-                        print(f"[AI分析器] JSON解析失败: {str(e)}")
-                        print(f"[AI分析器] 尝试文本解析")
-                        return self._parse_text_response(full_response)
+                        return self._validate_result(result, required_fields)
+                    except json.JSONDecodeError:
+                        return self._parse_text_to_fields(full_response, required_fields)
                 
-                print(f"[AI分析器] 响应为空，使用降级结果")
-                return self._create_fallback_result()
+                return self._create_fallback_result(required_fields)
                 
             except requests.exceptions.RequestException as e:
                 last_exception = e
@@ -230,10 +278,12 @@ class AIAnalyzer:
         
         raise Exception(f"API请求失败: {str(last_exception)}")
 
-    def _build_prompt(self, bazhi, wuxing_result, shishen_result,
-                      mingli_result=None, major_fortune=None, input_data=None):
+    # ==================== 八字提示词构建 ====================
+
+    def _build_bazi_prompt(self, bazhi, wuxing_result, shishen_result,
+                           mingli_result=None, major_fortune=None, input_data=None):
         """
-        构建API请求的提示词
+        构建八字分析的提示词，整合知识库内容
         """
         parts = []
 
@@ -287,6 +337,11 @@ class AIAnalyzer:
                     parts.append(f"地支关系：{zhi_relations}")
             if mingli_result.get('kongwang', {}).get('description'):
                 parts.append(f"空亡信息：{mingli_result['kongwang']['description']}")
+            if mingli_result.get('shier_changsheng'):
+                cs_list = []
+                for pillar, info in mingli_result['shier_changsheng'].items():
+                    cs_list.append(f"{pillar}{info.get('name', '')}")
+                parts.append(f"十二长生：{'、'.join(cs_list)}")
 
         if major_fortune and major_fortune.get('periods'):
             fortune_lines = []
@@ -300,13 +355,84 @@ class AIAnalyzer:
                 + '；'.join(fortune_lines)
             )
         
+        # 添加知识库参考
+        bazi_data_for_kb = {
+            'rizhu': bazhi.get('rizhu', ''),
+            'wuxing': wuxing_result
+        }
+        kb_context = self.knowledge_base.build_bazi_knowledge_context(bazi_data_for_kb)
+        if kb_context:
+            parts.append("\n【命理知识参考】")
+            parts.append(kb_context)
+        
         return '\n'.join(parts)
 
-    def _validate_and_format_result(self, result):
+    # ==================== 梅花易数提示词构建 ====================
+
+    def _build_meihua_prompt(self, hexagram_analysis, question='', divination_method=''):
+        """
+        构建梅花易数分析的提示词，整合知识库内容
+        """
+        parts = []
+        
+        if question:
+            parts.append(f"所问之事：{question}")
+        if divination_method:
+            parts.append(f"起卦方式：{divination_method}")
+        
+        base = hexagram_analysis.get('base', {})
+        hu = hexagram_analysis.get('hu', {})
+        bian = hexagram_analysis.get('bian', {})
+        cuo = hexagram_analysis.get('cuo', {})
+        zong = hexagram_analysis.get('zong', {})
+        
+        parts.append(f"\n本卦：{base.get('name', '')}")
+        parts.append(f"  上卦：{base.get('upper_name', '')}({base.get('upper_nature', '')}) {base.get('upper_symbol', '')}")
+        parts.append(f"  下卦：{base.get('lower_name', '')}({base.get('lower_nature', '')}) {base.get('lower_symbol', '')}")
+        parts.append(f"  卦辞：{base.get('gua_ci', '')}")
+        parts.append(f"  卦义：{base.get('description', '')}")
+        
+        changing_yao = base.get('changing_yao', 0)
+        if changing_yao:
+            parts.append(f"  动爻：第{changing_yao}爻 - {base.get('changing_yao_name', '')}")
+            parts.append(f"  爻辞：{base.get('changing_yao_text', '')}")
+            parts.append(f"  爻义：{base.get('changing_yao_meaning', '')}")
+        
+        parts.append(f"\n互卦：{hu.get('name', '')}")
+        parts.append(f"  卦义：{hu.get('description', '')}")
+        
+        parts.append(f"\n变卦：{bian.get('name', '')}")
+        parts.append(f"  卦义：{bian.get('description', '')}")
+        parts.append(f"  判断：{bian.get('judgment', '')}")
+        
+        parts.append(f"\n错卦：{cuo.get('name', '')}")
+        parts.append(f"  卦义：{cuo.get('description', '')}")
+        
+        parts.append(f"\n综卦：{zong.get('name', '')}")
+        parts.append(f"  卦义：{zong.get('description', '')}")
+        
+        wuxing_analysis = hexagram_analysis.get('wuxing_analysis', {})
+        if wuxing_analysis:
+            parts.append(f"\n五行分析：")
+            parts.append(f"  本卦体用关系：{wuxing_analysis.get('base_relation', '')}")
+            parts.append(f"  变卦体用关系：{wuxing_analysis.get('bian_relation', '')}")
+        
+        parts.append(f"\n综合吉凶判断：{hexagram_analysis.get('overall_judgment', '')}")
+        
+        # 添加知识库参考
+        kb_context = self.knowledge_base.build_meihua_knowledge_context(hexagram_analysis)
+        if kb_context:
+            parts.append("\n【梅花易数知识参考】")
+            parts.append(kb_context)
+        
+        return '\n'.join(parts)
+
+    # ==================== 通用结果处理 ====================
+
+    def _validate_result(self, result, required_fields):
         """
         验证并格式化API返回结果
         """
-        required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions']
         formatted = {}
         
         for field in required_fields:
@@ -320,61 +446,82 @@ class AIAnalyzer:
         
         return formatted
 
-    def _parse_text_response(self, content):
+    def _parse_text_to_fields(self, content, required_fields):
         """
-        解析非JSON格式的文本响应
+        解析非JSON格式的文本响应，按字段分类
         """
-        sections = {
-            '性格': 'personality',
-            '事业': 'career',
-            '财运': 'career',
-            '婚姻': 'marriage',
-            '感情': 'marriage',
-            '健康': 'health',
-            '建议': 'suggestions'
+        section_keywords = {
+            'personality': ['性格', '人格', '特质', '个性'],
+            'career': ['事业', '财运', '工作', '职业', '生意'],
+            'marriage': ['婚姻', '感情', '爱情', '姻缘', '婚恋'],
+            'health': ['健康', '身体', '疾病', '养生'],
+            'suggestions': ['建议', '忠告', '提示', '注意事项'],
+            'gua_overview': ['卦象概述', '卦象解读', '卦义', '卦意'],
+            'situation_analysis': ['事态分析', '现状分析', '情况分析', '形势'],
+            'good_omens': ['吉兆', '机遇', '好运', '有利', '吉'],
+            'bad_omens': ['凶兆', '隐患', '风险', '不利', '凶'],
+            'action_advice': ['行动建议', '建议', '怎么做', '如何', '对策'],
+            'final_verdict': ['总结', '结论', '判断', '最终']
         }
         
-        result = {
-            'personality': [],
-            'career': [],
-            'marriage': [],
-            'health': [],
-            'suggestions': []
-        }
+        result = {}
+        for field in required_fields:
+            result[field] = [] if field != 'final_verdict' else ''
         
-        current_section = None
+        current_field = None
         
         for line in content.split('\n'):
             line = line.strip()
             if not line:
                 continue
             
-            for keyword, field in sections.items():
-                if keyword in line:
-                    current_section = field
-                    continue
+            matched = False
+            for field, keywords in section_keywords.items():
+                if field in required_fields:
+                    for kw in keywords:
+                        if kw in line and len(line) < 30:
+                            current_field = field
+                            matched = True
+                            break
+                if matched:
+                    break
             
-            if current_section and line:
-                if line[0] in ['•', '·', '-', '●', '★', '1.', '2.', '3.', '（', '(']:
-                    result[current_section].append(line.lstrip('•·-●★1234567890.（() '))
+            if matched:
+                continue
+            
+            if current_field and current_field in required_fields:
+                if current_field == 'final_verdict':
+                    if not result[current_field]:
+                        result[current_field] = line
+                else:
+                    if line[0] in ['•', '·', '-', '●', '★', '◆', '1.', '2.', '3.', '4.', '5.', '（', '(']:
+                        result[current_field].append(line.lstrip('•·-●★◆1234567890.（() '))
+                    elif len(line) > 10:
+                        result[current_field].append(line)
+        
+        # 确保final_verdict有值
+        if 'final_verdict' in required_fields and not result.get('final_verdict'):
+            result['final_verdict'] = '需结合实际情况综合判断'
         
         return result
 
-    def _create_fallback_result(self):
+    def _create_fallback_result(self, required_fields):
         """
         创建降级结果
         """
-        return {
-            'personality': ['API暂时不可用，请稍后重试'],
-            'career': ['API暂时不可用，请稍后重试'],
-            'marriage': ['API暂时不可用，请稍后重试'],
-            'health': ['API暂时不可用，请稍后重试'],
-            'suggestions': ['API暂时不可用，请稍后重试']
-        }
+        result = {}
+        for field in required_fields:
+            if field == 'final_verdict':
+                result[field] = 'API暂时不可用，请稍后重试'
+            else:
+                result[field] = ['API暂时不可用，请稍后重试']
+        return result
 
-    def _analyze_locally(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
+    # ==================== 八字本地分析 ====================
+
+    def _analyze_bazi_locally(self, bazhi, wuxing_result, shishen_result, mingli_result=None):
         """
-        本地分析（降级方案）
+        八字本地分析（降级方案）
         """
         rizhu = bazhi['rizhu']
         rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
@@ -385,6 +532,90 @@ class AIAnalyzer:
             'marriage': self._generate_marriage(shishen_result),
             'health': self._generate_health(rizhu_wx, wuxing_result),
             'suggestions': self._generate_recommendations(rizhu_wx, wuxing_result)
+        }
+
+    # ==================== 梅花易数本地分析 ====================
+
+    def _analyze_meihua_locally(self, hexagram_analysis, question=''):
+        """
+        梅花易数本地分析（降级方案）
+        """
+        base = hexagram_analysis.get('base', {})
+        bian = hexagram_analysis.get('bian', {})
+        judgment = hexagram_analysis.get('overall_judgment', '平')
+        suggestions = hexagram_analysis.get('suggestions', [])
+        wuxing_analysis = hexagram_analysis.get('wuxing_analysis', {})
+        
+        gua_overview = []
+        base_name = base.get('name', '')
+        base_desc = base.get('description', '')
+        gua_overview.append(f'本卦为{base_name}，{base_desc}')
+        
+        hu = hexagram_analysis.get('hu', {})
+        if hu.get('name'):
+            gua_overview.append(f'互卦为{hu["name"]}，代表事物发展过程中的中间状态')
+        
+        bian_name = bian.get('name', '')
+        if bian_name:
+            gua_overview.append(f'变卦为{bian_name}，代表事物发展的最终趋势和结果')
+        
+        situation_analysis = []
+        changing_yao = base.get('changing_yao', 0)
+        if changing_yao:
+            yao_name = base.get('changing_yao_name', '')
+            yao_text = base.get('changing_yao_text', '')
+            yao_meaning = base.get('changing_yao_meaning', '')
+            situation_analysis.append(f'动爻为{yao_name}，爻辞曰：{yao_text}')
+            situation_analysis.append(f'爻义：{yao_meaning}')
+        
+        base_relation = wuxing_analysis.get('base_relation', '')
+        if base_relation:
+            relation_desc = {
+                '比和': '体用比和，诸事顺遂，谋事易成',
+                '我生': '体生用，耗泄之象，需付出较多努力',
+                '生我': '用生体，有生助之象，易得贵人相助',
+                '我克': '体克用，我能制彼，虽有操劳但可成事',
+                '克我': '用克体，受制之象，多有不顺，宜守不宜攻'
+            }
+            situation_analysis.append(f'本卦体用关系：{base_relation}。{relation_desc.get(base_relation, "")}')
+        
+        good_omens = []
+        bad_omens = []
+        
+        if judgment == '吉':
+            good_omens.append('卦象吉利，运势向好')
+            good_omens.append('谋事易成，宜积极进取')
+            if base_relation in ['生我', '比和']:
+                good_omens.append('体用相生或比和，助力充足')
+        elif judgment == '凶':
+            bad_omens.append('卦象不吉，运势欠佳')
+            bad_omens.append('诸事多阻，宜守不宜攻')
+            if base_relation in ['克我', '我生']:
+                bad_omens.append('体用相克或耗泄，力量不足')
+        else:
+            good_omens.append('卦象平稳，吉凶参半')
+            bad_omens.append('不可冒进，稳扎稳打为上')
+        
+        action_advice = suggestions[:5] if suggestions else []
+        if question:
+            action_advice.append(f'针对所问「{question}」，宜审时度势，量力而行')
+        
+        # 总结判断
+        final_verdict = ''
+        if judgment == '吉':
+            final_verdict = f'{base_name}变{bian_name}，卦象吉利，诸事顺遂，宜把握机遇积极进取。'
+        elif judgment == '凶':
+            final_verdict = f'{base_name}变{bian_name}，卦象欠佳，诸事多阻，宜谨小慎微守静待时。'
+        else:
+            final_verdict = f'{base_name}变{bian_name}，卦象平稳，吉凶参半，宜稳扎稳打随机应变。'
+        
+        return {
+            'gua_overview': gua_overview,
+            'situation_analysis': situation_analysis,
+            'good_omens': good_omens,
+            'bad_omens': bad_omens,
+            'action_advice': action_advice,
+            'final_verdict': final_verdict
         }
 
     def _generate_personality(self, rizhu_wx, wuxing_result):

@@ -36,64 +36,151 @@ NAYIN_MAP = {
 
 SHEN_SHA = {
     '天德': {
+        'type': 'positive',
         'description': '天德贵人，主吉祥、逢凶化吉，一生少病灾',
+        'detailed': '天德贵人是四柱神煞中最吉祥的神煞之一。天德者，谓合天德之正气，主人慈祥和蔼，聪明正直，一生少病灾，遇难呈祥，逢凶化吉。命中有天德贵人者，多为善良之人，容易得到他人帮助，一生平安顺遂。',
         'locations': ['月柱'],
         'conditions': {'丙': ['寅'], '丁': ['亥'], '戊': ['寅'], '己': ['申'], '庚': ['亥'], '辛': ['巳'], '壬': ['寅'], '癸': ['申']}
     },
     '月德': {
+        'type': 'positive',
         'description': '月德贵人，主仁慈、聪明、福寿，一生平安',
+        'detailed': '月德贵人与天德贵人并称"二德"，同为吉祥神煞。月德者，谓合月德之正气，主人仁慈敦厚，聪明好学，福寿双全，一生平安。命中有月德贵人者，性情温和，乐于助人，容易得到长辈和上级的提携。',
         'locations': ['月柱'],
         'conditions': {'丙': ['甲'], '丁': ['壬'], '戊': ['丙'], '己': ['甲'], '庚': ['戊'], '辛': ['丙'], '壬': ['庚'], '癸': ['戊']}
     },
     '文昌': {
+        'type': 'positive',
         'description': '文昌星，主学业、才华、聪明过人',
+        'detailed': '文昌星主学业、文章、才华。命中有文昌星者，聪明伶俐，记忆力强，学习能力出众，容易在学业上取得优异成绩，适合从事学术研究、教育、文化艺术等工作。文昌星入命，主其人多才多艺，富有创造力。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'甲': ['巳'], '乙': ['午'], '丙': ['申'], '丁': ['酉'], '戊': ['申'], '己': ['酉'], '庚': ['亥'], '辛': ['子'], '壬': ['寅'], '癸': ['卯']}
     },
     '桃花': {
+        'type': 'neutral',
         'description': '桃花星，主人缘、异性缘、社交能力强',
+        'detailed': '桃花星主异性缘、人际关系、社交能力。命中有桃花星者，相貌俊秀，气质高雅，善于交际，异性缘旺盛。桃花星也主艺术才华，适合从事演艺、娱乐、公关等行业。但桃花过旺也可能带来感情困扰，需注意把握分寸。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'子': ['卯'], '午': ['酉'], '卯': ['子'], '酉': ['午']}
     },
     '驿马': {
+        'type': 'neutral',
         'description': '驿马星，主变动、旅行、迁移',
+        'detailed': '驿马星主变动、旅行、迁移、外出。命中有驿马星者，一生多动少静，喜欢旅行和探索，适合从事需要经常出差或外出的工作，如销售、物流、旅游等行业。驿马星也主机遇，往往在变动中获得发展机会。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'申': ['寅'], '寅': ['申'], '巳': ['亥'], '亥': ['巳']}
     },
     '华盖': {
+        'type': 'neutral',
         'description': '华盖星，主艺术、才华、孤独',
+        'detailed': '华盖星主艺术、才华、宗教、哲学。命中有华盖星者，富有艺术天赋，对传统文化、宗教哲学有浓厚兴趣，容易在这些领域取得成就。但华盖星也主孤独，其人往往性格内向，喜欢独处，有时会显得孤僻不合群。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'寅': ['戌'], '戌': ['寅'], '辰': ['丑'], '丑': ['辰']}
     },
     '将星': {
+        'type': 'positive',
         'description': '将星，主权威、领导力、事业有成',
+        'detailed': '将星主权威、领导力、组织能力。命中有将星者，具有领导才能，善于组织和指挥他人，容易成为团队中的核心人物或领导者。将星入命，主其人在事业上容易取得成就，适合从事管理、军事、政治等工作。',
         'locations': ['月柱', '时柱'],
         'conditions': {'子': ['午'], '午': ['子'], '卯': ['酉'], '酉': ['卯']}
     },
     '天乙': {
+        'type': 'positive',
         'description': '天乙贵人，主贵人相助、逢凶化吉',
+        'detailed': '天乙贵人是四柱神煞中最重要的贵人星。天乙者，乃天上之神，在紫微垣、阊阖门外，与太乙并列，事天皇大帝，下游三辰，家在己丑斗牛之次，出乎己未井鬼之舍，执玉衡较量天人之事，名曰天乙也。命中有天乙贵人者，一生多得贵人相助，逢凶化吉，遇难呈祥。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'甲': ['丑', '未'], '乙': ['子', '申'], '丙': ['亥', '酉'], '丁': ['亥', '酉'], '戊': ['丑', '未'], '己': ['子', '申'], '庚': ['寅', '午'], '辛': ['寅', '午'], '壬': ['巳', '卯'], '癸': ['巳', '卯']}
     },
     '劫煞': {
+        'type': 'negative',
         'description': '劫煞，主是非、争斗、意外之灾',
+        'detailed': '劫煞主是非、争斗、抢劫、意外之灾。命中有劫煞者，性格刚烈，容易冲动，好勇斗狠，容易与人发生争执和冲突。劫煞也主财物损失，需注意防范盗窃、抢劫等意外事件。但劫煞也主勇敢果断，若能善用其力，也可在竞争中取得优势。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'申': ['巳'], '巳': ['申'], '寅': ['亥'], '亥': ['寅']}
     },
     '亡神': {
+        'type': 'negative',
         'description': '亡神，主官非、病灾、精神困扰',
+        'detailed': '亡神主官非、病灾、精神困扰。命中有亡神者，容易遇到官司诉讼，身体方面容易有慢性疾病，精神上容易焦虑不安。亡神也主阴谋、暗害，需注意防范小人陷害。但亡神也主聪明才智，若能修身养性，也可将其转化为智慧之力。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'寅': ['巳'], '巳': ['申'], '申': ['亥'], '亥': ['寅']}
     },
     '孤辰': {
+        'type': 'negative',
         'description': '孤辰，主孤独、寡合、婚姻不顺',
+        'detailed': '孤辰主孤独、寡合、婚姻不顺。命中有孤辰者，性格孤僻，不善于与人交往，朋友稀少，婚姻方面容易晚婚或婚姻不顺。孤辰也主内心空虚，容易感到孤独寂寞。但孤辰也主独立自强，其人往往能够独自完成事业，不需要依赖他人。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'寅': ['巳'], '巳': ['申'], '申': ['亥'], '亥': ['寅']}
     },
     '寡宿': {
+        'type': 'negative',
         'description': '寡宿，主孤独、守寡、人际关系淡薄',
+        'detailed': '寡宿主孤独、守寡、人际关系淡薄。命中有寡宿者，女性容易守寡或婚姻不幸，男性则容易孤独终老。寡宿也主人际关系淡薄，朋友不多，社交圈子狭窄。但寡宿也主清净无为，其人往往能够专注于自己的事业，不受外界干扰。',
         'locations': ['年柱', '月柱', '日柱', '时柱'],
         'conditions': {'辰': ['丑'], '丑': ['辰'], '戌': ['未'], '未': ['戌']}
+    },
+    '福星': {
+        'type': 'positive',
+        'description': '福星贵人，主福禄、长寿、吉祥',
+        'detailed': '福星贵人主福禄、长寿、吉祥。命中有福星贵人者，一生福气深厚，衣食无忧，寿命较长。福星贵人也主善良仁慈，乐于助人，容易得到他人的尊敬和爱戴。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['子'], '乙': ['丑'], '丙': ['寅'], '丁': ['卯'], '戊': ['辰'], '己': ['巳'], '庚': ['午'], '辛': ['未'], '壬': ['申'], '癸': ['酉']}
+    },
+    '金舆': {
+        'type': 'positive',
+        'description': '金舆贵人，主财富、地位、车房',
+        'detailed': '金舆贵人主财富、地位、车房。命中有金舆贵人者，容易拥有车辆、房产等资产，财运较好，社会地位较高。金舆贵人也主出行便利，一生出行多有车辆代步。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['辰'], '乙': ['巳'], '丙': ['午'], '丁': ['未'], '戊': ['申'], '己': ['酉'], '庚': ['戌'], '辛': ['亥'], '壬': ['子'], '癸': ['丑']}
+    },
+    '学堂': {
+        'type': 'positive',
+        'description': '学堂星，主学业、教育、知识',
+        'detailed': '学堂星主学业、教育、知识。命中有学堂星者，学习能力强，学业成绩优异，适合从事教育、学术研究等工作。学堂星也主智慧，其人往往聪明好学，知识渊博。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['亥'], '乙': ['戌'], '丙': ['寅'], '丁': ['卯'], '戊': ['巳'], '己': ['午'], '庚': ['申'], '辛': ['酉'], '壬': ['子'], '癸': ['丑']}
+    },
+    '词馆': {
+        'type': 'positive',
+        'description': '词馆星，主文辞、才华、写作',
+        'detailed': '词馆星主文辞、才华、写作。命中有词馆星者，善于文辞表达，写作能力强，适合从事文学创作、新闻媒体、文案策划等工作。词馆星也主口才，其人往往能言善辩，表达能力出众。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['寅'], '乙': ['卯'], '丙': ['巳'], '丁': ['午'], '戊': ['申'], '己': ['酉'], '庚': ['亥'], '辛': ['子'], '壬': ['辰'], '癸': ['丑']}
+    },
+    '太极贵人': {
+        'type': 'positive',
+        'description': '太极贵人，主智慧、神秘、悟性',
+        'detailed': '太极贵人主智慧、神秘、悟性。命中有太极贵人者，对哲学、宗教、神秘学等有浓厚兴趣，悟性较高，容易理解深奥的道理。太极贵人也主创造力，其人往往能够提出独特的见解和想法。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['子'], '乙': ['午'], '丙': ['卯'], '丁': ['酉'], '戊': ['辰'], '己': ['戌'], '庚': ['巳'], '辛': ['亥'], '壬': ['寅'], '癸': ['申']}
+    },
+    '天医': {
+        'type': 'positive',
+        'description': '天医星，主健康、医药、治愈',
+        'detailed': '天医星主健康、医药、治愈。命中有天医星者，对医学、养生等有浓厚兴趣，适合从事医疗、养生、保健等行业。天医星也主身体健康，其人往往较少生病，即使生病也容易痊愈。',
+        'locations': ['月柱', '时柱'],
+        'conditions': {'甲': ['卯'], '乙': ['寅'], '丙': ['子'], '丁': ['亥'], '戊': ['丑'], '己': ['子'], '庚': ['酉'], '辛': ['申'], '壬': ['午'], '癸': ['巳']}
+    },
+    '红艳': {
+        'type': 'neutral',
+        'description': '红艳煞，主桃花、感情、魅力',
+        'detailed': '红艳煞主桃花、感情、魅力。命中有红艳煞者，相貌出众，气质迷人，异性缘非常旺盛。红艳煞也主感情丰富，其人往往容易陷入感情纠葛，需注意把握感情分寸。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'甲': ['午'], '乙': ['巳'], '丙': ['寅'], '丁': ['卯'], '戊': ['辰'], '己': ['丑'], '庚': ['子'], '辛': ['亥'], '壬': ['戌'], '癸': ['酉']}
+    },
+    '勾绞': {
+        'type': 'negative',
+        'description': '勾绞煞，主是非、纠缠、牵连',
+        'detailed': '勾绞煞主是非、纠缠、牵连。命中有勾绞煞者，容易卷入他人的是非纠纷中，即使与自己无关也可能被牵连。勾绞煞也主人际关系复杂，容易与人发生矛盾和冲突。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'子': ['卯'], '卯': ['子'], '丑': ['辰'], '辰': ['丑'], '寅': ['巳'], '巳': ['寅'], '卯': ['午'], '午': ['卯'], '辰': ['未'], '未': ['辰'], '巳': ['申'], '申': ['巳'], '午': ['酉'], '酉': ['午'], '未': ['戌'], '戌': ['未'], '申': ['亥'], '亥': ['申'], '酉': ['子'], '子': ['酉'], '戌': ['丑'], '丑': ['戌'], '亥': ['寅'], '寅': ['亥']}
+    },
+    '绞煞': {
+        'type': 'negative',
+        'description': '绞煞，主纠缠、束缚、困扰',
+        'detailed': '绞煞主纠缠、束缚、困扰。命中有绞煞者，容易被事情或人际关系所束缚，难以摆脱困扰。绞煞也主精神压力，其人往往感到身心疲惫，难以放松。',
+        'locations': ['年柱', '月柱', '日柱', '时柱'],
+        'conditions': {'子': ['酉'], '酉': ['子'], '丑': ['戌'], '戌': ['丑'], '寅': ['亥'], '亥': ['寅'], '卯': ['子'], '子': ['卯'], '辰': ['丑'], '丑': ['辰'], '巳': ['寅'], '寅': ['巳'], '午': ['卯'], '卯': ['午'], '未': ['辰'], '辰': ['未'], '申': ['巳'], '巳': ['申'], '酉': ['午'], '午': ['酉'], '戌': ['未'], '未': ['戌'], '亥': ['申'], '申': ['亥']}
     }
 }
 
@@ -171,6 +258,41 @@ TIAN_GAN_RELATION = {
     '辛': {'生': '癸', '克': '乙', '被生': '己', '被克': '丁'},
     '壬': {'生': '甲', '克': '丙', '被生': '庚', '被克': '戊'},
     '癸': {'生': '乙', '克': '丁', '被生': '辛', '被克': '己'}
+}
+
+RELATION_DETAIL = {
+    '生': {
+        'description': '相生关系，主帮助、支持、生扶',
+        'influence': '相生为吉，主得到他人帮助，事情顺利发展'
+    },
+    '克': {
+        'description': '相克关系，主制约、管制、压制',
+        'influence': '相克为凶，主压力、阻碍、冲突'
+    },
+    '被生': {
+        'description': '被生关系，主受生扶、得滋养',
+        'influence': '被生为吉，主得到贵人相助，受益于他人'
+    },
+    '被克': {
+        'description': '被克关系，主受制约、受压制',
+        'influence': '被克为凶，主遭遇压制，诸事不顺'
+    },
+    '冲': {
+        'description': '相冲关系，主对立、冲突、变动',
+        'influence': '相冲为凶，主变动大、冲突多、人际关系紧张'
+    },
+    '合': {
+        'description': '相合关系，主和谐、合作、吸引',
+        'influence': '相合为吉，主人际关系好、合作顺利、感情融洽'
+    },
+    '害': {
+        'description': '相害关系，主伤害、陷害、暗中破坏',
+        'influence': '相害为凶，主小人陷害、暗中伤害、是非纠纷'
+    },
+    '刑': {
+        'description': '相刑关系，主刑罚、伤害、疾病',
+        'influence': '相刑为凶，主官司诉讼、疾病缠身、意外伤害'
+    }
 }
 
 DI_ZHI_RELATION = {
@@ -257,12 +379,14 @@ class MingLiAnalyzer:
     def analyze_shensha(self, bazhi):
         positive = []
         negative = []
+        neutral = []
         
         pillars = ['年柱', '月柱', '日柱', '时柱']
         ganzhi_list = bazhi['四柱']
         
         for sha_name, sha_info in SHEN_SHA.items():
             conditions = sha_info['conditions']
+            sha_type = sha_info.get('type', 'neutral')
             
             for i, ganzhi in enumerate(ganzhi_list):
                 gan = ganzhi[0]
@@ -272,17 +396,21 @@ class MingLiAnalyzer:
                     if zhi in conditions[gan]:
                         entry = {
                             'name': sha_name,
+                            'type': sha_type,
                             'location': pillars[i],
                             'ganzhi': ganzhi,
-                            'description': sha_info['description']
+                            'description': sha_info['description'],
+                            'detailed': sha_info.get('detailed', '')
                         }
                         
-                        if sha_name in ['天德', '月德', '文昌', '桃花', '驿马', '华盖', '将星', '天乙']:
+                        if sha_type == 'positive':
                             positive.append(entry)
-                        else:
+                        elif sha_type == 'negative':
                             negative.append(entry)
+                        else:
+                            neutral.append(entry)
         
-        return {'positive': positive, 'negative': negative}
+        return {'positive': positive, 'negative': negative, 'neutral': neutral}
 
     def analyze_main_stars(self, bazhi):
         rizhu = bazhi['rizhu']
@@ -314,10 +442,11 @@ class MingLiAnalyzer:
         gan_relations = []
         zhi_relations = []
         
-        pillars = bazhi['四柱']
+        pillars = ['年柱', '月柱', '日柱', '时柱']
+        ganzhi_list = bazhi['四柱']
         
-        for i, ganzhi1 in enumerate(pillars):
-            for j, ganzhi2 in enumerate(pillars):
+        for i, ganzhi1 in enumerate(ganzhi_list):
+            for j, ganzhi2 in enumerate(ganzhi_list):
                 if i >= j:
                     continue
                 
@@ -327,28 +456,108 @@ class MingLiAnalyzer:
                 if gan1 in TIAN_GAN_RELATION:
                     rel = TIAN_GAN_RELATION[gan1]
                     if gan2 == rel['生']:
-                        gan_relations.append(f'{gan1}生{gan2}')
+                        detail = RELATION_DETAIL.get('生', {})
+                        gan_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'gan1': gan1,
+                            'gan2': gan2,
+                            'relation': '生',
+                            'description': f'{gan1}生{gan2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif gan2 == rel['克']:
-                        gan_relations.append(f'{gan1}克{gan2}')
+                        detail = RELATION_DETAIL.get('克', {})
+                        gan_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'gan1': gan1,
+                            'gan2': gan2,
+                            'relation': '克',
+                            'description': f'{gan1}克{gan2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif gan2 == rel['被生']:
-                        gan_relations.append(f'{gan1}被{gan2}生')
+                        detail = RELATION_DETAIL.get('被生', {})
+                        gan_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'gan1': gan1,
+                            'gan2': gan2,
+                            'relation': '被生',
+                            'description': f'{gan1}被{gan2}生',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif gan2 == rel['被克']:
-                        gan_relations.append(f'{gan1}被{gan2}克')
+                        detail = RELATION_DETAIL.get('被克', {})
+                        gan_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'gan1': gan1,
+                            'gan2': gan2,
+                            'relation': '被克',
+                            'description': f'{gan1}被{gan2}克',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                 
                 if zhi1 in DI_ZHI_RELATION:
                     rel = DI_ZHI_RELATION[zhi1]
                     if zhi2 == rel['冲']:
-                        zhi_relations.append(f'{zhi1}冲{zhi2}')
+                        detail = RELATION_DETAIL.get('冲', {})
+                        zhi_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'zhi1': zhi1,
+                            'zhi2': zhi2,
+                            'relation': '冲',
+                            'description': f'{zhi1}冲{zhi2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif zhi2 == rel['合']:
-                        zhi_relations.append(f'{zhi1}合{zhi2}')
+                        detail = RELATION_DETAIL.get('合', {})
+                        zhi_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'zhi1': zhi1,
+                            'zhi2': zhi2,
+                            'relation': '合',
+                            'description': f'{zhi1}合{zhi2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif zhi2 == rel['害']:
-                        zhi_relations.append(f'{zhi1}害{zhi2}')
+                        detail = RELATION_DETAIL.get('害', {})
+                        zhi_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'zhi1': zhi1,
+                            'zhi2': zhi2,
+                            'relation': '害',
+                            'description': f'{zhi1}害{zhi2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
                     elif zhi2 == rel['刑']:
-                        zhi_relations.append(f'{zhi1}刑{zhi2}')
+                        detail = RELATION_DETAIL.get('刑', {})
+                        zhi_relations.append({
+                            'pillar1': pillars[i],
+                            'pillar2': pillars[j],
+                            'zhi1': zhi1,
+                            'zhi2': zhi2,
+                            'relation': '刑',
+                            'description': f'{zhi1}刑{zhi2}',
+                            'detail_description': detail.get('description', ''),
+                            'influence': detail.get('influence', '')
+                        })
         
         return {
-            'gan_relations': list(set(gan_relations)),
-            'zhi_relations': list(set(zhi_relations))
+            'gan_relations': gan_relations,
+            'zhi_relations': zhi_relations
         }
 
     def analyze_self_seat(self, bazhi):

@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
-                             QScrollArea, QSizePolicy, QSpacerItem, QProgressBar)
+                             QScrollArea, QSizePolicy, QSpacerItem, QProgressBar, QGridLayout)
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QAbstractAnimation
 from PySide6.QtGui import QFont
 from ui.styles import Stylesheets, Colors, Fonts, Spacing

@@ -22,6 +22,34 @@ MONTH_GAN = [
 
 SHIER_SHEN = ['长生', '沐浴', '冠带', '临官', '帝旺', '衰', '病', '死', '墓', '绝', '胎', '养']
 
+SHIER_SHEN_DETAIL = {
+    '长生': {'description': '万物初生，生机勃勃，主开端、潜力、发展', 'influence': '生命力旺盛，有发展潜力，适合开创事业'},
+    '沐浴': {'description': '万物始生，形体柔脆，主接受、修养、调整', 'influence': '需要静心修养，不宜急进，适合学习提升'},
+    '冠带': {'description': '万物渐荣，初具形态，主成长、准备、修饰', 'influence': '能力逐渐显现，适合展现才华，准备承担重任'},
+    '临官': {'description': '万物长成，开始发挥作用，主事业、权力、地位', 'influence': '事业发展期，适合追求功名，提升地位'},
+    '帝旺': {'description': '万物成熟，达到鼎盛，主成功、辉煌、巅峰', 'influence': '运势强盛，适合把握机会，追求最大成就'},
+    '衰': {'description': '万物开始衰退，主渐退、保守、调整', 'influence': '运势转弱，不宜冒进，适合巩固成果'},
+    '病': {'description': '万物病弱，主疾病、困扰、阻碍', 'influence': '需要注意健康，谨慎行事，避免风险'},
+    '死': {'description': '万物死亡，主结束、终止、衰败', 'influence': '运势低落，适合总结反思，准备新的开始'},
+    '墓': {'description': '万物收藏，主储存、积聚、隐藏', 'influence': '适合积累资源，隐藏锋芒，等待时机'},
+    '绝': {'description': '万物灭绝，主断绝、消亡、重生', 'influence': '旧事物终结，新事物开始，适合彻底改变'},
+    '胎': {'description': '万物孕育，主孕育、萌芽、准备', 'influence': '新的机会正在孕育，适合耐心等待，做好准备'},
+    '养': {'description': '万物养形，主滋养、成长、培养', 'influence': '适合培养能力，积累经验，为未来发展打基础'}
+}
+
+TIAN_GAN_SHIER_SHEN_MAP = {
+    '甲': ['亥', '子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌'],
+    '乙': ['午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌', '酉', '申', '未'],
+    '丙': ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'],
+    '丁': ['酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌'],
+    '戊': ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'],
+    '己': ['酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌'],
+    '庚': ['巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑', '寅', '卯', '辰'],
+    '辛': ['子', '亥', '戌', '酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑'],
+    '壬': ['申', '酉', '戌', '亥', '子', '丑', '寅', '卯', '辰', '巳', '午', '未'],
+    '癸': ['卯', '寅', '丑', '子', '亥', '戌', '酉', '申', '未', '午', '巳', '辰']
+}
+
 FIRST_DAY_GANZHI = '甲子'
 BASE_YEAR = 1900
 
@@ -141,7 +169,35 @@ class BaZiCalculator:
         }
 
     def get_shier_shen(self, rizhu, ganzhi):
-        rizhu_idx = self.tian_gan_map[rizhu]
-        zhi_idx = self.di_zhi_map[ganzhi[1]]
-        shen_idx = (zhi_idx - rizhu_idx * 2 + 12) % 12
-        return SHIER_SHEN[shen_idx]
+        zhi = ganzhi[1]
+        shier_shen_list = TIAN_GAN_SHIER_SHEN_MAP.get(rizhu, [])
+        if shier_shen_list and zhi in shier_shen_list:
+            shen_idx = shier_shen_list.index(zhi)
+            shen_name = SHIER_SHEN[shen_idx]
+            detail = SHIER_SHEN_DETAIL.get(shen_name, {})
+            return {
+                'name': shen_name,
+                'description': detail.get('description', ''),
+                'influence': detail.get('influence', '')
+            }
+        return None
+
+    def analyze_shier_shen(self, bazhi):
+        rizhu = bazhi['rizhu']
+        pillars = ['年柱', '月柱', '日柱', '时柱']
+        ganzhi_list = bazhi['四柱']
+        
+        result = []
+        for i, ganzhi in enumerate(ganzhi_list):
+            shen_info = self.get_shier_shen(rizhu, ganzhi)
+            if shen_info:
+                result.append({
+                    'pillar': pillars[i],
+                    'ganzhi': ganzhi,
+                    'rizhu': rizhu,
+                    'shier_shen': shen_info['name'],
+                    'description': shen_info['description'],
+                    'influence': shen_info['influence']
+                })
+        
+        return {'shier_shen': result}
