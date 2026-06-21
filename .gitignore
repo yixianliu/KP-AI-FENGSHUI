@@ -4,3 +4,5 @@ data
 /.uploads/
 /node_modules/
 /package-lock.json
+spark_api_reference.py
+baazi_error.log

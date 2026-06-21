@@ -1,414 +1,380 @@
 """
-风水排盘专业工具 - 新中式极简国风设计系统
-配色方案：藏青、朱砂红、鎏金浅黄、米白、墨黑
+风水排盘专业工具 - 极简轻量国风设计系统 v4.0
+三色点缀：朱砂红·青花蓝·鎏金黄 | 底色纯白/浅米灰 | 圆角卡片 | 柔和阴影
 """
+from PySide6.QtGui import QColor
 
 
 class Colors:
-    # 主色调 - 藏青
-    PRIMARY = '#2C3E5C'
-    PRIMARY_LIGHT = '#3D5A80'
-    PRIMARY_DARK = '#1A2536'
+    # 底色
+    BG = '#F7F6F3'
+    BG_WHITE = '#FFFFFF'
+    CARD = '#FFFFFF'
+    HOVER = '#F0EFEC'
 
-    # 点缀色 - 朱砂红
-    ACCENT = '#C45C48'
-    ACCENT_LIGHT = '#D97B6A'
-    ACCENT_DARK = '#9E3D2B'
+    # 三色点缀
+    ZHUSHA = '#C45C48'
+    ZHUSHA_LIGHT = '#E8A090'
+    ZHUSHA_DARK = '#9E3D2B'
+    QINGHUA = '#5B8FA8'
+    QINGHUA_LIGHT = '#A8C8D8'
+    LIUJIN = '#C49A3C'
+    LIUJIN_LIGHT = '#E8D5A0'
 
-    # 高光色 - 鎏金
-    HIGHLIGHT = '#D4A843'
-    HIGHLIGHT_LIGHT = '#E8C876'
-    HIGHLIGHT_GLOW = 'rgba(212, 168, 67, 0.15)'
+    # 文字
+    TEXT = '#1A1A1A'
+    TEXT2 = '#666666'
+    TEXT3 = '#999999'
+    TEXT_INV = '#FFFFFF'
 
-    # 中性色
-    BACKGROUND = '#F5F0E8'
-    CARD = '#FAF7F2'
-    INPUT_BG = '#FFFFFF'
-    HOVER_BG = '#EDE8DE'
+    # 边框
+    BORDER = '#E5E3DE'
+    BORDER2 = '#D0CEC8'
+    DIVIDER = '#E8E6E1'
 
-    # 文字色
-    TEXT_PRIMARY = '#1A1A1A'
-    TEXT_SECONDARY = '#4A4A4A'
-    TEXT_TERTIARY = '#8A8A8A'
-    TEXT_INVERSE = '#F5F0E8'
-
-    # 边框与分割线
-    BORDER = '#D9D3C7'
-    BORDER_LIGHT = '#E8E2D6'
-    DIVIDER = 'rgba(44, 62, 92, 0.1)'
-
-    # 状态色
+    # 状态
     SUCCESS = '#5A8F6E'
     WARNING = '#C49548'
     DANGER = '#C45C48'
-    INFO = '#5A7A9E'
+
+    # 阴影
+    SHADOW = 'rgba(0,0,0,0.06)'
+    SHADOW_HOVER = 'rgba(0,0,0,0.10)'
+
+    # ==================== 旧版兼容别名 ====================
+    BACKGROUND = BG
+    PRIMARY = QINGHUA
+    PRIMARY_LIGHT = QINGHUA_LIGHT
+    PRIMARY_DARK = '#3A6A7A'
+    ACCENT = ZHUSHA
+    ACCENT_LIGHT = ZHUSHA_LIGHT
+    ACCENT_DARK = ZHUSHA_DARK
+    HIGHLIGHT = LIUJIN
+    HIGHLIGHT_LIGHT = LIUJIN_LIGHT
+    HIGHLIGHT_DARK = '#A67D28'
+    HIGHLIGHT_GLOW = 'rgba(196,154,60,0.10)'
+    TEXT_PRIMARY = TEXT
+    TEXT_SECONDARY = TEXT2
+    TEXT_TERTIARY = TEXT3
+    TEXT_INVERSE = TEXT_INV
+    BORDER_LIGHT = DIVIDER
+    HOVER_BG = HOVER
+    INPUT_BG = CARD
+    INFO = QINGHUA
+    WOOD = '#6B4E3A'
+    WOOD_LIGHT = '#8B6B55'
+    WOOD_DARK = '#4A3427'
+    PARCHMENT = BG
+    PARCHMENT_LIGHT = BG
+    PARCHMENT_DARK = '#E3D5BC'
+    BRONZE = '#6B6B4D'
+    BRONZE_LIGHT = '#8A8A68'
+    BRONZE_DARK = '#4A4A30'
+    WATERMARK = 'rgba(0,0,0,0.02)'
 
 
 class Fonts:
-    FAMILY_CN = 'Microsoft YaHei, PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, WenQuanYi Micro Hei, sans-serif'
-    FAMILY_SERIF = 'SimSun, STSong, Noto Serif CJK SC, Source Han Serif CN, serif'
-    FAMILY_EN = 'Consolas, Monaco, monospace'
-    SIZE_TITLE = '20px'
-    SIZE_SECTION = '15px'
-    SIZE_KEY = '18px'
-    SIZE_BODY = '13px'
-    SIZE_SMALL = '11px'
-    WEIGHT_NORMAL = 'Normal'
-    WEIGHT_BOLD = 'Bold'
+    TITLE = 'Source Han Serif SC, SimSun, STSong, Noto Serif CJK SC, serif'
+    BODY = 'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif'
+    MONO = 'Consolas, Monaco, monospace'
+
+    SZ_TITLE = '17px'
+    SZ_SECTION = '14px'
+    SZ_BODY = '13px'
+    SZ_SMALL = '12px'
+    SZ_MICRO = '11px'
+
+    W_NORMAL = 'Normal'
+    W_BOLD = 'Medium'
+
+    # 旧版兼容
+    FAMILY_CN = BODY
+    FAMILY_KAI = TITLE
+    FAMILY_SONG = TITLE
+    FAMILY_SERIF = TITLE
+    FAMILY_EN = MONO
+    SIZE_TITLE = SZ_TITLE
+    SIZE_SECTION = SZ_SECTION
+    SIZE_KEY = '24px'
+    SIZE_BODY = SZ_BODY
+    SIZE_SMALL = SZ_SMALL
+    SIZE_MICRO = SZ_MICRO
+    WEIGHT_NORMAL = W_NORMAL
+    WEIGHT_BOLD = W_BOLD
 
 
 class Spacing:
-    CARD_RADIUS = '12px'
-    CONTROL_RADIUS = '8px'
-    CARD_PADDING = '20px'
-    MODULE_GAP = '16px'
+    RADIUS = '10px'
+    RADIUS_SM = '6px'
+    RADIUS_LG = '14px'
+    PAD = '20px'
+    GAP = '14px'
+
+    # 旧版兼容
+    CARD_RADIUS = RADIUS
+    CONTROL_RADIUS = RADIUS_SM
+    CARD_PADDING = PAD
+    MODULE_GAP = GAP
     LINE_HEIGHT = '1.6'
     LETTER_SPACING = '0.5px'
     CONTROL_VERTICAL_GAP = '12px'
-    BUTTON_MIN_HEIGHT = '42px'
+    BUTTON_MIN_HEIGHT = '40px'
     BUTTON_MIN_WIDTH = '100px'
 
 
 class Stylesheets:
-    MAIN_WINDOW = f"""
-        QMainWindow {{
-            background-color: {Colors.BACKGROUND};
-        }}
-    """
-
-    LEFT_PANEL = f"""
-        QWidget {{
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 {Colors.CARD}, stop:1 {Colors.BACKGROUND});
-            border-right: 1px solid {Colors.BORDER_LIGHT};
-        }}
-    """
+    MAIN = f"QMainWindow {{ background-color: {Colors.BG}; }}"
 
     CARD = f"""
         QFrame {{
             background-color: {Colors.CARD};
-            border: 1px solid {Colors.BORDER_LIGHT};
-            border-radius: {Spacing.CARD_RADIUS};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS};
         }}
     """
 
-    SECTION_CARD = f"""
-        QFrame {{
-            background-color: {Colors.INPUT_BG};
-            border: 1px solid {Colors.BORDER_LIGHT};
-            border-radius: {Spacing.CONTROL_RADIUS};
-        }}
-    """
-
-    BUTTON_PRIMARY = f"""
+    BTN_PRIMARY = f"""
         QPushButton {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {Colors.ACCENT}, stop:1 {Colors.ACCENT_DARK});
-            color: {Colors.TEXT_INVERSE};
-            border: none;
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: 15px;
-            font-weight: {Fonts.WEIGHT_BOLD};
-            font-family: {Fonts.FAMILY_CN};
+            background-color: {Colors.ZHUSHA};
+            color: {Colors.TEXT_INV};
+            border: 1.5px solid {Colors.LIUJIN};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: 14px;
+            font-weight: {Fonts.W_BOLD};
+            font-family: {Fonts.BODY};
             padding: 10px 28px;
-            min-height: {Spacing.BUTTON_MIN_HEIGHT};
-            min-width: {Spacing.BUTTON_MIN_WIDTH};
+            min-height: 40px;
         }}
         QPushButton:hover {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {Colors.ACCENT_LIGHT}, stop:1 {Colors.ACCENT});
+            background-color: {Colors.ZHUSHA_LIGHT};
+            border-color: {Colors.LIUJIN};
         }}
-        QPushButton:pressed {{
-            background: {Colors.ACCENT_DARK};
-        }}
+        QPushButton:pressed {{ background-color: {Colors.ZHUSHA_DARK}; }}
         QPushButton:disabled {{
-            background: {Colors.BORDER};
-            color: {Colors.TEXT_TERTIARY};
+            background-color: {Colors.BORDER}; border-color: {Colors.BORDER};
+            color: {Colors.TEXT3};
         }}
     """
 
-    BUTTON_SECONDARY = f"""
+    BTN_SECONDARY = f"""
         QPushButton {{
-            background-color: {Colors.HOVER_BG};
-            color: {Colors.TEXT_PRIMARY};
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_NORMAL};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 10px 20px;
-            min-height: {Spacing.BUTTON_MIN_HEIGHT};
-            min-width: {Spacing.BUTTON_MIN_WIDTH};
+            background-color: {Colors.CARD};
+            color: {Colors.TEXT2};
+            border: 1px solid {Colors.BORDER2};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: 13px;
+            font-family: {Fonts.BODY};
+            padding: 10px 22px;
+            min-height: 40px;
         }}
         QPushButton:hover {{
-            background-color: {Colors.ACCENT_LIGHT};
-            color: white;
-            border-color: {Colors.ACCENT_LIGHT};
+            background-color: #FFF0EE;
+            border-color: {Colors.ZHUSHA_LIGHT};
+            color: {Colors.ZHUSHA};
         }}
-        QPushButton:pressed {{
-            background-color: {Colors.ACCENT};
-        }}
+        QPushButton:pressed {{ background-color: {Colors.HOVER}; }}
     """
 
-    BUTTON_SWITCH = f"""
+    BTN_SWITCH = f"""
         QPushButton {{
-            background-color: {Colors.BACKGROUND};
-            color: {Colors.TEXT_SECONDARY};
+            background-color: {Colors.CARD};
+            color: {Colors.TEXT2};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_NORMAL};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 6px 12px;
-            min-width: 80px;
-        }}
-        QPushButton:hover {{
-            border-color: {Colors.HIGHLIGHT};
-            color: {Colors.HIGHLIGHT};
-        }}
-        QPushButton:checked {{
-            background-color: {Colors.PRIMARY};
-            color: white;
-            border-color: {Colors.PRIMARY};
-        }}
-        QPushButton:checked:hover {{
-            background-color: {Colors.PRIMARY_LIGHT};
-        }}
-    """
-
-    BUTTON_HOUR = f"""
-        QPushButton {{
-            background-color: {Colors.INPUT_BG};
-            color: {Colors.TEXT_SECONDARY};
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
+            border-radius: {Spacing.RADIUS_SM};
             font-size: 12px;
-            font-family: {Fonts.FAMILY_CN};
-            padding: 6px 4px;
-            min-width: 50px;
+            font-family: {Fonts.BODY};
+            padding: 5px 14px;
         }}
         QPushButton:hover {{
-            border-color: {Colors.HIGHLIGHT};
-            color: {Colors.HIGHLIGHT};
+            border-color: {Colors.QINGHUA_LIGHT};
+            color: {Colors.QINGHUA};
         }}
         QPushButton:checked {{
-            background-color: {Colors.ACCENT};
-            color: white;
-            border-color: {Colors.ACCENT};
+            background-color: {Colors.QINGHUA};
+            color: {Colors.TEXT_INV};
+            border-color: {Colors.QINGHUA};
         }}
     """
 
-    LINE_EDIT = f"""
+    INPUT = f"""
         QLineEdit {{
-            background-color: {Colors.INPUT_BG};
+            background-color: {Colors.CARD};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 8px 12px;
-            min-height: 36px;
-            color: {Colors.TEXT_PRIMARY};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            padding: 7px 12px;
+            min-height: 34px;
+            color: {Colors.TEXT};
+            selection-background-color: {Colors.QINGHUA};
+            selection-color: white;
         }}
-        QLineEdit:focus {{
-            border: 2px solid {Colors.HIGHLIGHT};
-            padding: 7px 11px;
-        }}
-        QLineEdit::placeholder {{
-            color: {Colors.TEXT_TERTIARY};
-        }}
+        QLineEdit:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
+        QLineEdit:hover:!focus {{ border-color: {Colors.BORDER2}; }}
+        QLineEdit::placeholder {{ color: {Colors.TEXT3}; }}
     """
 
-    COMBO_BOX = f"""
+    COMBO = f"""
         QComboBox {{
-            background-color: {Colors.INPUT_BG};
+            background-color: {Colors.CARD};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 6px 10px;
-            min-height: 36px;
-            color: {Colors.TEXT_PRIMARY};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            padding: 6px 12px;
+            min-height: 34px;
+            color: {Colors.TEXT};
         }}
-        QComboBox:focus {{
-            border: 2px solid {Colors.HIGHLIGHT};
-            padding: 5px 9px;
-        }}
-        QComboBox::drop-down {{
-            border: none;
-            width: 26px;
-        }}
+        QComboBox:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
+        QComboBox:hover:!focus {{ border-color: {Colors.BORDER2}; }}
+        QComboBox::drop-down {{ border: none; width: 22px; subcontrol-origin: padding; }}
         QComboBox::down-arrow {{
             image: none;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
-            border-top: 4px solid {Colors.PRIMARY};
+            border-top: 5px solid {Colors.TEXT3};
         }}
         QComboBox QAbstractItemView {{
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            background-color: {Colors.INPUT_BG};
-            selection-background-color: {Colors.PRIMARY};
+            border-radius: {Spacing.RADIUS_SM};
+            background: {Colors.CARD};
+            selection-background-color: {Colors.QINGHUA};
             selection-color: white;
             padding: 4px;
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            outline: none;
         }}
+        QComboBox QAbstractItemView::item {{
+            padding: 6px 10px; border-radius: 4px; min-height: 28px;
+        }}
+        QComboBox QAbstractItemView::item:hover {{ background-color: {Colors.HOVER}; }}
     """
 
-    DATE_EDIT = f"""
+    DATE = f"""
         QDateEdit {{
-            background-color: {Colors.INPUT_BG};
+            background-color: {Colors.CARD};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_EN};
-            padding: 6px 10px;
-            min-height: 36px;
-            color: {Colors.TEXT_PRIMARY};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            padding: 6px 12px;
+            min-height: 34px;
+            color: {Colors.TEXT};
         }}
-        QDateEdit:focus {{
-            border: 2px solid {Colors.HIGHLIGHT};
-            padding: 5px 9px;
-        }}
-        QDateEdit::drop-down {{
-            border: none;
-            width: 26px;
-        }}
+        QDateEdit:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
+        QDateEdit:hover:!focus {{ border-color: {Colors.BORDER2}; }}
+        QDateEdit::drop-down {{ border: none; width: 22px; }}
         QDateEdit::down-arrow {{
             image: none;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
-            border-top: 4px solid {Colors.PRIMARY};
+            border-top: 5px solid {Colors.TEXT3};
         }}
     """
 
-    SCROLL_AREA = f"""
-        QScrollArea {{
-            background-color: transparent;
-            border: none;
-        }}
+    SCROLL = f"""
+        QScrollArea {{ background: transparent; border: none; }}
         QScrollBar:vertical {{
-            background-color: transparent;
-            width: 6px;
-            border-radius: 3px;
-            margin: 0px;
+            background: transparent; width: 6px; border-radius: 3px; margin: 0;
         }}
         QScrollBar::handle:vertical {{
-            background-color: {Colors.BORDER};
-            border-radius: 3px;
-            min-height: 30px;
+            background: {Colors.BORDER2}; border-radius: 3px; min-height: 30px;
         }}
-        QScrollBar::handle:vertical:hover {{
-            background-color: {Colors.HIGHLIGHT};
-        }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-            height: 0px;
-        }}
+        QScrollBar::handle:vertical:hover {{ background: {Colors.TEXT3}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
     """
 
-    STATUS_BAR = f"""
+    STATUS = f"""
         QStatusBar {{
-            background-color: {Colors.CARD};
-            color: {Colors.TEXT_SECONDARY};
-            border-top: 1px solid {Colors.BORDER_LIGHT};
-            font-size: {Fonts.SIZE_SMALL};
-            font-family: {Fonts.FAMILY_CN};
+            background: {Colors.CARD}; color: {Colors.TEXT3};
+            border-top: 1px solid {Colors.DIVIDER};
+            font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.BODY}; padding: 3px 10px;
         }}
     """
 
-    TOGGLE_SWITCH = f"""
-        QCheckBox {{
-            spacing: 8px;
-        }}
-        QCheckBox::indicator {{
-            width: 44px;
-            height: 24px;
-            border-radius: 12px;
-            background-color: {Colors.BORDER};
-        }}
-        QCheckBox::indicator:checked {{
-            background-color: {Colors.ACCENT};
-        }}
-        QCheckBox::indicator:unchecked::handle {{
-            width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            background-color: white;
-            margin: 3px;
-        }}
-        QCheckBox::indicator:checked::handle {{
-            width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            background-color: white;
-            margin-left: 23px;
-            margin-top: 3px;
+    TOOLTIP = f"""
+        QToolTip {{
+            background: {Colors.CARD}; color: {Colors.TEXT};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            padding: 8px 12px;
+            font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.BODY};
         }}
     """
 
-    GOLD_DIVIDER = f"""
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-            stop:0 transparent, stop:0.3 {Colors.HIGHLIGHT},
-            stop:0.5 {Colors.HIGHLIGHT_LIGHT}, stop:0.7 {Colors.HIGHLIGHT},
-            stop:1 transparent);
-        height: 2px;
-        border-radius: 1px;
-    """
-
-    PAN_TYPE_CARD = f"""
-        QPushButton {{
-            background-color: {Colors.INPUT_BG};
-            color: {Colors.TEXT_SECONDARY};
-            border: 2px solid {Colors.BORDER};
-            border-radius: {Spacing.CARD_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 16px;
-        }}
-        QPushButton:hover {{
-            border-color: {Colors.HIGHLIGHT};
-            color: {Colors.HIGHLIGHT};
-        }}
-        QPushButton:checked {{
-            background-color: {Colors.ACCENT};
-            color: white;
-            border-color: {Colors.HIGHLIGHT};
-            border: 2px solid {Colors.HIGHLIGHT};
-        }}
-    """
-
-    GENDER_CARD = f"""
-        QPushButton {{
-            background-color: {Colors.INPUT_BG};
-            color: {Colors.TEXT_SECONDARY};
-            border: 2px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 12px;
-        }}
-        QPushButton:hover {{
-            border-color: {Colors.HIGHLIGHT};
-        }}
-        QPushButton:checked {{
-            border-color: {Colors.ACCENT};
-            background-color: rgba(196, 92, 72, 0.08);
-        }}
-    """
+    DIVIDER = f"background-color: {Colors.DIVIDER};"
 
     TEXT_EDIT = f"""
         QTextEdit {{
-            background-color: {Colors.INPUT_BG};
+            background-color: {Colors.CARD};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.CONTROL_RADIUS};
-            font-size: {Fonts.SIZE_BODY};
-            font-family: {Fonts.FAMILY_CN};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
             padding: 8px 12px;
-            color: {Colors.TEXT_PRIMARY};
+            color: {Colors.TEXT};
         }}
-        QTextEdit:focus {{
-            border: 2px solid {Colors.HIGHLIGHT};
-            padding: 7px 11px;
+        QTextEdit:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
+    """
+
+    BTN_ICON = f"""
+        QPushButton {{
+            background: transparent; color: {Colors.TEXT3};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.BODY};
+            padding: 5px 12px; min-height: 30px;
+        }}
+        QPushButton:hover {{
+            background: {Colors.HOVER}; color: {Colors.TEXT2};
+            border-color: {Colors.BORDER2};
         }}
     """
+
+    # ==================== 旧版兼容别名 ====================
+    GOLD_DIVIDER = DIVIDER
+    SECTION_CARD = CARD
+    LINE_EDIT = INPUT
+    BUTTON_PRIMARY = BTN_PRIMARY
+    BUTTON_SECONDARY = BTN_SECONDARY
+    BUTTON_SWITCH = BTN_SWITCH
+    COMBO_BOX = COMBO
+    SCROLL_AREA = SCROLL
+    SCROLL_BOOK = SCROLL
+    LEFT_PANEL = f"background-color: {Colors.BG};"
+    RIGHT_PANEL = f"background-color: {Colors.BG};"
+    PARCHMENT_PANEL = f"background-color: {Colors.BG};"
+    SEAL_BUTTON = BTN_PRIMARY
+    WADANG_BUTTON = BTN_SECONDARY
+    GUA_CARD = BTN_SWITCH
+    SWITCH_BUTTON = BTN_SWITCH
+    PARCHMENT_INPUT = INPUT
+    SCROLL_COMBO = COMBO
+    ANCIENT_DATE = DATE
+    CLOUD_DIVIDER = DIVIDER
+    WOOD_FRAME = DIVIDER
+    MAIN_WINDOW = MAIN
+    BOOK_PAGE = CARD
+    PAN_TYPE_CARD = BTN_SWITCH
+    GENDER_CARD = BTN_SWITCH
+    BUTTON_HOUR = BTN_SWITCH
+    TOGGLE_SWITCH = ""
+    MEANDER_BORDER = ""
+    WOOD_SEPARATOR = DIVIDER
+    INPUT_SEPARATOR = DIVIDER
+    LABEL_ANCIENT = f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};"
+    FAMILY_CN = Fonts.BODY
+    FAMILY_KAI = Fonts.TITLE
+    FAMILY_SONG = Fonts.TITLE
+    FAMILY_SERIF = Fonts.TITLE
+    FAMILY_EN = Fonts.MONO
+    SIZE_TITLE = Fonts.SZ_TITLE
+    SIZE_SECTION = Fonts.SZ_SECTION
+    SIZE_KEY = '24px'
+    SIZE_BODY = Fonts.SZ_BODY
+    SIZE_SMALL = Fonts.SZ_SMALL
+    SIZE_MICRO = Fonts.SZ_MICRO
+    WEIGHT_NORMAL = Fonts.W_NORMAL
+    WEIGHT_BOLD = Fonts.W_BOLD
