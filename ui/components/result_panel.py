@@ -67,7 +67,10 @@ class ResultPanel(QWidget):
         main.addWidget(self.scroll, 1)
 
     def _header(self):
-        """与左侧输入面板标题对齐的头部"""
+        """与左侧输入面板标题对齐的头部
+        关键修复：保留已存在的按钮/status_lbl 实例，避免重建导致 main_window 中
+        提前连接的 clicked 信号失效的问题。
+        """
         hdr = QHBoxLayout()
         hdr.setSpacing(8)
 
@@ -82,31 +85,36 @@ class ResultPanel(QWidget):
         hdr.addWidget(title)
         hdr.addStretch()
 
-        # 状态
-        self.status_lbl = QLabel('')
-        self.status_lbl.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+        # 状态标签：仅在首次创建
+        if not hasattr(self, 'status_lbl') or self.status_lbl is None:
+            self.status_lbl = QLabel('')
+            self.status_lbl.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         hdr.addWidget(self.status_lbl)
 
-        # AI分析按钮（主按钮样式）
-        self.ai_analyze_btn = QPushButton('🤖 AI深度分析')
-        self.ai_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
-        self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
-        self.ai_analyze_btn.setVisible(False)
+        # AI分析按钮：仅在首次创建（关键：保留信号连接）
+        if not hasattr(self, 'ai_analyze_btn') or self.ai_analyze_btn is None:
+            self.ai_analyze_btn = QPushButton('🤖 AI深度分析')
+            self.ai_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
+            self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
+            self.ai_analyze_btn.setVisible(False)
         hdr.addWidget(self.ai_analyze_btn)
 
-        # 图标按钮（扁平样式，与左侧按钮风格一致）
-        self.refresh_btn = QPushButton('⟳ 刷新')
-        self.refresh_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
-        self.refresh_btn.setCursor(Qt.PointingHandCursor)
-        self.refresh_btn.setVisible(False)
-        self.copy_btn = QPushButton('📋 复制')
-        self.copy_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
-        self.copy_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_btn.setVisible(False)
-        self.export_btn = QPushButton('📤 导出')
-        self.export_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
-        self.export_btn.setCursor(Qt.PointingHandCursor)
-        self.export_btn.setVisible(False)
+        # 刷新/复制/导出按钮：仅在首次创建
+        if not hasattr(self, 'refresh_btn') or self.refresh_btn is None:
+            self.refresh_btn = QPushButton('⟳ 刷新')
+            self.refresh_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
+            self.refresh_btn.setCursor(Qt.PointingHandCursor)
+            self.refresh_btn.setVisible(False)
+        if not hasattr(self, 'copy_btn') or self.copy_btn is None:
+            self.copy_btn = QPushButton('📋 复制')
+            self.copy_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
+            self.copy_btn.setCursor(Qt.PointingHandCursor)
+            self.copy_btn.setVisible(False)
+        if not hasattr(self, 'export_btn') or self.export_btn is None:
+            self.export_btn = QPushButton('📤 导出')
+            self.export_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
+            self.export_btn.setCursor(Qt.PointingHandCursor)
+            self.export_btn.setVisible(False)
         hdr.addWidget(self.refresh_btn)
         hdr.addWidget(self.copy_btn)
         hdr.addWidget(self.export_btn)
@@ -508,12 +516,50 @@ class ResultPanel(QWidget):
         self._ai_pulse_widget_ref = None
 
     def display_ai_result(self, ai_data: dict):
-        """显示AI分析结果"""
+        """显示AI分析结果
+        关键修复：不再调用 display_result(rd) 重建面板（会触发 _fade_in_widgets 把
+        全部原始卡片设为 opacity 0），改为直接清空布局后，依次重建：原始结果卡片 →
+        AI 分隔标识 → AI 智能分析卡片。
+        避免与 fade-in 冲突，确保 AI 内容实时、完整地呈现在右侧面板。
+        """
         self._stop_ai_pulse()
 
-        rd = getattr(self, '_current_result', {})
-        self.display_result(rd)
+        rd = getattr(self, '_current_result', {}) or {}
 
+        # 防御性检查：AI 返回的字段为空时，提示用户重试
+        if not ai_data or not isinstance(ai_data, dict):
+            self._show_ai_error('AI 未返回有效内容，请重试')
+            return
+
+        # 1) 清理当前内容
+        self._clear_content()
+
+        # 2) 重建头部（保留已有按钮实例，确保信号连接有效）
+        self._rebuild_header()
+
+        # 3) 设置右上角按钮与状态文本
+        if hasattr(self, 'refresh_btn') and self.refresh_btn:
+            self.refresh_btn.setVisible(True)
+        if hasattr(self, 'copy_btn') and self.copy_btn:
+            self.copy_btn.setVisible(True)
+        if hasattr(self, 'export_btn') and self.export_btn:
+            self.export_btn.setVisible(True)
+        if hasattr(self, 'ai_analyze_btn') and self.ai_analyze_btn:
+            self.ai_analyze_btn.setVisible(True)
+            self.ai_analyze_btn.setEnabled(True)
+            self.ai_analyze_btn.setText('🤖 重新分析')
+        self.status_lbl.setText('✓ AI分析完成')
+        self.status_lbl.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
+        )
+
+        # 4) 先放回原始排盘结果（命盘信息/四柱/五行/吉凶批注）
+        self._add_original_cards(rd)
+
+        # 5) 添加 AI 分隔标识与标题（视觉上明确区分 AI 区域）
+        self._add_ai_section_header()
+
+        # 6) 逐项添加 AI 分析卡片
         sections = [
             ('personality', '性格特质', '🧠', Colors.QINGHUA),
             ('career', '事业财运', '💼', Colors.LIUJIN),
@@ -521,20 +567,167 @@ class ResultPanel(QWidget):
             ('health', '健康注意', '💪', Colors.SUCCESS),
             ('suggestions', '综合建议', '✨', Colors.QINGHUA),
         ]
-
+        has_ai_content = False
         for key, title, icon, color in sections:
-            items = ai_data.get(key, [])
+            items = ai_data.get(key, []) or []
             if items:
-                self.clay.insertWidget(
-                    self.clay.count() - 1,
-                    self._card(f'AI·{title}', icon, self._ai_list(items, color))
-                )
+                has_ai_content = True
+                card = self._card(f'AI·{title}', icon, self._ai_list(items, color))
+                # 显式取消可能残留的 GraphicsEffect，保证新卡片 opacity=1.0
+                card.setGraphicsEffect(None)
+                self.clay.addWidget(card)
 
-        self.status_lbl.setText('✓ AI分析完成')
-        self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
-        self.ai_analyze_btn.setVisible(True)
-        self.ai_analyze_btn.setEnabled(True)
-        self.ai_analyze_btn.setText('🤖 重新分析')
+        if not has_ai_content:
+            # 没有任何 AI 内容时给出兜底提示
+            empty_label = QLabel('AI 未返回有效条目，请点击「重新分析」重试')
+            empty_label.setStyleSheet(
+                f"color:{Colors.TEXT3}; font-size:{Fonts.SZ_BODY}; "
+                f"font-family:{Fonts.BODY}; padding:24px;"
+            )
+            empty_label.setAlignment(Qt.AlignCenter)
+            self.clay.addWidget(empty_label)
+
+        # 7) 底部弹簧
+        self.clay.addStretch()
+
+        # 8) 关键：AI 完成后不再调用 _fade_in_widgets()，避免任何卡片 opacity=0
+        # 主动取消旧动画可能残留的 GraphicsEffect
+        self._safe_clear_graphics_effects()
+
+        # 9) 滚动到 AI 区域，确保用户能看到 AI 内容
+        if has_ai_content:
+            QTimer.singleShot(50, self._scroll_to_ai_section)
+
+    # ----------------- 辅助方法：AI 面板重建相关 -----------------
+
+    def _clear_content(self):
+        """清空右侧面板内容布局"""
+        while self.clay.count():
+            item = self.clay.takeAt(0)
+            w = item.widget() if item else None
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+    def _add_original_cards(self, rd: dict):
+        """按原顺序重建命盘信息/四柱/五行/吉凶批注卡片"""
+        bi = rd.get('basic_info', {}) or {}
+        self.clay.addWidget(self._card('命盘信息', 'ℹ', self._info_row([
+            ('类型', bi.get('pan_type', '-')),
+            ('公历', bi.get('solar_date', '-')),
+            ('农历', bi.get('lunar_date', '-')),
+            ('时辰', bi.get('hour', '-')),
+            ('地点', bi.get('location', '-')),
+            ('性别', bi.get('gender', '-')),
+        ])))
+
+        bazi = rd.get('bazi', {}) or {}
+        if bazi:
+            self.clay.addWidget(self._card('四柱天干地支', '★', self._pillars(bazi)))
+
+        wx = rd.get('wuxing', {}) or {}
+        if wx:
+            self.clay.addWidget(self._card('五行分析', '◆', self._wuxing(wx)))
+
+        an = rd.get('analysis', []) or []
+        if an:
+            self.clay.addWidget(self._card('吉凶批注', '⚖', self._annotations(an)))
+
+    def _add_ai_section_header(self):
+        """添加 AI 分析区域的分隔线与标题，让 AI 区域在视觉上独立且醒目"""
+        # 鎏金渐变分隔线
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFixedHeight(2)
+        divider.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 transparent, stop:0.5 {Colors.LIUJIN}, stop:1 transparent); "
+            f"margin: 18px 0 10px 0; border: none;"
+        )
+        self.clay.addWidget(divider)
+
+        # 标题行：🤖 + AI 智能深度分析
+        title_widget = QWidget()
+        title_widget.setStyleSheet("background: transparent;")
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setContentsMargins(0, 0, 0, 4)
+        title_layout.setSpacing(8)
+
+        icon = QLabel('🤖')
+        icon.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN};")
+        title_layout.addWidget(icon)
+
+        title = QLabel('AI 智能深度分析')
+        title.setStyleSheet(
+            f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
+            f"color: {Colors.LIUJIN}; font-family: {Fonts.TITLE};"
+        )
+        title_layout.addWidget(title)
+        title_layout.addStretch()
+        self.clay.addWidget(title_widget)
+
+        # 副标题
+        sub = QLabel('基于 AI 大模型的专业命理深度解读')
+        sub.setStyleSheet(
+            f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; "
+            f"font-family: {Fonts.BODY}; margin-bottom: 6px;"
+        )
+        self.clay.addWidget(sub)
+
+    def _safe_clear_graphics_effects(self):
+        """清除所有已渲染卡片上的 GraphicsEffect，确保 opacity=1.0（避免淡入残留）"""
+        for i in range(self.clay.count()):
+            item = self.clay.itemAt(i)
+            if not item:
+                continue
+            w = item.widget()
+            if w is not None and w.graphicsEffect() is not None:
+                w.setGraphicsEffect(None)
+
+    def _scroll_to_ai_section(self):
+        """滚动到 AI 区域，让用户第一眼就看到 AI 分析结果"""
+        try:
+            # 找到第一个标题包含 'AI' 或 '智能' 的标签作为锚点
+            for i in range(self.clay.count()):
+                item = self.clay.itemAt(i)
+                if not item:
+                    continue
+                w = item.widget()
+                if w is None:
+                    continue
+                # 通过 objectName 或文本识别
+                if isinstance(w, QLabel) and ('AI' in w.text() or '智能' in w.text()):
+                    self.scroll.ensureWidgetVisible(w)
+                    return
+            # 回退：滚动到底部
+            sb = self.scroll.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
+        except Exception:
+            # 滚动失败不影响主流程
+            pass
+
+    def _show_ai_error(self, message: str):
+        """AI 失败/数据异常时的兜底显示"""
+        self._clear_content()
+        self._rebuild_header()
+        self.status_lbl.setText('AI 异常')
+        self.status_lbl.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};"
+        )
+        if hasattr(self, 'ai_analyze_btn') and self.ai_analyze_btn:
+            self.ai_analyze_btn.setVisible(True)
+            self.ai_analyze_btn.setEnabled(True)
+            self.ai_analyze_btn.setText('🤖 重新分析')
+        tip = QLabel(f'⚠ {message}')
+        tip.setStyleSheet(
+            f"color:{Colors.TEXT2}; font-size:{Fonts.SZ_BODY}; "
+            f"font-family:{Fonts.BODY}; padding:60px 20px;"
+        )
+        tip.setAlignment(Qt.AlignCenter)
+        tip.setWordWrap(True)
+        self.clay.addWidget(tip)
+        self.clay.addStretch()
 
     def _ai_list(self, items: list, color: str) -> QWidget:
         """AI分析列表项"""

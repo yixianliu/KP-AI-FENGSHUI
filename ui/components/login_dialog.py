@@ -7,12 +7,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-import hashlib
-
-
-def _hash_password(password: str) -> str:
-    """对密码进行SHA256哈希"""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
 class LoginDialog(QDialog):
@@ -130,7 +124,7 @@ class LoginDialog(QDialog):
             return
 
         if self.db_manager:
-            user = self.db_manager.verify_user(username, _hash_password(password))
+            user = self.db_manager.verify_user(username, password)
             if user:
                 self.user_logged_in.emit(user['id'], user['username'])
                 self.accept()
@@ -288,7 +282,7 @@ class RegisterDialog(QDialog):
                 QMessageBox.warning(self, '注册失败', '该用户名已被注册')
                 return
 
-            user_id = self.db_manager.create_user(username, _hash_password(password))
+            user_id = self.db_manager.create_user(username, password)
             if user_id:
                 self.user_registered.emit(user_id, username)
                 QMessageBox.information(self, '注册成功', '账号注册成功，即将自动登录')

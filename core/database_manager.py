@@ -109,17 +109,26 @@ class DatabaseManager:
 
     # ==================== 用户管理 ====================
 
-    def create_user(self, username: str, password_hash: str) -> Optional[int]:
+    import hashlib
+    def create_user(self, username: str, password: str) -> Optional[int]:
         """
         创建新用户
 
         Args:
             username: 用户名
-            password_hash: 密码哈希值
+            password: 用户密码（明文）
 
         Returns:
             新用户ID，失败返回None
         """
+        if not username or not password:
+            return None
+        
+        if len(password) < 6:
+            raise ValueError("密码长度不能少于6位")
+        
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
@@ -131,23 +140,27 @@ class DatabaseManager:
                 connection.commit()
                 return user_id
         except pymysql.IntegrityError:
-            # 用户名已存在
             return None
         except Exception as e:
-            print(f"创建用户失败: {e}")
+            logger.error(f"创建用户失败: {e}")
             return None
 
-    def verify_user(self, username: str, password_hash: str) -> Optional[Dict[str, Any]]:
+    def verify_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         """
         验证用户登录
 
         Args:
             username: 用户名
-            password_hash: 密码哈希值
+            password: 用户密码（明文）
 
         Returns:
             用户信息字典，验证失败返回None
         """
+        if not username or not password:
+            return None
+        
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
         try:
             with self._connect() as connection:
                 with connection.cursor(pymysql.cursors.DictCursor) as cursor:
@@ -157,7 +170,7 @@ class DatabaseManager:
                     )
                     return cursor.fetchone()
         except Exception as e:
-            print(f"验证用户失败: {e}")
+            logger.error(f"验证用户失败: {e}")
             return None
 
     def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:

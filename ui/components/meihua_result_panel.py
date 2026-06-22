@@ -754,8 +754,22 @@ class MeihuaResultPanel(QWidget):
         return widget
 
     def display_ai_analysis_result(self, ai_data: dict):
-        """显示AI分析结果（适配analysis_pipeline输出格式）"""
-        rd = getattr(self, '_current_result', {})
+        """显示AI分析结果（适配analysis_pipeline输出格式）
+
+        关键修复：
+        1) 不再完全依赖 placeholder 机制（display_result 创建的占位 QFrame），
+           改为兼容两种情况：placeholder 存在 / 已被消费。
+        2) 防御性处理：AI 返回为空、字段类型异常时给出兜底提示，避免右侧空白。
+        3) 完成后滚动到 AI 区域，让用户第一眼看到 AI 解读内容。
+        """
+        # 0) 防御性检查
+        if not ai_data or not isinstance(ai_data, dict):
+            self._show_ai_error('AI 未返回有效内容，请重试')
+            return
+
+        rd = getattr(self, '_current_result', {}) or {}
+
+        # 1) 先恢复原始面板（不重建占位）
         self.display_result(rd)
 
         sections = [
@@ -766,15 +780,18 @@ class MeihuaResultPanel(QWidget):
             ('action_advice', '行动建议', '💡', Colors.PRIMARY),
         ]
 
+        # 2) 构建 AI 内容容器
         ai_widget = QWidget()
         ai_layout = QVBoxLayout(ai_widget)
         ai_layout.setContentsMargins(0, 0, 0, 0)
         ai_layout.setSpacing(10)
 
+        has_ai_content = False
         for key, title, icon, color in sections:
-            items = ai_data.get(key, [])
+            items = ai_data.get(key, []) or []
             if not items:
                 continue
+            has_ai_content = True
 
             section_widget = QFrame()
             section_widget.setStyleSheet(f"""
@@ -827,6 +844,7 @@ class MeihuaResultPanel(QWidget):
 
         final_verdict = ai_data.get('final_verdict', '')
         if final_verdict:
+            has_ai_content = True
             verdict_widget = QFrame()
             verdict_widget.setStyleSheet(f"""
                 QFrame {{
@@ -860,21 +878,37 @@ class MeihuaResultPanel(QWidget):
             verdict_layout.addWidget(verdict_text)
             ai_layout.addWidget(verdict_widget)
 
+        # 没有任何 AI 内容的兜底提示
+        if not has_ai_content:
+            tip = QLabel('AI 未返回有效条目，请点击「重新解读」重试')
+            tip.setStyleSheet(
+                f"color:{Colors.TEXT3}; font-size:{Fonts.SIZE_BODY}; "
+                f"font-family:{Fonts.FAMILY_CN}; padding:30px 20px;"
+            )
+            tip.setAlignment(Qt.AlignCenter)
+            tip.setWordWrap(True)
+            ai_layout.addWidget(tip)
+
+        # 3) 构造 AI 结果卡片（高亮）
         ai_card = self._create_result_card('🤖 AI智能深度解读', '🤖', ai_widget, highlight=True)
 
+        # 4) 兼容两种插入位置：占位符存在则替换占位符，否则插入到 stretch 之前
         placeholder = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
-        if placeholder:
+        inserted = False
+        if placeholder is not None:
             placeholder_idx = None
             for i in range(self.content_layout.count()):
                 item = self.content_layout.itemAt(i)
-                if item.widget() and item.widget() == placeholder:
+                if item and item.widget() and item.widget() == placeholder:
                     placeholder_idx = i
                     break
             if placeholder_idx is not None:
                 self.content_layout.insertWidget(placeholder_idx, ai_card)
                 placeholder.setParent(None)
                 placeholder.deleteLater()
-        else:
+                inserted = True
+        if not inserted:
+            # 寻找 stretch 位置插入
             stretch_idx = -1
             for i in range(self.content_layout.count()):
                 item = self.content_layout.itemAt(i)
@@ -886,6 +920,7 @@ class MeihuaResultPanel(QWidget):
             else:
                 self.content_layout.addWidget(ai_card)
 
+        # 5) 更新状态栏与 AI 按钮
         self.status_bar.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(90, 143, 110, 0.08);
@@ -905,6 +940,61 @@ class MeihuaResultPanel(QWidget):
         self.ai_analyze_btn.setVisible(True)
         self.ai_analyze_btn.setEnabled(True)
         self.ai_analyze_btn.setText('🤖 重新解读')
+
+        # 6) 滚动到 AI 区域
+        QTimer.singleShot(50, self._scroll_to_ai_section_meihua)
+
+    # ----------------- 辅助方法：AI 面板相关 -----------------
+
+    def _show_ai_error(self, message: str):
+        """AI 失败/数据异常时的兜底显示（梅花易数版）"""
+        try:
+            # 重新构建原始面板
+            rd = getattr(self, '_current_result', {}) or {}
+            self.display_result(rd)
+        except Exception:
+            pass
+
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(196, 92, 72, 0.08);
+                border: 1px solid {Colors.DANGER};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('⚠ AI 异常')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.DANGER};
+            font-family: {Fonts.FAMILY_CN};
+            font-weight: {Fonts.WEIGHT_BOLD};
+        """)
+        self.ai_analyze_btn.setVisible(True)
+        self.ai_analyze_btn.setEnabled(True)
+        self.ai_analyze_btn.setText('🤖 重新解读')
+        tip = QLabel(f'⚠ {message}')
+        tip.setStyleSheet(
+            f"color:{Colors.TEXT2}; font-size:{Fonts.SIZE_BODY}; "
+            f"font-family:{Fonts.FAMILY_CN}; padding:60px 20px;"
+        )
+        tip.setAlignment(Qt.AlignCenter)
+        tip.setWordWrap(True)
+        self.content_layout.addWidget(tip)
+
+    def _scroll_to_ai_section_meihua(self):
+        """滚动到 AI 解读区域"""
+        try:
+            target = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
+            if target is not None:
+                self.content_area.ensureWidgetVisible(target)
+                return
+            # 回退：滚到底
+            sb = self.content_area.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
+        except Exception:
+            pass
 
     def get_hexagram_data_for_ai(self) -> dict:
         """获取用于AI分析的卦象数据"""

@@ -121,9 +121,24 @@ class MeiHuaCalculator:
         - 1个数字：上卦=数%8，下卦=(数//10)%8，动爻=数%6
         - 2个数字：上卦=第一个数%8，下卦=第二个数%8，动爻=(两数之和)%6
         - 3个数字：上卦=第一个数%8，下卦=第二个数%8，动爻=第三个数%6
+
+        Args:
+            numbers: 数字列表，1-3个正整数
+            question: 占问问题
+
+        Returns:
+            卦象结果字典
+
+        Raises:
+            ValueError: 参数不符合要求
         """
-        if not numbers or len(numbers) > 3:
+        if not numbers or not isinstance(numbers, (list, tuple)):
             raise ValueError("数字起卦需要1-3个数字")
+        
+        numbers = [int(n) for n in numbers if isinstance(n, (int, float)) and n > 0]
+        
+        if len(numbers) == 0 or len(numbers) > 3:
+            raise ValueError("数字起卦需要1-3个正整数")
 
         if len(numbers) == 1:
             num = numbers[0]
