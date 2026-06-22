@@ -6,3 +6,5 @@ data
 /package-lock.json
 spark_api_reference.py
 baazi_error.log
+/api/
+core/ai_analyzer.py
