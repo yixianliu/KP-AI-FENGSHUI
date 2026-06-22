@@ -415,6 +415,7 @@ class MeihuaResultPanel(QWidget):
 
     def display_result(self, result_data):
         """显示起卦结果"""
+        self._current_result = result_data
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if item.widget():
@@ -686,6 +687,269 @@ class MeihuaResultPanel(QWidget):
             self.content_layout.insertWidget(placeholder_idx, ai_card)
             placeholder.setParent(None)
             placeholder.deleteLater()
+
+    def show_ai_loading(self, message: str = 'AI正在解读卦象玄机…'):
+        """显示AI分析加载状态"""
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.ai_analyze_btn.setVisible(False)
+        self.ai_analyze_btn.setEnabled(False)
+
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(196, 154, 60, 0.08);
+                border: 1px solid {Colors.HIGHLIGHT};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('🤖 AI解读中…')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.HIGHLIGHT};
+            font-family: {Fonts.FAMILY_CN};
+            font-weight: {Fonts.WEIGHT_BOLD};
+        """)
+
+        loading_widget = self._create_ai_loading_widget(message)
+        self.content_layout.addWidget(loading_widget)
+        self.content_layout.addStretch()
+
+    def _create_ai_loading_widget(self, message: str) -> QWidget:
+        """创建AI分析加载控件"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(16)
+
+        icon_label = QLabel('☯')
+        icon_label.setStyleSheet(f"font-size: 56px; color: {Colors.HIGHLIGHT};")
+        icon_label.setAlignment(Qt.AlignCenter)
+
+        text_label = QLabel(message)
+        text_label.setStyleSheet(f"""
+            font-size: 16px;
+            color: {Colors.TEXT_SECONDARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
+        text_label.setAlignment(Qt.AlignCenter)
+
+        sub_label = QLabel('请稍候，AI正在结合卦辞爻辞进行深度解读')
+        sub_label.setStyleSheet(f"""
+            font-size: 12px;
+            color: {Colors.TEXT_TERTIARY};
+            font-family: {Fonts.FAMILY_CN};
+        """)
+        sub_label.setAlignment(Qt.AlignCenter)
+
+        layout.addStretch()
+        layout.addWidget(icon_label)
+        layout.addWidget(text_label)
+        layout.addWidget(sub_label)
+        layout.addStretch()
+        widget.setMinimumHeight(400)
+        return widget
+
+    def display_ai_analysis_result(self, ai_data: dict):
+        """显示AI分析结果（适配analysis_pipeline输出格式）"""
+        rd = getattr(self, '_current_result', {})
+        self.display_result(rd)
+
+        sections = [
+            ('gua_overview', '卦象概述', '📋', Colors.PRIMARY),
+            ('situation_analysis', '事态分析', '🌟', Colors.HIGHLIGHT),
+            ('good_omens', '吉兆机遇', '🍀', Colors.SUCCESS),
+            ('bad_omens', '凶兆隐患', '⚠️', Colors.DANGER),
+            ('action_advice', '行动建议', '💡', Colors.PRIMARY),
+        ]
+
+        ai_widget = QWidget()
+        ai_layout = QVBoxLayout(ai_widget)
+        ai_layout.setContentsMargins(0, 0, 0, 0)
+        ai_layout.setSpacing(10)
+
+        for key, title, icon, color in sections:
+            items = ai_data.get(key, [])
+            if not items:
+                continue
+
+            section_widget = QFrame()
+            section_widget.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border-radius: {Spacing.CONTROL_RADIUS};
+                }}
+            """)
+            section_layout = QVBoxLayout(section_widget)
+            section_layout.setContentsMargins(12, 10, 12, 10)
+            section_layout.setSpacing(8)
+
+            title_label = QLabel(f'{icon} {title}')
+            title_label.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                font-weight: {Fonts.WEIGHT_BOLD};
+                color: {color};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+            section_layout.addWidget(title_label)
+
+            for idx, item in enumerate(items):
+                item_layout = QHBoxLayout()
+                item_layout.setSpacing(10)
+
+                num_label = QLabel(f'{idx+1}')
+                num_label.setStyleSheet(f"""
+                    background: {color}; color: white;
+                    font-size: 11px; font-weight: {Fonts.WEIGHT_BOLD};
+                    border-radius: 10px; min-width: 20px; min-height: 20px;
+                    font-family: {Fonts.FAMILY_CN};
+                """)
+                num_label.setAlignment(Qt.AlignCenter)
+                num_label.setFixedSize(20, 20)
+
+                text_label = QLabel(str(item))
+                text_label.setStyleSheet(f"""
+                    font-size: {Fonts.SIZE_BODY};
+                    color: {Colors.TEXT_SECONDARY};
+                    font-family: {Fonts.FAMILY_CN};
+                    line-height: 1.6;
+                """)
+                text_label.setWordWrap(True)
+
+                item_layout.addWidget(num_label)
+                item_layout.addWidget(text_label, 1)
+                section_layout.addLayout(item_layout)
+
+            ai_layout.addWidget(section_widget)
+
+        final_verdict = ai_data.get('final_verdict', '')
+        if final_verdict:
+            verdict_widget = QFrame()
+            verdict_widget.setStyleSheet(f"""
+                QFrame {{
+                    background-color: rgba(91, 143, 168, 0.08);
+                    border: 1px solid {Colors.PRIMARY_LIGHT};
+                    border-radius: {Spacing.CONTROL_RADIUS};
+                }}
+            """)
+            verdict_layout = QVBoxLayout(verdict_widget)
+            verdict_layout.setContentsMargins(16, 12, 16, 12)
+            verdict_layout.setSpacing(6)
+
+            verdict_title = QLabel('🎯 总结判断')
+            verdict_title.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                font-weight: {Fonts.WEIGHT_BOLD};
+                color: {Colors.PRIMARY};
+                font-family: {Fonts.FAMILY_CN};
+            """)
+
+            verdict_text = QLabel(str(final_verdict))
+            verdict_text.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_BODY};
+                color: {Colors.TEXT_PRIMARY};
+                font-family: {Fonts.FAMILY_SERIF};
+                line-height: 1.8;
+            """)
+            verdict_text.setWordWrap(True)
+
+            verdict_layout.addWidget(verdict_title)
+            verdict_layout.addWidget(verdict_text)
+            ai_layout.addWidget(verdict_widget)
+
+        ai_card = self._create_result_card('🤖 AI智能深度解读', '🤖', ai_widget, highlight=True)
+
+        placeholder = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
+        if placeholder:
+            placeholder_idx = None
+            for i in range(self.content_layout.count()):
+                item = self.content_layout.itemAt(i)
+                if item.widget() and item.widget() == placeholder:
+                    placeholder_idx = i
+                    break
+            if placeholder_idx is not None:
+                self.content_layout.insertWidget(placeholder_idx, ai_card)
+                placeholder.setParent(None)
+                placeholder.deleteLater()
+        else:
+            stretch_idx = -1
+            for i in range(self.content_layout.count()):
+                item = self.content_layout.itemAt(i)
+                if item and item.spacerItem():
+                    stretch_idx = i
+                    break
+            if stretch_idx >= 0:
+                self.content_layout.insertWidget(stretch_idx, ai_card)
+            else:
+                self.content_layout.addWidget(ai_card)
+
+        self.status_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(90, 143, 110, 0.08);
+                border: 1px solid {Colors.SUCCESS};
+                border-radius: {Spacing.CONTROL_RADIUS};
+                padding: 12px 20px;
+            }}
+        """)
+        self.status_label.setText('✓ AI解读完成')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.SUCCESS};
+            font-family: {Fonts.FAMILY_CN};
+            font-weight: {Fonts.WEIGHT_BOLD};
+        """)
+
+        self.ai_analyze_btn.setVisible(True)
+        self.ai_analyze_btn.setEnabled(True)
+        self.ai_analyze_btn.setText('🤖 重新解读')
+
+    def get_hexagram_data_for_ai(self) -> dict:
+        """获取用于AI分析的卦象数据"""
+        rd = getattr(self, '_current_result', {})
+        if not rd:
+            return {}
+
+        base = rd.get('ben_gua', {})
+        hu = rd.get('hu_gua', {})
+        bian = rd.get('bian_gua', {})
+        overall = rd.get('overall', {})
+
+        hexagram_data = {
+            'base': {
+                'name': base.get('name', ''),
+                'upper_name': base.get('upper_name', ''),
+                'lower_name': base.get('lower_name', ''),
+                'upper_nature': base.get('upper_element', ''),
+                'lower_nature': base.get('lower_element', ''),
+                'gua_ci': base.get('gua_ci', ''),
+                'description': base.get('description', ''),
+            },
+            'hu': {
+                'name': hu.get('name', ''),
+                'description': hu.get('description', '')
+            },
+            'bian': {
+                'name': bian.get('name', ''),
+                'description': bian.get('description', ''),
+                'judgment': overall.get('level', '')
+            },
+            'overall_judgment': overall.get('level', '')
+        }
+
+        yao_list = rd.get('yao_list', [])
+        if yao_list:
+            for yao in yao_list:
+                if yao.get('is_moving', False):
+                    hexagram_data['base']['changing_yao'] = yao.get('position', 0)
+                    hexagram_data['base']['changing_yao_name'] = yao.get('name', '')
+                    hexagram_data['base']['changing_yao_text'] = yao.get('text', '')
+                    hexagram_data['base']['changing_yao_meaning'] = yao.get('meaning', '')
+                    break
+
+        return hexagram_data
 
     def clear(self):
         """清空结果"""

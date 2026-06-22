@@ -87,6 +87,13 @@ class ResultPanel(QWidget):
         self.status_lbl.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         hdr.addWidget(self.status_lbl)
 
+        # AI分析按钮（主按钮样式）
+        self.ai_analyze_btn = QPushButton('🤖 AI深度分析')
+        self.ai_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
+        self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
+        self.ai_analyze_btn.setVisible(False)
+        hdr.addWidget(self.ai_analyze_btn)
+
         # 图标按钮（扁平样式，与左侧按钮风格一致）
         self.refresh_btn = QPushButton('⟳ 刷新')
         self.refresh_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
@@ -330,6 +337,7 @@ class ResultPanel(QWidget):
                 QTimer.singleShot(i * 80, anim.start)
 
     def display_result(self, rd):
+        self._current_result = rd
         while self.clay.count():
             item = self.clay.takeAt(0)
             if item.widget(): item.widget().deleteLater()
@@ -338,6 +346,7 @@ class ResultPanel(QWidget):
         self._rebuild_header()
 
         self.refresh_btn.setVisible(True); self.copy_btn.setVisible(True); self.export_btn.setVisible(True)
+        self.ai_analyze_btn.setVisible(True)
         self.status_lbl.setText('✓ 排盘完成')
         self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
 
@@ -373,6 +382,7 @@ class ResultPanel(QWidget):
         self.status_lbl.setText('排盘中…')
         self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.QINGHUA}; font-family:{Fonts.BODY};")
         self.refresh_btn.setVisible(False); self.copy_btn.setVisible(False); self.export_btn.setVisible(False)
+        self.ai_analyze_btn.setVisible(False)
 
         w = QWidget(); w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w); l.setAlignment(Qt.AlignCenter); l.setSpacing(14)
@@ -426,6 +436,7 @@ class ResultPanel(QWidget):
 
     def clear(self):
         self._stop_pulse()
+        self._current_result = None
         while self.clay.count():
             item = self.clay.takeAt(0)
             if item.widget(): item.widget().deleteLater()
@@ -433,3 +444,152 @@ class ResultPanel(QWidget):
         self.clay.addWidget(self._empty())
         self.status_lbl.setText('')
         self.refresh_btn.setVisible(False); self.copy_btn.setVisible(False); self.export_btn.setVisible(False)
+        self.ai_analyze_btn.setVisible(False)
+
+    def show_ai_loading(self, message: str = 'AI正在深度分析中…'):
+        """显示AI分析加载状态"""
+        while self.clay.count():
+            item = self.clay.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+
+        self._rebuild_header()
+
+        self.status_lbl.setText('AI分析中…')
+        self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
+        self.refresh_btn.setVisible(False); self.copy_btn.setVisible(False); self.export_btn.setVisible(False)
+        self.ai_analyze_btn.setVisible(False)
+        self.ai_analyze_btn.setEnabled(False)
+
+        w = QWidget(); w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w); l.setAlignment(Qt.AlignCenter); l.setSpacing(14)
+
+        tj = QLabel('☯')
+        tj.setStyleSheet(f"font-size: 56px; color: {Colors.LIUJIN};")
+        tj.setAlignment(Qt.AlignCenter)
+
+        self._ai_pulse_widget(tj)
+
+        tx = QLabel(message)
+        tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
+        tx.setAlignment(Qt.AlignCenter)
+
+        sub = QLabel('请稍候，AI正在结合命理知识进行深度解读')
+        sub.setStyleSheet(f"font-size:12px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+        sub.setAlignment(Qt.AlignCenter)
+
+        l.addStretch(); l.addWidget(tj); l.addWidget(tx); l.addWidget(sub); l.addStretch()
+        w.setMinimumHeight(350)
+        self.clay.addWidget(w); self.clay.addStretch()
+
+    def _ai_pulse_widget(self, widget):
+        """AI分析脉冲动画效果"""
+        self._ai_pulse_state = True
+        self._ai_pulse_widget_ref = widget
+        def toggle_pulse():
+            w = self._ai_pulse_widget_ref
+            try:
+                if not w or not w.isVisible():
+                    return
+                self._ai_pulse_state = not self._ai_pulse_state
+                color = Colors.LIUJIN if self._ai_pulse_state else Colors.LIUJIN_LIGHT
+                w.setStyleSheet(f"font-size: 56px; color: {color};")
+            except RuntimeError:
+                self._stop_ai_pulse()
+        self.ai_pulse_timer = QTimer(self)
+        self.ai_pulse_timer.timeout.connect(toggle_pulse)
+        self.ai_pulse_timer.start(750)
+
+    def _stop_ai_pulse(self):
+        """停止AI分析脉冲动画"""
+        if hasattr(self, 'ai_pulse_timer') and self.ai_pulse_timer:
+            self.ai_pulse_timer.stop()
+            self.ai_pulse_timer.deleteLater()
+            self.ai_pulse_timer = None
+        self._ai_pulse_widget_ref = None
+
+    def display_ai_result(self, ai_data: dict):
+        """显示AI分析结果"""
+        self._stop_ai_pulse()
+
+        rd = getattr(self, '_current_result', {})
+        self.display_result(rd)
+
+        sections = [
+            ('personality', '性格特质', '🧠', Colors.QINGHUA),
+            ('career', '事业财运', '💼', Colors.LIUJIN),
+            ('marriage', '婚姻感情', '💕', Colors.ZHUSHA),
+            ('health', '健康注意', '💪', Colors.SUCCESS),
+            ('suggestions', '综合建议', '✨', Colors.QINGHUA),
+        ]
+
+        for key, title, icon, color in sections:
+            items = ai_data.get(key, [])
+            if items:
+                self.clay.insertWidget(
+                    self.clay.count() - 1,
+                    self._card(f'AI·{title}', icon, self._ai_list(items, color))
+                )
+
+        self.status_lbl.setText('✓ AI分析完成')
+        self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
+        self.ai_analyze_btn.setVisible(True)
+        self.ai_analyze_btn.setEnabled(True)
+        self.ai_analyze_btn.setText('🤖 重新分析')
+
+    def _ai_list(self, items: list, color: str) -> QWidget:
+        """AI分析列表项"""
+        w = QWidget(); w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
+        for idx, item in enumerate(items):
+            row = QHBoxLayout(); row.setSpacing(10)
+            num = QLabel(f'{idx+1}')
+            num.setStyleSheet(f"""
+                background: {color}; color: white;
+                font-size: 11px; font-weight: {Fonts.W_BOLD};
+                border-radius: 10px; min-width: 20px; min-height: 20px;
+                font-family: {Fonts.BODY};
+            """)
+            num.setAlignment(Qt.AlignCenter)
+            num.setFixedSize(20, 20)
+            txt = QLabel(str(item))
+            txt.setStyleSheet(f"""
+                font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT};
+                font-family:{Fonts.BODY}; line-height: 1.6;
+            """)
+            txt.setWordWrap(True)
+            row.addWidget(num)
+            row.addWidget(txt, 1)
+            l.addLayout(row)
+        return w
+
+    def get_chart_data_for_ai(self) -> dict:
+        """获取用于AI分析的排盘数据"""
+        rd = getattr(self, '_current_result', {})
+        if not rd:
+            return {}
+
+        bazi = rd.get('bazi', {})
+        wuxing = rd.get('wuxing', {})
+
+        chart_data = {
+            'bazi': {
+                'year': bazi.get('year_pillar', ''),
+                'month': bazi.get('month_pillar', ''),
+                'day': bazi.get('day_pillar', ''),
+                'hour': bazi.get('hour_pillar', ''),
+                'rizhu': bazi.get('day_pillar', '')[0] if bazi.get('day_pillar', '') else ''
+            },
+            'wuxing': {}
+        }
+
+        if wuxing:
+            total = sum(v for v in wuxing.values() if isinstance(v, (int, float))) or 1
+            for wx in ['金', '木', '水', '火', '土']:
+                val = wuxing.get(wx, 0)
+                if isinstance(val, (int, float)):
+                    chart_data['wuxing'][wx] = {
+                        'count': val,
+                        'percentage': int(val / total * 100)
+                    }
+
+        return chart_data

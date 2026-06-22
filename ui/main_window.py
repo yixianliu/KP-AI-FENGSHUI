@@ -16,6 +16,7 @@ from ui.components.meihua_result_panel import MeihuaResultPanel
 from ui.components.term_dictionary_panel import TermDictionaryPanel
 from ui.components.chart_widget import ChartWidget
 from ui.components.login_dialog import LoginDialog, RegisterDialog
+from ui.components.ai_analysis_worker import AiAnalysisWorker
 from core.bazi_calculator import BaziCalculator
 from core.lunar_converter import LunarConverter
 from core.solar_time import SolarTimeCalculator
@@ -249,9 +250,10 @@ class MainWindow(QMainWindow):
         self.bazi_input.submit_btn.clicked.connect(self._on_bazi)
         self.bazi_input.reset_btn.clicked.connect(self._on_bazi_reset)
         self.bazi_result.refresh_btn.clicked.connect(self._on_bazi)
+        self.bazi_result.ai_analyze_btn.clicked.connect(self._on_bazi_ai_analyze)
         self.meihua_input.submit_btn.clicked.connect(self._on_meihua)
         self.meihua_input.reset_btn.clicked.connect(self._on_meihua_reset)
-        self.meihua_result.ai_analyze_btn.clicked.connect(lambda: self.statusBar().showMessage('AI分析开发中'))
+        self.meihua_result.ai_analyze_btn.clicked.connect(self._on_meihua_ai_analyze)
 
     # ===== 用户登录相关 =====
 
@@ -465,3 +467,153 @@ class MainWindow(QMainWindow):
     def _on_meihua_reset(self):
         self.meihua_input.clear()
         self.meihua_result.clear()
+
+    # ===== AI分析 =====
+
+    def _on_bazi_ai_analyze(self):
+        """八字AI分析按钮点击处理"""
+        try:
+            input_data = self.bazi_input.get_data()
+            chart_data = self.bazi_result.get_chart_data_for_ai()
+
+            if not chart_data or not chart_data.get('bazi', {}).get('year'):
+                QMessageBox.warning(self, '提示', '请先进行排盘，再使用AI分析功能')
+                return
+
+            self.bazi_result.show_ai_loading('AI正在深入分析八字命理…')
+            self.statusBar().showMessage('AI分析进行中，请稍候…')
+
+            self._bazi_ai_worker = AiAnalysisWorker('bazi', input_data, chart_data)
+            self._bazi_ai_worker.progress_updated.connect(self._on_bazi_ai_progress)
+            self._bazi_ai_worker.analysis_finished.connect(self._on_bazi_ai_finished)
+            self._bazi_ai_worker.analysis_failed.connect(self._on_bazi_ai_failed)
+            self._bazi_ai_worker.start()
+
+        except Exception as e:
+            self.statusBar().showMessage(f'AI分析启动失败: {e}')
+            traceback.print_exc()
+            QMessageBox.critical(self, '错误', f'AI分析启动失败: {e}')
+
+    def _on_bazi_ai_progress(self, stage: str, message: str):
+        """八字AI分析进度更新"""
+        status_messages = {
+            'validating': '正在验证输入数据…',
+            'initializing': '正在初始化AI分析引擎…',
+            'analyzing': 'AI正在深度分析八字命理…',
+            'completed': '分析完成！'
+        }
+        status = status_messages.get(stage, message)
+        self.statusBar().showMessage(status)
+
+    def _on_bazi_ai_finished(self, result: dict):
+        """八字AI分析完成"""
+        try:
+            ai_analysis = result.get('ai_analysis', {})
+            self.bazi_result.display_ai_result(ai_analysis)
+
+            token_usage = result.get('token_usage', 0)
+            report_id = result.get('report_id', 0)
+            elapsed = result.get('elapsed_seconds', 0)
+            self.statusBar().showMessage(
+                f'AI分析完成 · 报告ID: {report_id} · '
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
+            )
+        except Exception as e:
+            self.statusBar().showMessage(f'显示AI分析结果失败: {e}')
+            traceback.print_exc()
+
+    def _on_bazi_ai_failed(self, error_type: str, error_message: str):
+        """八字AI分析失败"""
+        self.bazi_result.display_result(getattr(self.bazi_result, '_current_result', {}))
+        self.bazi_result.ai_analyze_btn.setVisible(True)
+        self.bazi_result.ai_analyze_btn.setEnabled(True)
+        self.statusBar().showMessage(f'AI分析失败: {error_type}')
+
+        error_titles = {
+            'validation_error': '数据验证失败',
+            'ai_timeout': 'AI请求超时',
+            'ai_request_error': 'AI请求失败',
+            'ai_response_error': 'AI响应解析失败',
+            'db_connection_error': '数据库连接异常',
+            'db_query_error': '数据库操作异常',
+        }
+        title = error_titles.get(error_type, '分析失败')
+
+        msg_lines = error_message.split('\n')
+        short_msg = msg_lines[0] if msg_lines else error_message
+
+        QMessageBox.warning(self, title, short_msg)
+
+    def _on_meihua_ai_analyze(self):
+        """梅花易数AI分析按钮点击处理"""
+        try:
+            input_data = self.meihua_input.get_data()
+            hexagram_data = self.meihua_result.get_hexagram_data_for_ai()
+
+            if not hexagram_data or not hexagram_data.get('base', {}).get('name'):
+                QMessageBox.warning(self, '提示', '请先起卦，再使用AI解读功能')
+                return
+
+            self.meihua_result.show_ai_loading('AI正在解读卦象玄机…')
+            self.statusBar().showMessage('AI解读进行中，请稍候…')
+
+            self._meihua_ai_worker = AiAnalysisWorker('meihua', input_data, hexagram_data)
+            self._meihua_ai_worker.progress_updated.connect(self._on_meihua_ai_progress)
+            self._meihua_ai_worker.analysis_finished.connect(self._on_meihua_ai_finished)
+            self._meihua_ai_worker.analysis_failed.connect(self._on_meihua_ai_failed)
+            self._meihua_ai_worker.start()
+
+        except Exception as e:
+            self.statusBar().showMessage(f'AI解读启动失败: {e}')
+            traceback.print_exc()
+            QMessageBox.critical(self, '错误', f'AI解读启动失败: {e}')
+
+    def _on_meihua_ai_progress(self, stage: str, message: str):
+        """梅花易数AI分析进度更新"""
+        status_messages = {
+            'validating': '正在验证输入数据…',
+            'initializing': '正在初始化AI分析引擎…',
+            'analyzing': 'AI正在解读卦象玄机…',
+            'completed': '解读完成！'
+        }
+        status = status_messages.get(stage, message)
+        self.statusBar().showMessage(status)
+
+    def _on_meihua_ai_finished(self, result: dict):
+        """梅花易数AI分析完成"""
+        try:
+            ai_analysis = result.get('ai_analysis', {})
+            self.meihua_result.display_ai_analysis_result(ai_analysis)
+
+            token_usage = result.get('token_usage', 0)
+            report_id = result.get('report_id', 0)
+            elapsed = result.get('elapsed_seconds', 0)
+            self.statusBar().showMessage(
+                f'AI解读完成 · 报告ID: {report_id} · '
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
+            )
+        except Exception as e:
+            self.statusBar().showMessage(f'显示AI解读结果失败: {e}')
+            traceback.print_exc()
+
+    def _on_meihua_ai_failed(self, error_type: str, error_message: str):
+        """梅花易数AI分析失败"""
+        self.meihua_result.display_result(getattr(self.meihua_result, '_current_result', {}))
+        self.meihua_result.ai_analyze_btn.setVisible(True)
+        self.meihua_result.ai_analyze_btn.setEnabled(True)
+        self.statusBar().showMessage(f'AI解读失败: {error_type}')
+
+        error_titles = {
+            'validation_error': '数据验证失败',
+            'ai_timeout': 'AI请求超时',
+            'ai_request_error': 'AI请求失败',
+            'ai_response_error': 'AI响应解析失败',
+            'db_connection_error': '数据库连接异常',
+            'db_query_error': '数据库操作异常',
+        }
+        title = error_titles.get(error_type, '解读失败')
+
+        msg_lines = error_message.split('\n')
+        short_msg = msg_lines[0] if msg_lines else error_message
+
+        QMessageBox.warning(self, title, short_msg)
