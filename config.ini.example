@@ -1,0 +1,108 @@
+; ================================================================
+; AI风水命理分析系统 - 配置文件范本
+; ================================================================
+; 复制此文件为 config.ini 并根据实际环境修改配置
+; 配置项说明：
+;   - 所有配置项均使用 key = value 格式
+;   - 分号开头的行为注释行
+;   - 字符串值不需要引号
+; ================================================================
+
+[database]
+; MySQL数据库主机地址
+; 默认值：127.0.0.1（本地数据库）
+; 如果数据库在远程服务器，请填写服务器IP地址
+host = 127.0.0.1
+
+; MySQL数据库端口
+; 默认值：3306（MySQL默认端口）
+; 如果修改了MySQL端口，请填写实际端口号
+port = 3306
+
+; MySQL数据库用户名
+; 默认值：root（MySQL默认管理员账号）
+; 建议创建专用数据库用户以提高安全性
+user = your_username
+
+; MySQL数据库密码
+; 默认值：（空）
+; 请务必设置强密码保护数据库安全
+password = your_password
+
+; 数据库名称
+; 默认值：ai_fengshui
+; 系统会自动创建该数据库（如果不存在）
+database = ai_fengshui
+
+; 数据库字符集
+; 默认值：utf8mb4（支持完整Unicode字符，包括表情符号）
+; 建议使用 utf8mb4 以支持中文和特殊字符
+charset = utf8mb4
+
+; ================================================================
+; AI模型配置
+; ================================================================
+
+[ernie]
+; AI模型API地址
+; 默认值：https://qianfan.baidubce.com/v2/chat/completions（百度千帆平台）
+; 支持的平台：
+;   - 百度千帆：https://qianfan.baidubce.com/v2/chat/completions
+;   - 讯飞星火：https://spark-api-open.xf-yun.com/v2/chat/completions
+api_url = https://qianfan.baidubce.com/v2/chat/completions
+
+; API密钥
+; 格式：Bearer <your_access_token>
+; 获取方式：
+;   - 百度千帆：登录https://cloud.baidu.com/product/qianfan，创建应用获取API Key和Secret Key
+;   - 讯飞星火：登录https://console.xfyun.cn/services/bm3，获取API Key和Secret Key
+; 注意：请妥善保管此密钥，不要泄露给他人
+api_key = Bearer your_api_key_here
+
+; AI模型名称
+; 默认值：deepseek-v3.1-250821
+; 支持的模型：
+;   - 百度千帆：deepseek-v3.1-250821, ernie-3.5, ernie-4.0-turbo等
+;   - 讯飞星火：spark-3.5, spark-4.0等
+; 请根据API平台支持的模型列表选择合适的模型
+model = deepseek-v3.1-250821
+
+; API请求重试次数
+; 默认值：2
+; 当API请求失败时，自动重试的次数
+max_retries = 2
+
+; 请求重试间隔（秒）
+; 默认值：2
+; 两次重试之间的等待时间
+retry_delay = 2
+
+; API请求超时时间（秒）
+; 默认值：60
+; 单个API请求的最大等待时间
+timeout = 60
+
+; ================================================================
+; 可选配置项（如需启用请取消注释并修改）
+; ================================================================
+
+; [app]
+; ; 应用调试模式
+; ; 默认值：false（生产模式）
+; ; 设置为true时，启用调试模式，输出更详细的日志信息
+; debug = false
+; 
+; ; 日志级别
+; ; 默认值：INFO
+; ; 可选值：DEBUG, INFO, WARNING, ERROR
+; log_level = INFO
+
+; [analysis]
+; ; AI分析最大字符数限制
+; ; 默认值：4096
+; max_tokens = 4096
+; 
+; ; 分析温度参数（0-1）
+; ; 默认值：0.3（较低温度，结果更稳定）
+; ; 值越低，结果越确定；值越高，结果越随机
+; temperature = 0.3
