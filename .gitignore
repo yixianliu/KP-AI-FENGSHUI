@@ -12,3 +12,4 @@ core/ai_analyzer.py
 /tests/
 /test_env/
 config.ini
+logs
