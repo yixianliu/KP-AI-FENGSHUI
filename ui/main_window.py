@@ -371,35 +371,61 @@ class MainWindow(QMainWindow):
     def _do_bazi(self, data):
         try:
             y, m, d, hh, mm = data['year'], data['month'], data['day'], data['hour'], data['minute']
-            if data['is_lunar']:
+            longitude = data['longitude']
+            is_lunar = data['is_lunar']
+            
+            if is_lunar:
                 sol = self.lunar_conv.lunar_to_solar(y, m, d)
                 if not sol: return
                 y, m, d = sol
+            
             dt = datetime(y, m, d, hh, mm)
-            sdt = self.solar_calc.get_solar_time(dt, data['longitude'])
-            bazi = self.bazi_calc.calculate(y, m, d, sdt.hour)
+            sdt = self.solar_calc.get_solar_time(dt, longitude)
+            
+            bazi = self.bazi_calc.calculate(y, m, d, hh, mm, longitude, is_lunar=False)
             li = self.lunar_conv.solar_to_lunar(y, m, d)
+            
             wx = self.bazi_calc.get_wuxing(bazi)
             ss = self.bazi_calc.get_shishen(bazi)
             ml = self.bazi_calc.get_mingli(bazi)
+            
+            wuxing_summary = {}
+            for k in ('木', '火', '土', '金', '水'):
+                v = wx.get(k, {})
+                if isinstance(v, int):
+                    wuxing_summary[k] = v
+                else:
+                    wuxing_summary[k] = round(v.get('score', 0), 2)
+            
             result = {
                 'basic_info': {
-                    'pan_type': '八字排盘', 'solar_date': f'{y}年{m}月{d}日',
-                    'lunar_date': f'{li[0]}年{li[1]}月{li[2]}日' if li else '-',
+                    'pan_type': '八字排盘',
+                    'solar_date': f'{y}年{m}月{d}日',
+                    'lunar_date': f'{li[0]}年{li[1]}月{li[2]}日' if li else bazi.get('lunar_date', '-'),
                     'hour': f'{sdt.hour:02d}:{sdt.minute:02d}',
-                    'location': data['city'], 'gender': data['gender'],
+                    'location': data['city'],
+                    'gender': data['gender'],
+                    'solar_time': bazi.get('solar_time', ''),
+                    'original_time': bazi.get('original_time', ''),
+                    'longitude': longitude,
                 },
                 'bazi': {
-                    'year_pillar': bazi['year_pillar'], 'month_pillar': bazi['month_pillar'],
-                    'day_pillar': bazi['day_pillar'], 'hour_pillar': bazi['hour_pillar'],
+                    'year_pillar': bazi['year_pillar'],
+                    'month_pillar': bazi['month_pillar'],
+                    'day_pillar': bazi['day_pillar'],
+                    'hour_pillar': bazi['hour_pillar'],
+                    'rizhu': bazi.get('rizhu', ''),
+                    'month_zhi': bazi.get('month_zhi', ''),
                 },
-                'wuxing': {k: v if isinstance(v, int) else v.get('count', 0) for k, v in wx.items() if k in ('木','火','土','金','水')},
+                'wuxing': wuxing_summary,
+                'wuxing_detail': wx,
+                'shishen': ss,
+                'mingli': ml,
                 'analysis': self._analysis(ml, ss),
             }
             self.bazi_result.display_result(result)
             self.statusBar().showMessage(f'排盘完成 · {data["city"]} {y}年{m}月{d}日')
 
-            # 保存到数据库
             self._save_pan_record(data, result, '八字排盘')
         except Exception as e:
             self.statusBar().showMessage(f'计算错误: {e}')
@@ -407,17 +433,35 @@ class MainWindow(QMainWindow):
 
     def _analysis(self, ml, ss):
         a = []
-        sh = ss.get('summary', {})
-        if '正官' in sh or '七杀' in sh: a.append({'type': '中', 'text': '官杀透干，事业心强，注意工作压力'})
-        if '正财' in sh or '偏财' in sh: a.append({'type': '吉', 'text': '财星显现，财运较好'})
-        if '正印' in sh or '偏印' in sh: a.append({'type': '吉', 'text': '印星护身，贵人相助'})
-        if '食神' in sh or '伤官' in sh: a.append({'type': '中', 'text': '食伤泄秀，才华出众'})
-        sn = ml.get('shensha', {})
+        sh_summary = ss.get('summary', {})
+        sh_weight_summary = ss.get('weight_summary', {})
+        sh_total_weights = ss.get('total_weights', {})
+        
+        if sh_summary:
+            if sh_summary.get('正官', 0) > 0 or sh_summary.get('七杀', 0) > 0:
+                a.append({'type': '中', 'text': '官杀透干，事业心强，注意工作压力'})
+            if sh_summary.get('正财', 0) > 0 or sh_summary.get('偏财', 0) > 0:
+                a.append({'type': '吉', 'text': '财星显现，财运较好'})
+            if sh_summary.get('正印', 0) > 0 or sh_summary.get('偏印', 0) > 0:
+                a.append({'type': '吉', 'text': '印星护身，贵人相助'})
+            if sh_summary.get('食神', 0) > 0 or sh_summary.get('伤官', 0) > 0:
+                a.append({'type': '中', 'text': '食伤泄秀，才华出众'})
+        
+        if sh_total_weights:
+            total = sh_total_weights.get('total', 0)
+            if total > 0:
+                for category, label in [('印星', '生扶'), ('食伤', '泄秀'), ('官杀', '克制'), ('财星', '耗身'), ('比劫', '帮身')]:
+                    weight = sh_total_weights.get(category, 0)
+                    if weight / total >= 0.3:
+                        a.append({'type': '吉', 'text': f'{category}偏旺，{label}有力'})
+        
+        sn = ml.get('shensha', {}) if isinstance(ml, dict) else {}
         for k, key in [('positive', '吉'), ('negative', '凶')]:
             items = sn.get(k, [])
             if items:
                 ns = '、'.join(s['name'] for s in items[:3])
                 a.append({'type': key, 'text': f'命带{ns}'})
+        
         if not a:
             a = [{'type': '吉', 'text': '日主得令，宜积极进取'}, {'type': '中', 'text': '财星透干，理财宜谨慎'}, {'type': '凶', 'text': '官杀混杂，注意身心'}]
         return a

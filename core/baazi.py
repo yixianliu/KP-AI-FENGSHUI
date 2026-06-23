@@ -1,4 +1,5 @@
-from lunarcalendar import Converter, Solar, Lunar
+from core.calendar_utils import BaZiCalendar
+from datetime import datetime
 
 TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
 DI_ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
@@ -65,17 +66,37 @@ for gan, zhi_list in TIAN_GAN_SHIER_SHEN_MAP.items():
 FIRST_DAY_GANZHI = '甲子'
 BASE_YEAR = 1900
 
+
 class BaZiCalculator:
+    """八字排盘计算器
+    
+    修复内容：
+    1. 年柱：按立春分界（使用BaZiCalendar）
+    2. 月柱：按节气划分月建（使用BaZiCalendar）
+    3. 日柱：基于公历日期计算（优化算法）
+    4. 时柱：基于真太阳时，支持早晚子时（使用BaZiCalendar）
+    5. 新增真太阳时修正、节气精准计算、晚子时处理
+    """
+    
     def __init__(self):
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
         self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}
+        self.calendar = BaZiCalendar()
 
     def get_year_ganzhi(self, year):
-        idx = (year - 4) % 60
-        return YEAR_GANZHI[idx]
+        """计算年干支（按立春分界）
+        
+        修正：原算法直接用公历年，现在通过BaZiCalendar按立春计算
+        """
+        return self.calendar.ganzhi.get_year_ganzhi(year)
 
     def get_month_ganzhi(self, year_gan, month):
+        """计算月干支（五虎遁）
+        
+        注意：此方法为兼容旧接口保留，实际排盘应使用calculate()方法
+        因为月柱必须按节气划分，不能仅用公历月份
+        """
         month_idx = month - 1
         for key, gan_list in MONTH_GAN:
             if year_gan in key:
@@ -85,30 +106,13 @@ class BaZiCalculator:
         return ''
 
     def get_day_ganzhi(self, year, month, day):
-        total_days = self.get_days_since_base(year, month, day)
-        idx = (self.ganzhi_map[FIRST_DAY_GANZHI] + total_days) % 60
-        return YEAR_GANZHI[idx]
-
-    def get_days_since_base(self, year, month, day):
-        """
-        计算从基准日期到指定日期的天数（优化版）
-        
-        原算法使用循环累加，时间复杂度O(年差)，优化后使用datetime模块，
-        时间复杂度O(1)，性能提升约200倍
-        
-        Args:
-            year: 年份
-            month: 月份
-            day: 日期
-        
-        Returns:
-            天数
-        """
+        """计算日干支（基于基准日推算）"""
         from datetime import date
         base_date = date(BASE_YEAR, 1, 1)
         target_date = date(year, month, day)
         delta = target_date - base_date
-        return delta.days
+        idx = (self.ganzhi_map[FIRST_DAY_GANZHI] + delta.days) % 60
+        return YEAR_GANZHI[idx]
 
     def is_leap_year(self, year):
         if year % 400 == 0:
@@ -120,6 +124,11 @@ class BaZiCalculator:
         return False
 
     def get_hour_ganzhi(self, day_gan, hour):
+        """计算时干支（五鼠遁）
+        
+        注意：此方法为兼容旧接口保留，实际排盘应使用calculate()方法
+        因为时柱必须基于真太阳时计算
+        """
         hour_zhi_idx = self.get_hour_zhi_idx(hour)
         hour_zhi = DI_ZHI[hour_zhi_idx]
         hour_gan_idx = (self.tian_gan_map[day_gan] * 2 + hour_zhi_idx) % 10
@@ -152,53 +161,73 @@ class BaZiCalculator:
         else:
             return 11
 
-    def calculate(self, year, month, day, hour, is_lunar=False):
-        if is_lunar:
-            lunar = Lunar(year, month, day)
-            solar = Converter.Lunar2Solar(lunar)
-        else:
-            solar = Solar(year, month, day)
-            lunar = Converter.Solar2Lunar(solar)
-
-        year_ganzhi = self.get_year_ganzhi(solar.year)
-        year_gan = year_ganzhi[0]
+    def calculate(self, year, month, day, hour, minute=0, longitude=120.0, is_lunar=False):
+        """完整计算八字四柱（使用BaZiCalendar修复算法）
         
-        month_idx = solar.month
-        month_ganzhi = self.get_month_ganzhi(year_gan, month_idx)
-        
-        day_ganzhi = self.get_day_ganzhi(solar.year, solar.month, solar.day)
-        
-        hour_ganzhi = self.get_hour_ganzhi(day_ganzhi[0], hour)
-
-        return {
-            'solar_date': f"{solar.year}-{solar.month}-{solar.day}",
-            'lunar_date': f"{lunar.year}年{lunar.month}月{lunar.day}日",
-            'year': year_ganzhi,
-            'month': month_ganzhi,
-            'day': day_ganzhi,
-            'hour': hour_ganzhi,
-            'rizhu': day_ganzhi[0],
-            '四柱': [year_ganzhi, month_ganzhi, day_ganzhi, hour_ganzhi]
-        }
-
-    def get_shier_shen(self, rizhu, ganzhi):
-        """
-        获取十二长生信息（优化版）
-        
-        原算法使用列表.index()查找，时间复杂度O(n)，优化后使用预构建字典，
-        时间复杂度O(1)，性能提升约12倍
+        修正内容：
+        1. 使用真太阳时修正（经度+均时差）
+        2. 年柱按立春分界
+        3. 月柱按节气划分月建
+        4. 支持晚子时（23:00-00:00按次日排盘）
+        5. 增加经度参数支持不同时区
         
         Args:
-            rizhu: 日主天干
-            ganzhi: 干支
+            year: 公历年
+            month: 公历月
+            day: 公历日
+            hour: 小时
+            minute: 分钟（新增）
+            longitude: 经度（新增，默认120°E）
+            is_lunar: 是否为农历（保留兼容）
         
         Returns:
-            十二长生信息字典
+            八字排盘结果字典
         """
+        if is_lunar:
+            try:
+                from lunarcalendar import Converter, Lunar
+                lunar = Lunar(year, month, day)
+                solar = Converter.Lunar2Solar(lunar)
+                year, month, day = solar.year, solar.month, solar.day
+            except ImportError:
+                pass
+
+        bazi_result = self.calendar.calculate_bazi(year, month, day, hour, minute, longitude)
+        
+        return {
+            'solar_date': f"{year}-{month}-{day}",
+            'lunar_date': self._get_lunar_date(year, month, day),
+            'year': bazi_result['year'],
+            'month': bazi_result['month'],
+            'day': bazi_result['day'],
+            'hour': bazi_result['hour'],
+            'rizhu': bazi_result['rizhu'],
+            '四柱': bazi_result['四柱'],
+            'lunar_year': bazi_result['lunar_year'],
+            'month_zhi': bazi_result['month_zhi'],
+            'hour_zhi': bazi_result['hour_zhi'],
+            'solar_time': bazi_result['solar_time'],
+            'original_time': bazi_result['original_time'],
+            'longitude': bazi_result['longitude']
+        }
+
+    def _get_lunar_date(self, year, month, day):
+        """获取农历日期（兼容旧接口）"""
+        try:
+            from lunarcalendar import Converter, Solar
+            solar = Solar(year, month, day)
+            lunar = Converter.Solar2Lunar(solar)
+            return f"{lunar.year}年{lunar.month}月{lunar.day}日"
+        except ImportError:
+            return f"{year}年{month}月{day}日"
+
+    def get_shier_shen(self, rizhu, ganzhi):
+        """获取十二长生信息"""
         zhi = ganzhi[1]
         return SHIER_SHEN_LOOKUP.get(rizhu, {}).get(zhi)
 
     def analyze_shier_shen(self, bazhi):
+        """分析八字十二长生"""
         rizhu = bazhi['rizhu']
         pillars = ['年柱', '月柱', '日柱', '时柱']
         ganzhi_list = bazhi['四柱']

@@ -1,28 +1,44 @@
 """
-真太阳时计算器
+真太阳时计算器 - 完整实现真太阳时计算
+
+修复内容：
+1. 使用 calendar_utils 中的 SolarTimeCalculator 实现完整真太阳时
+2. 包含平太阳时+均时差+经度修正
+3. 支持时辰地支判断
 """
-import math
 from datetime import datetime, timedelta
+from .calendar_utils import SolarTimeCalculator as CoreSolarTimeCalculator
 
 
 class SolarTimeCalculator:
-    """真太阳时计算器"""
+    """真太阳时计算器 - 使用核心模块实现完整真太阳时计算"""
+
+    def __init__(self):
+        self.core = CoreSolarTimeCalculator()
 
     def get_solar_time(self, dt, longitude):
-        """计算真太阳时
-
-        根据经度调整时区，每15度经度相差1小时
+        """计算真太阳时（完整实现）
+        
+        真太阳时 = 平太阳时 + 均时差
+        平太阳时 = 北京时间 + 经度修正
+        
+        参数：
+            dt: datetime对象
+            longitude: 经度（度）
+        
+        返回：
+            真太阳时datetime对象
         """
-        standard_longitude = 120.0
-        longitude_diff = longitude - standard_longitude
-        time_diff_minutes = longitude_diff * 4
-        return dt + timedelta(minutes=time_diff_minutes)
+        return self.core.get_true_solar_time(dt, longitude)
 
-    @staticmethod
-    def get_equation_of_time(day_of_year):
-        """计算均时差（分钟）
+    def get_mean_solar_time(self, dt, longitude):
+        """计算平太阳时（仅经度修正）"""
+        return self.core.get_mean_solar_time(dt, longitude)
 
-        使用简化公式
-        """
-        b = 2 * math.pi * (day_of_year - 81) / 364
-        return 9.87 * math.sin(2 * b) - 7.53 * math.cos(b) - 1.5 * math.sin(b)
+    def get_equation_of_time(self, day_of_year):
+        """计算均时差（分钟）"""
+        return self.core.get_equation_of_time(day_of_year)
+
+    def get_hour_zhi(self, solar_hour):
+        """根据真太阳时确定时辰地支"""
+        return self.core.get_hour_zhi(solar_hour)

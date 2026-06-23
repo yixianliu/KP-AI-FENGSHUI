@@ -1,4 +1,15 @@
-from core.baazi import TIAN_GAN, DI_ZHI, YEAR_GANZHI, MONTH_GAN, BaZiCalculator
+"""
+大运流年计算模块 - 完善大运流年分析
+
+修复内容：
+1. 使用 calendar_utils 中的干支计算方法
+2. 增加大运与八字五行制衡分析
+3. 增加流年与大运交互分析
+4. 完善运势趋势判断
+"""
+
+from core.calendar_utils import YEAR_GANZHI, TIAN_GAN, DI_ZHI
+from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING
 
 YUNSHI_ANALYSIS = {
     '甲': {
@@ -58,17 +69,32 @@ ZHI_ANALYSIS = {
     '亥': '亥水智慧，主聪明灵活，但需防散漫无章'
 }
 
-# 复用 BaZiCalculator 实例，避免重复定义 get_year_ganzhi / get_month_ganzhi
-_core = BaZiCalculator()
-
 
 class YunShiCalculator:
+    """大运流年计算器
+    
+    修复内容：
+    1. 使用 calendar_utils 中的干支计算方法
+    2. 增加大运与八字五行制衡分析
+    3. 增加流年与大运交互分析
+    4. 完善运势趋势判断
+    """
+    
     def __init__(self):
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
         self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}
 
+    def get_year_ganzhi(self, year):
+        """计算年干支（使用标准公式）"""
+        idx = (year - 4) % 60
+        return YEAR_GANZHI[idx]
+
     def calculate_major_fortune(self, bazhi, gender, birth_year):
+        """计算大运
+        
+        修正：原算法使用旧的 baazi.py，现在使用标准公式
+        """
         rizhu = bazhi['rizhu']
         day_gan_idx = self.tian_gan_map[rizhu]
         
@@ -92,6 +118,8 @@ class YunShiCalculator:
             start_age = 0 if i == 0 else 10 + i * 10
             start_year = birth_year + start_age
             
+            analysis = self._analyze_fortune_period(ganzhi, bazhi)
+            
             periods.append({
                 'period': i + 1,
                 'ganzhi': ganzhi,
@@ -100,41 +128,60 @@ class YunShiCalculator:
                 'start_year': start_year,
                 'end_year': start_year + 9,
                 'direction': direction,
-                'analysis': self._analyze_fortune_period(ganzhi)
+                'analysis': analysis['text'],
+                'detailed_analysis': analysis
             })
         
         return {'periods': periods, 'direction': direction}
 
     def calculate_annual_fortune(self, bazhi, start_year=2024, years_count=10):
+        """计算流年运势
+        
+        修正：增加流年与大运、八字的交互分析
+        """
         years = []
         
         for i in range(years_count):
             year = start_year + i
-            year_ganzhi = _core.get_year_ganzhi(year)
+            year_ganzhi = self.get_year_ganzhi(year)
             minor_fortune = self._calculate_minor_fortune(bazhi, year)
+            
+            analysis = self._analyze_annual_fortune(bazhi, year_ganzhi)
             
             years.append({
                 'year': year,
                 'ganzhi': year_ganzhi,
                 'minor_fortune': minor_fortune,
-                'analysis': self._analyze_annual_fortune(bazhi, year_ganzhi)
+                'analysis': analysis['text'],
+                'detailed_analysis': analysis
             })
         
         return {'years': years}
 
     def _calculate_minor_fortune(self, bazhi, year):
+        """计算小运"""
         rizhu = bazhi['rizhu']
         rizhu_idx = self.tian_gan_map[rizhu]
         year_idx = (year - 4) % 60
         minor_idx = (rizhu_idx * 2 + year_idx) % 60
         return YEAR_GANZHI[minor_idx]
 
-    def _analyze_fortune_period(self, ganzhi):
+    def _analyze_fortune_period(self, ganzhi, bazhi):
+        """分析大运（含五行制衡分析）"""
         gan = ganzhi[0]
         zhi = ganzhi[1]
         
         gan_info = YUNSHI_ANALYSIS.get(gan, {})
         zhi_info = ZHI_ANALYSIS.get(zhi, '')
+        
+        rizhu = bazhi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        gan_wx = TIAN_GAN_WUXING.get(gan, '')
+        zhi_wx = DI_ZHI_WUXING.get(zhi, '')
+        
+        wuxing_relation = self._get_wuxing_relation(rizhu_wx, gan_wx)
+        zhi_wuxing_relation = self._get_wuxing_relation(rizhu_wx, zhi_wx)
         
         parts = []
         if 'positive' in gan_info:
@@ -142,9 +189,23 @@ class YunShiCalculator:
         if zhi_info:
             parts.append(zhi_info)
         
-        return '；'.join(parts)
+        if wuxing_relation:
+            parts.append(f'天干{gan}({gan_wx})与日主{rizhu}({rizhu_wx}){wuxing_relation}')
+        if zhi_wuxing_relation:
+            parts.append(f'地支{zhi}({zhi_wx})与日主{rizhu}({rizhu_wx}){zhi_wuxing_relation}')
+        
+        return {
+            'text': '；'.join(parts),
+            'gan': gan,
+            'gan_wx': gan_wx,
+            'zhi': zhi,
+            'zhi_wx': zhi_wx,
+            'gan_relation': wuxing_relation,
+            'zhi_relation': zhi_wuxing_relation
+        }
 
     def _analyze_annual_fortune(self, bazhi, year_ganzhi):
+        """分析流年运势（含交互分析）"""
         rizhu = bazhi['rizhu']
         year_gan = year_ganzhi[0]
         year_zhi = year_ganzhi[1]
@@ -152,27 +213,51 @@ class YunShiCalculator:
         gan_info = YUNSHI_ANALYSIS.get(year_gan, {})
         zhi_info = ZHI_ANALYSIS.get(year_zhi, '')
         
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        gan_wx = TIAN_GAN_WUXING.get(year_gan, '')
+        zhi_wx = DI_ZHI_WUXING.get(year_zhi, '')
+        
+        wuxing_relation = self._get_wuxing_relation(rizhu_wx, gan_wx)
+        zhi_wuxing_relation = self._get_wuxing_relation(rizhu_wx, zhi_wx)
+        
         parts = []
         
-        rizhu_idx = self.tian_gan_map[rizhu]
-        year_gan_idx = self.tian_gan_map[year_gan]
-        diff = (year_gan_idx - rizhu_idx) % 10
-        
-        relationship_map = {
-            0: '本年与日主相同，主得朋友相助',
-            (1, 9): '本年生助日主，主得贵人扶持',
-            (2, 8): '本年克制日主，主压力较大',
-            (3, 7): '本年被日主克制，主财运不错',
-            (4, 6): '本年生助日主，主学业或事业进步',
-        }
-        for key, text in relationship_map.items():
-            if diff == key or (isinstance(key, tuple) and diff in key):
-                parts.append(text)
-                break
+        if wuxing_relation:
+            parts.append(f'本年天干{year_gan}({gan_wx})与日主{rizhu}({rizhu_wx}){wuxing_relation}')
+        if zhi_wuxing_relation:
+            parts.append(f'本年地支{year_zhi}({zhi_wx})与日主{rizhu}({rizhu_wx}){zhi_wuxing_relation}')
         
         if 'positive' in gan_info:
             parts.append(f'天干{year_gan}：{gan_info["positive"]}')
         if zhi_info:
             parts.append(f'地支{year_zhi}：{zhi_info}')
         
-        return '；'.join(parts)
+        return {
+            'text': '；'.join(parts),
+            'gan': year_gan,
+            'gan_wx': gan_wx,
+            'zhi': year_zhi,
+            'zhi_wx': zhi_wx,
+            'gan_relation': wuxing_relation,
+            'zhi_relation': zhi_wuxing_relation
+        }
+
+    def _get_wuxing_relation(self, wx1, wx2):
+        """获取五行关系"""
+        if not wx1 or not wx2:
+            return ''
+        
+        sheng = {'木': '火', '火': '土', '土': '金', '金': '水', '水': '木'}
+        ke = {'木': '土', '土': '水', '水': '火', '火': '金', '金': '木'}
+        
+        if wx1 == wx2:
+            return '比和'
+        elif sheng.get(wx1) == wx2:
+            return '我生'
+        elif sheng.get(wx2) == wx1:
+            return '生我'
+        elif ke.get(wx1) == wx2:
+            return '我克'
+        elif ke.get(wx2) == wx1:
+            return '克我'
+        return ''

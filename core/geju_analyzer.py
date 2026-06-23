@@ -1,0 +1,636 @@
+"""
+格局判定模块 - 补齐格局分支
+包含身强身弱、从格、专旺、合化、冲克制衡全部判定逻辑
+
+修复内容：
+1. 身强/身弱判定：基于五行能量、月令、通根综合判断
+2. 从格判定：从财、从官杀、从儿、从势
+3. 专旺格判定：曲直、炎上、稼穑、从革、润下
+4. 合化格判定：天干五合、地支六合三合
+5. 特殊格局：伤官见官、官杀混杂、财官双美等
+"""
+from core.calendar_utils import WuxingQuantifier
+
+TIAN_GAN_WUXING = {
+    '甲': '木', '乙': '木',
+    '丙': '火', '丁': '火',
+    '戊': '土', '己': '土',
+    '庚': '金', '辛': '金',
+    '壬': '水', '癸': '水'
+}
+
+TIAN_GAN_HE = {
+    '甲己': '土',
+    '乙庚': '金',
+    '丙辛': '水',
+    '丁壬': '木',
+    '戊癸': '火'
+}
+
+DI_ZHI_HE = {
+    '子丑': '土',
+    '寅亥': '木',
+    '卯戌': '火',
+    '辰酉': '金',
+    '巳申': '水',
+    '午未': '土'
+}
+
+DI_ZHI_SAN_HE = {
+    '申子辰': '水',
+    '亥卯未': '木',
+    '寅午戌': '火',
+    '巳酉丑': '金'
+}
+
+DI_ZHI_CHONG = {
+    '子': '午', '午': '子',
+    '丑': '未', '未': '丑',
+    '寅': '申', '申': '寅',
+    '卯': '酉', '酉': '卯',
+    '辰': '戌', '戌': '辰',
+    '巳': '亥', '亥': '巳'
+}
+
+DI_ZHI_XING = {
+    '子': ['卯'],
+    '丑': ['戌', '未'],
+    '寅': ['巳', '申'],
+    '卯': ['子'],
+    '辰': ['辰'],
+    '巳': ['寅', '申'],
+    '午': ['午'],
+    '未': ['丑', '戌'],
+    '申': ['寅', '巳'],
+    '酉': ['酉'],
+    '戌': ['丑', '未'],
+    '亥': ['亥']
+}
+
+
+class GeJuAnalyzer:
+    """格局判定分析器"""
+
+    def __init__(self):
+        self.wuxing_quantifier = WuxingQuantifier()
+
+    def analyze(self, bazi, wuxing_result=None, month_zhi=None):
+        """综合判定八字格局"""
+        if wuxing_result is None:
+            wuxing_result = self.wuxing_quantifier.analyze(bazi, month_zhi)
+        
+        wangshuai = self.wuxing_quantifier.analyze_wangshuai(bazi, month_zhi)
+        
+        geju_result = {
+            'wangshuai': wangshuai,
+            'main_geju': '',
+            'geju_type': '',
+            'description': '',
+            'sub_geju': [],
+            'hehua': [],
+            'chongxing': [],
+            'special_patterns': [],
+            'analysis': ''
+        }
+        
+        geju_result['main_geju'], geju_result['geju_type'], geju_result['description'] = self._judge_main_geju(bazi, wuxing_result, wangshuai)
+        
+        geju_result['hehua'] = self._analyze_hehua(bazi)
+        geju_result['chongxing'] = self._analyze_chongxing(bazi)
+        geju_result['special_patterns'] = self._analyze_special_patterns(bazi, wuxing_result, wangshuai)
+        
+        geju_result['analysis'] = self._generate_comprehensive_analysis(geju_result)
+        
+        return geju_result
+
+    def _judge_main_geju(self, bazi, wuxing_result, wangshuai):
+        """判定主格局"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        total_score = wuxing_result.get('total_score', 0)
+        rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
+        rizhu_ratio = rizhu_score / total_score if total_score > 0 else 0
+        
+        tonggen = wuxing_result.get('tonggen', {})
+        tonggen_total = tonggen.get('total', 0)
+        tonggen_strong = tonggen.get('strong', 0)
+        
+        sorted_wx = sorted(['木', '火', '土', '金', '水'],
+                          key=lambda x: wuxing_result[x]['score'], reverse=True)
+        
+        max_wx = sorted_wx[0]
+        max_score = wuxing_result[max_wx]['score']
+        max_ratio = max_score / total_score if total_score > 0 else 0
+        
+        month_zhi = bazi.get('month_zhi', '')
+        
+        if self._is_zhuanwang(bazi, wuxing_result):
+            return self._get_zhuanwang_name(max_wx), '专旺格', self._get_zhuanwang_desc(max_wx)
+        
+        if self._is_congge(bazi, wuxing_result, wangshuai):
+            return self._get_congge_name(bazi, wuxing_result), '从格', '日主极弱，顺从强势五行'
+        
+        if wangshuai['level'] == '身强':
+            if self._is_sha_gong(bazi, wuxing_result):
+                return '杀印相生格', '扶抑格', '身强用杀，印化杀生身'
+            elif self._is_cai_gong(bazi, wuxing_result):
+                return '身强用财格', '扶抑格', '身强用财，财来耗身'
+            elif self._is_shi_sang(bazi, wuxing_result):
+                return '食神吐秀格', '扶抑格', '身强用食伤泄秀'
+            else:
+                return '身强格', '扶抑格', '日主偏强，需克泄耗'
+        
+        elif wangshuai['level'] == '身弱':
+            if self._is_yin_gong(bazi, wuxing_result):
+                return '身弱用印格', '扶抑格', '身弱用印，印来生身'
+            elif self._is_bi_jie(bazi, wuxing_result):
+                return '身弱用比劫格', '扶抑格', '身弱用比劫帮身'
+            else:
+                return '身弱格', '扶抑格', '日主偏弱，需生扶'
+        
+        else:
+            if self._is_cai_guan_shuang_mei(bazi, wuxing_result):
+                return '财官双美格', '中和格', '财官得位，富贵双全'
+            elif self._is_yin_shang_sheng_gui(bazi, wuxing_result):
+                return '印绶生贵格', '中和格', '印星有力，官贵相生'
+            else:
+                return '中和格', '中和格', '五行均衡，不偏不倚'
+
+    def _is_zhuanwang(self, bazi, wuxing_result):
+        """判定专旺格"""
+        total_score = wuxing_result.get('total_score', 0)
+        if total_score == 0:
+            return False
+        
+        sorted_wx = sorted(['木', '火', '土', '金', '水'],
+                          key=lambda x: wuxing_result[x]['score'], reverse=True)
+        
+        max_wx = sorted_wx[0]
+        max_score = wuxing_result[max_wx]['score']
+        max_ratio = max_score / total_score
+        
+        if max_ratio >= 0.5:
+            return True
+        return False
+
+    def _get_zhuanwang_name(self, wx):
+        """获取专旺格名称"""
+        names = {
+            '木': '曲直格',
+            '火': '炎上格',
+            '土': '稼穑格',
+            '金': '从革格',
+            '水': '润下格'
+        }
+        return names.get(wx, '专旺格')
+
+    def _get_zhuanwang_desc(self, wx):
+        """获取专旺格描述"""
+        descs = {
+            '木': '木气专旺，曲直仁寿，主仁慈福寿',
+            '火': '火气专旺，炎上光明，主文明热情',
+            '土': '土气专旺，稼穑厚重，主诚信稳重',
+            '金': '金气专旺，从革肃杀，主果断刚毅',
+            '水': '水气专旺，润下流动，主智慧灵活'
+        }
+        return descs.get(wx, '五行专旺，气势磅礴')
+
+    def _is_congge(self, bazi, wuxing_result, wangshuai):
+        """判定从格"""
+        if wangshuai['level'] != '身弱':
+            return False
+        
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        total_score = wuxing_result.get('total_score', 0)
+        rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
+        rizhu_ratio = rizhu_score / total_score if total_score > 0 else 0
+        
+        tonggen = wuxing_result.get('tonggen', {})
+        tonggen_total = tonggen.get('total', 0)
+        
+        if rizhu_ratio <= 0.1 and tonggen_total == 0:
+            return True
+        return False
+
+    def _get_congge_name(self, bazi, wuxing_result):
+        """获取从格名称"""
+        sorted_wx = sorted(['木', '火', '土', '金', '水'],
+                          key=lambda x: wuxing_result[x]['score'], reverse=True)
+        
+        max_wx = sorted_wx[0]
+        
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        if max_wx in ['木', '火'] and max_wx != rizhu_wx:
+            return '从儿格'
+        elif max_wx in ['金', '火']:
+            return '从官杀格'
+        elif max_wx in ['土', '金']:
+            return '从财格'
+        else:
+            return '从势格'
+
+    def _is_sha_gong(self, bazi, wuxing_result):
+        """判定杀印相生格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
+        zhi_list = [ganzhi[1] for ganzhi in bazi['四柱']]
+        
+        has_sha = False
+        has_yin = False
+        
+        for gan in gan_list:
+            gan_wx = TIAN_GAN_WUXING.get(gan, '')
+            if self._is_killing(rizhu, gan):
+                has_sha = True
+            if self._is_seal(rizhu, gan):
+                has_yin = True
+        
+        return has_sha and has_yin
+
+    def _is_cai_gong(self, bazi, wuxing_result):
+        """判定身强用财格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        total_score = wuxing_result.get('total_score', 0)
+        cai_wx = self._get_cai_wx(rizhu_wx)
+        
+        if cai_wx and wuxing_result.get(cai_wx, {}).get('score', 0) / total_score >= 0.2:
+            return True
+        return False
+
+    def _is_shi_sang(self, bazi, wuxing_result):
+        """判定食神吐秀格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        total_score = wuxing_result.get('total_score', 0)
+        shi_wx = self._get_shi_wx(rizhu_wx)
+        
+        if shi_wx and wuxing_result.get(shi_wx, {}).get('score', 0) / total_score >= 0.25:
+            return True
+        return False
+
+    def _is_yin_gong(self, bazi, wuxing_result):
+        """判定身弱用印格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        total_score = wuxing_result.get('total_score', 0)
+        yin_wx = self._get_yin_wx(rizhu_wx)
+        
+        if yin_wx and wuxing_result.get(yin_wx, {}).get('score', 0) / total_score >= 0.2:
+            return True
+        return False
+
+    def _is_bi_jie(self, bazi, wuxing_result):
+        """判定身弱用比劫格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        tonggen = wuxing_result.get('tonggen', {})
+        tonggen_total = tonggen.get('total', 0)
+        
+        if tonggen_total >= 1:
+            return True
+        return False
+
+    def _is_cai_guan_shuang_mei(self, bazi, wuxing_result):
+        """判定财官双美格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        cai_wx = self._get_cai_wx(rizhu_wx)
+        guan_wx = self._get_guan_wx(rizhu_wx)
+        
+        if cai_wx and guan_wx:
+            total_score = wuxing_result.get('total_score', 0)
+            cai_score = wuxing_result.get(cai_wx, {}).get('score', 0)
+            guan_score = wuxing_result.get(guan_wx, {}).get('score', 0)
+            
+            if cai_score / total_score >= 0.15 and guan_score / total_score >= 0.15:
+                return True
+        return False
+
+    def _is_yin_shang_sheng_gui(self, bazi, wuxing_result):
+        """判定印绶生贵格"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        yin_wx = self._get_yin_wx(rizhu_wx)
+        guan_wx = self._get_guan_wx(rizhu_wx)
+        
+        if yin_wx and guan_wx:
+            total_score = wuxing_result.get('total_score', 0)
+            yin_score = wuxing_result.get(yin_wx, {}).get('score', 0)
+            guan_score = wuxing_result.get(guan_wx, {}).get('score', 0)
+            
+            if yin_score / total_score >= 0.2 and guan_score / total_score >= 0.15:
+                return True
+        return False
+
+    def _analyze_hehua(self, bazi):
+        """分析合化"""
+        result = []
+        
+        gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
+        zhi_list = [ganzhi[1] for ganzhi in bazi['四柱']]
+        
+        for i, gan1 in enumerate(gan_list):
+            for j, gan2 in enumerate(gan_list):
+                if i >= j:
+                    continue
+                he_key = ''.join(sorted([gan1, gan2]))
+                if he_key in TIAN_GAN_HE:
+                    result.append({
+                        'type': '天干五合',
+                        'elements': f'{gan1}合{gan2}',
+                        'hehua': TIAN_GAN_HE[he_key],
+                        'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
+                        'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
+                    })
+        
+        for i, zhi1 in enumerate(zhi_list):
+            for j, zhi2 in enumerate(zhi_list):
+                if i >= j:
+                    continue
+                he_key = ''.join(sorted([zhi1, zhi2]))
+                if he_key in DI_ZHI_HE:
+                    result.append({
+                        'type': '地支六合',
+                        'elements': f'{zhi1}合{zhi2}',
+                        'hehua': DI_ZHI_HE[he_key],
+                        'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
+                        'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
+                    })
+        
+        for sanhe_key, hehua_wx in DI_ZHI_SAN_HE.items():
+            if all(zhi in zhi_list for zhi in sanhe_key):
+                result.append({
+                    'type': '地支三合',
+                    'elements': sanhe_key,
+                    'hehua': hehua_wx
+                })
+        
+        return result
+
+    def _analyze_chongxing(self, bazi):
+        """分析冲刑"""
+        result = []
+        
+        zhi_list = [ganzhi[1] for ganzhi in bazi['四柱']]
+        
+        for i, zhi1 in enumerate(zhi_list):
+            for j, zhi2 in enumerate(zhi_list):
+                if i >= j:
+                    continue
+                
+                if DI_ZHI_CHONG.get(zhi1) == zhi2:
+                    result.append({
+                        'type': '相冲',
+                        'elements': f'{zhi1}冲{zhi2}',
+                        'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
+                        'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
+                    })
+                
+                if zhi2 in DI_ZHI_XING.get(zhi1, []):
+                    result.append({
+                        'type': '相刑',
+                        'elements': f'{zhi1}刑{zhi2}',
+                        'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
+                        'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
+                    })
+        
+        return result
+
+    def _analyze_special_patterns(self, bazi, wuxing_result, wangshuai):
+        """分析特殊格局"""
+        patterns = []
+        
+        if self._is_shang_guan_jian_guan(bazi):
+            patterns.append({
+                'name': '伤官见官',
+                'type': '凶',
+                'description': '伤官与正官同时出现，主是非口舌，官非诉讼'
+            })
+        
+        if self._is_guan_sha_hun_za(bazi):
+            patterns.append({
+                'name': '官杀混杂',
+                'type': '凶',
+                'description': '正官与七杀同时出现，主仕途多阻，感情不顺'
+            })
+        
+        if self._is_yin_sheng_ri_zhu(bazi, wuxing_result):
+            patterns.append({
+                'name': '印星生身',
+                'type': '吉',
+                'description': '印星有力生助日主，主学业有成，贵人相助'
+            })
+        
+        if self._is_cai_sheng_sha(bazi, wuxing_result):
+            patterns.append({
+                'name': '财生杀',
+                'type': '凶',
+                'description': '财星生助官杀，主压力增大，小人作祟'
+            })
+        
+        if self._is_sha_sheng_yin(bazi, wuxing_result):
+            patterns.append({
+                'name': '杀生印',
+                'type': '吉',
+                'description': '官杀生助印星，主化险为夷，贵人提携'
+            })
+        
+        return patterns
+
+    def _is_shang_guan_jian_guan(self, bazi):
+        """判定伤官见官"""
+        gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
+        
+        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
+                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
+        
+        rizhu = bazi.get('rizhu', '')
+        rizhu_idx = tian_gan_map.get(rizhu)
+        
+        has_shang_guan = False
+        has_guan = False
+        
+        for gan in gan_list:
+            gan_idx = tian_gan_map.get(gan)
+            if gan_idx is None or rizhu_idx is None:
+                continue
+            
+            diff = (gan_idx - rizhu_idx) % 10
+            if diff in (1, 9):
+                has_shang_guan = True
+            elif diff in (2, 8):
+                has_guan = True
+        
+        return has_shang_guan and has_guan
+
+    def _is_guan_sha_hun_za(self, bazi):
+        """判定官杀混杂"""
+        gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
+        
+        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
+                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
+        
+        rizhu = bazi.get('rizhu', '')
+        rizhu_idx = tian_gan_map.get(rizhu)
+        
+        has_zheng_guan = False
+        has_sha = False
+        
+        for gan in gan_list:
+            gan_idx = tian_gan_map.get(gan)
+            if gan_idx is None or rizhu_idx is None:
+                continue
+            
+            diff = (gan_idx - rizhu_idx) % 10
+            rizhu_yang = rizhu_idx % 2 == 0
+            gan_yang = gan_idx % 2 == 0
+            
+            if diff in (2, 8):
+                if (diff == 2 and not rizhu_yang and gan_yang) or (diff == 8 and rizhu_yang and not gan_yang):
+                    has_zheng_guan = True
+                else:
+                    has_sha = True
+        
+        return has_zheng_guan and has_sha
+
+    def _is_yin_sheng_ri_zhu(self, bazi, wuxing_result):
+        """判定印星生身"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        yin_wx = self._get_yin_wx(rizhu_wx)
+        
+        if yin_wx:
+            total_score = wuxing_result.get('total_score', 0)
+            yin_score = wuxing_result.get(yin_wx, {}).get('score', 0)
+            
+            if yin_score / total_score >= 0.2:
+                return True
+        return False
+
+    def _is_cai_sheng_sha(self, bazi, wuxing_result):
+        """判定财生杀"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        cai_wx = self._get_cai_wx(rizhu_wx)
+        sha_wx = self._get_guan_wx(rizhu_wx)
+        
+        if cai_wx and sha_wx:
+            total_score = wuxing_result.get('total_score', 0)
+            cai_score = wuxing_result.get(cai_wx, {}).get('score', 0)
+            sha_score = wuxing_result.get(sha_wx, {}).get('score', 0)
+            
+            if cai_score / total_score >= 0.15 and sha_score / total_score >= 0.15:
+                return True
+        return False
+
+    def _is_sha_sheng_yin(self, bazi, wuxing_result):
+        """判定杀生印"""
+        rizhu = bazi.get('rizhu', '')
+        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        
+        sha_wx = self._get_guan_wx(rizhu_wx)
+        yin_wx = self._get_yin_wx(rizhu_wx)
+        
+        if sha_wx and yin_wx:
+            total_score = wuxing_result.get('total_score', 0)
+            sha_score = wuxing_result.get(sha_wx, {}).get('score', 0)
+            yin_score = wuxing_result.get(yin_wx, {}).get('score', 0)
+            
+            if sha_score / total_score >= 0.15 and yin_score / total_score >= 0.2:
+                return True
+        return False
+
+    def _is_killing(self, rizhu, other):
+        """判断是否为官杀"""
+        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
+                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
+        
+        rizhu_idx = tian_gan_map.get(rizhu)
+        other_idx = tian_gan_map.get(other)
+        
+        if rizhu_idx is None or other_idx is None:
+            return False
+        
+        diff = (other_idx - rizhu_idx) % 10
+        return diff in (2, 8)
+
+    def _is_seal(self, rizhu, other):
+        """判断是否为印星"""
+        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
+                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
+        
+        rizhu_idx = tian_gan_map.get(rizhu)
+        other_idx = tian_gan_map.get(other)
+        
+        if rizhu_idx is None or other_idx is None:
+            return False
+        
+        diff = (other_idx - rizhu_idx) % 10
+        return diff in (4, 6)
+
+    def _get_cai_wx(self, rizhu_wx):
+        """获取财星五行"""
+        cai_map = {
+            '木': '土', '火': '金', '土': '水', '金': '木', '水': '火'
+        }
+        return cai_map.get(rizhu_wx)
+
+    def _get_shi_wx(self, rizhu_wx):
+        """获取食伤五行"""
+        shi_map = {
+            '木': '火', '火': '土', '土': '金', '金': '水', '水': '木'
+        }
+        return shi_map.get(rizhu_wx)
+
+    def _get_yin_wx(self, rizhu_wx):
+        """获取印星五行"""
+        yin_map = {
+            '木': '水', '火': '木', '土': '火', '金': '土', '水': '金'
+        }
+        return yin_map.get(rizhu_wx)
+
+    def _get_guan_wx(self, rizhu_wx):
+        """获取官杀五行"""
+        guan_map = {
+            '木': '金', '火': '水', '土': '木', '金': '火', '水': '土'
+        }
+        return guan_map.get(rizhu_wx)
+
+    def _generate_comprehensive_analysis(self, geju_result):
+        """生成综合分析"""
+        parts = []
+        
+        parts.append(f"日主旺衰：{geju_result['wangshuai']['level']}")
+        parts.append(f"主格局：{geju_result['main_geju']}")
+        parts.append(f"格局类型：{geju_result['geju_type']}")
+        parts.append(f"格局描述：{geju_result['description']}")
+        
+        if geju_result['hehua']:
+            hehua_str = '；'.join([f"{h['type']}{h['elements']}合化为{h['hehua']}" for h in geju_result['hehua']])
+            parts.append(f"合化情况：{hehua_str}")
+        
+        if geju_result['chongxing']:
+            chongxing_str = '；'.join([f"{c['type']}{c['elements']}" for c in geju_result['chongxing']])
+            parts.append(f"冲刑情况：{chongxing_str}")
+        
+        if geju_result['special_patterns']:
+            pattern_str = '；'.join([f"{p['name']}({p['type']})：{p['description']}" for p in geju_result['special_patterns']])
+            parts.append(f"特殊格局：{pattern_str}")
+        
+        return '。'.join(parts)

@@ -25,6 +25,8 @@ from core.analysis_storage import (
     AnalysisStorage, AnalysisStorageError,
     DatabaseConnectionError, DatabaseQueryError
 )
+from core.data_integration import DataIntegrator
+from core.knowledge_base import KnowledgeBase
 
 
 def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
@@ -271,22 +273,51 @@ class AnalysisPipeline:
         """
         logger.info("[八字分析] 构建AI分析请求...")
 
-        prompt = self._build_bazi_prompt(input_data, chart_data)
+        integrator = DataIntegrator()
+        knowledge_base = KnowledgeBase()
+
+        integrator.collect_raw_data(input_data, chart_data)
+        integrator.collect_processed_data(
+            wuxing_result=chart_data.get('wuxing', {}),
+            shishen_result=chart_data.get('shishen', {}),
+            mingli_result=chart_data.get('mingli', {}),
+            major_fortune=chart_data.get('major_fortune', {})
+        )
+        integrator.collect_historical_records(self.storage, limit=3)
+        integrator.collect_knowledge_context(knowledge_base, 'bazi')
+        integrator.clean_and_unify()
+        integrator.build_relationships()
+
+        prompt = integrator.build_comprehensive_prompt('bazi')
 
         system_prompt = (
-            "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神、十二长生、神煞等专业知识。"
-            "请基于用户提供的八字信息进行专业深入的分析。"
-            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。"
-            "JSON必须包含以下字段："
-            "personality（性格特质，字符串数组，3-5条）、"
-            "career（事业财运，字符串数组，3-5条）、"
-            "marriage（婚姻感情，字符串数组，3-5条）、"
-            "health（健康注意，字符串数组，3-5条）、"
-            "suggestions（综合建议，字符串数组，3-5条）。"
-            "请结合命理知识进行深度分析，不要泛泛而谈。"
+            "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神、十二长生、神煞、纳音、格局等专业知识。\n"
+            "请基于用户提供的完整八字信息进行深入、细致、专业的分析。\n"
+            "\n"
+            "分析原则：\n"
+            "1. 必须基于提供的八字数据进行分析，所有结论要有命理依据，不可凭空推断；\n"
+            "2. 兼顾五行平衡、十神力量、月令影响、通根强弱等多角度综合分析；\n"
+            "3. 使用'可能'、'较为'、'相对'等谨慎表述，避免绝对化结论；\n"
+            "4. 分析要深入细致，涵盖性格、事业、婚姻、健康等多个维度；\n"
+            "5. 考虑大运走势对命运的影响；\n"
+            "6. 参考神煞、纳音、空亡等命理特征。\n"
+            "\n"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。\n"
+            "JSON必须包含以下字段：\n"
+            "- personality（性格特质，字符串数组，5-8条，每条50-100字）\n"
+            "- career（事业财运，字符串数组，5-8条，每条50-100字）\n"
+            "- marriage（婚姻感情，字符串数组，5-8条，每条50-100字）\n"
+            "- health（健康注意，字符串数组，5-8条，每条50-100字）\n"
+            "- suggestions（综合建议，字符串数组，5-8条，每条50-100字）\n"
+            "- pattern_analysis（格局分析，字符串数组，3-5条，每条50-100字）\n"
+            "- wuxing_balance（五行平衡分析，字符串数组，3-5条，每条50-100字）\n"
+            "- shishen_analysis（十神分析，字符串数组，3-5条，每条50-100字）\n"
+            "\n"
+            "请结合命理知识进行深度分析，不要泛泛而谈，每条分析要有具体的命理依据。"
         )
 
-        required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions']
+        required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
+                          'pattern_analysis', 'wuxing_balance', 'shishen_analysis']
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -294,7 +325,7 @@ class AnalysisPipeline:
         ]
 
         logger.info("[八字分析] 调用ERNIE AI模型进行分析...")
-        result = self.ernie_client.chat_completion(messages, temperature=0.5, max_tokens=2048)
+        result = self.ernie_client.chat_completion(messages, temperature=0.3, max_tokens=4096)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
@@ -394,7 +425,10 @@ class AnalysisPipeline:
             'career': ['事业', '财运', '工作', '职业', '生意'],
             'marriage': ['婚姻', '感情', '爱情', '姻缘', '婚恋'],
             'health': ['健康', '身体', '疾病', '养生'],
-            'suggestions': ['建议', '忠告', '提示', '注意事项']
+            'suggestions': ['建议', '忠告', '提示', '注意事项'],
+            'pattern_analysis': ['格局', '格', '局'],
+            'wuxing_balance': ['五行', '平衡', '生克'],
+            'shishen_analysis': ['十神', '用神', '忌神']
         }
 
         result = {}
@@ -412,7 +446,7 @@ class AnalysisPipeline:
             for field, keywords in section_keywords.items():
                 if field in required_fields:
                     for kw in keywords:
-                        if kw in line and len(line) < 30:
+                        if kw in line and len(line) < 40:
                             current_field = field
                             matched = True
                             break

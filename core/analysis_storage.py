@@ -541,6 +541,46 @@ class AnalysisStorage:
             logger.error(f"[分析存储] 获取报告数量失败: {e}")
             raise DatabaseQueryError(f"获取报告数量失败: {e}") from e
 
+    def get_recent_reports(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        获取最近的分析报告
+
+        Args:
+            limit: 返回数量限制
+
+        Returns:
+            报告列表
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, report_type as type, name, gender, birth_date, birth_time,
+                               city, status, ai_model, token_usage, created_at,
+                               input_data, chart_data, ai_analysis
+                        FROM analysis_reports
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        (limit,)
+                    )
+                    reports = cursor.fetchall()
+
+            for report in reports:
+                for field in ['input_data', 'chart_data', 'ai_analysis']:
+                    if report.get(field):
+                        try:
+                            report[field] = json.loads(report[field])
+                        except (json.JSONDecodeError, TypeError):
+                            report[field] = {}
+
+            return reports
+
+        except Exception as e:
+            logger.error(f"[分析存储] 获取最近报告失败: {e}")
+            raise DatabaseQueryError(f"获取最近报告失败: {e}") from e
+
     def test_connection(self) -> bool:
         """
         测试数据库连接

@@ -18,9 +18,19 @@ class BaziCalculator:
         self.yunshi_calc = YunShiCalculator()
         self.mingli_analyzer = MingLiAnalyzer()
 
-    def calculate(self, year, month, day, hour, is_early_zi=False):
-        """计算八字四柱，返回同时兼容UI展示和底层分析器的格式"""
-        result = self.core.calculate(year, month, day, hour, is_lunar=False)
+    def calculate(self, year, month, day, hour, minute=0, longitude=120.0, is_lunar=False):
+        """计算八字四柱，返回同时兼容UI展示和底层分析器的格式
+        
+        参数：
+            year: 公历年
+            month: 公历月
+            day: 公历日
+            hour: 小时
+            minute: 分钟（新增，支持真太阳时精确计算）
+            longitude: 经度（新增，用于真太阳时修正）
+            is_lunar: 是否为农历
+        """
+        result = self.core.calculate(year, month, day, hour, minute, longitude, is_lunar)
         return {
             'year_pillar': result['year'],
             'month_pillar': result['month'],
@@ -34,6 +44,11 @@ class BaziCalculator:
             'solar_date': result['solar_date'],
             'lunar_date': result['lunar_date'],
             '四柱': result['四柱'],
+            'month_zhi': result.get('month_zhi', ''),
+            'hour_zhi': result.get('hour_zhi', ''),
+            'solar_time': result.get('solar_time', ''),
+            'original_time': result.get('original_time', ''),
+            'longitude': result.get('longitude', 120.0),
         }
 
     def get_wuxing(self, bazi):
