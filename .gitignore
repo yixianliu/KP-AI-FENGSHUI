@@ -13,3 +13,4 @@ core/ai_analyzer.py
 /test_env/
 config.ini
 logs
+__pycache__
