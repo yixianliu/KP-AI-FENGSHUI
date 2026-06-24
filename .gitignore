@@ -15,3 +15,4 @@ config.ini
 logs
 __pycache__
 ui/__pycache__
+core/__pycache__
