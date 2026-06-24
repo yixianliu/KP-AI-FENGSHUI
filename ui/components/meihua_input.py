@@ -157,10 +157,32 @@ class MeihuaInputPanel(QWidget):
 
     def get_data(self):
         d = {'method': self.selected_method, 'question': self.question.text().strip()}
-        if self.selected_method == 'number': d['num1'] = self.num1.value(); d['num2'] = self.num2.value()
+        if self.selected_method == 'number':
+            d['num1'] = self.num1.value()
+            d['num2'] = self.num2.value()
+            # 数据验证器期望 upper_num/lower_num 字段名
+            d['upper_num'] = self.num1.value()
+            d['lower_num'] = self.num2.value()
         elif self.selected_method == 'direction': d['direction'] = self.dir_combo.currentText()
         elif self.selected_method == 'text': d['text'] = self.text_edit.text().strip()
-        elif self.selected_method == 'time': d['time_str'] = self.time_edit.text().strip()
+        elif self.selected_method == 'time':
+            time_str = self.time_edit.text().strip()
+            d['time_str'] = time_str
+            # 解析时间字符串，格式: "YYYY-MM-DD HH:MM"
+            try:
+                from datetime import datetime as dt
+                parsed = dt.strptime(time_str, '%Y-%m-%d %H:%M')
+                d['year'] = parsed.year
+                d['month'] = parsed.month
+                d['day'] = parsed.day
+                d['hour'] = parsed.hour
+            except (ValueError, TypeError):
+                # 如果解析失败，使用当前时间
+                now = dt.now()
+                d['year'] = now.year
+                d['month'] = now.month
+                d['day'] = now.day
+                d['hour'] = now.hour
         return d
 
     def clear(self):

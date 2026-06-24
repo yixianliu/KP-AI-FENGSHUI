@@ -1,3 +1,4 @@
 PySide6>=6.6
 lunarcalendar==0.0.9
 PyMySQL==1.1.1
+redis>=5.0.0

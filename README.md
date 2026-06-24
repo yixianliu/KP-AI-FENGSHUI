@@ -294,8 +294,7 @@ KP-AI-FENGSHUI/
 │       ├── excel_exporter.py   # Excel导出
 │       └── csv_exporter.py     # CSV导出
 ├── api/                     # AI接口客户端
-│   ├── ernie_client.py       # ERNIE客户端
-│   └── ai_ERNIE_X1_Turbo.py  # ERNIE X1 Turbo客户端
+│   └── ernie_client.py       # ERNIE客户端（支持function call）
 ├── utils/                   # 工具函数
 │   ├── calendar.py           # 日历工具
 │   └── solar_time.py         # 真太阳时计算

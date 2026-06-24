@@ -3,7 +3,7 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QPushButton, QGridLayout)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 
