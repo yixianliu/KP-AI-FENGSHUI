@@ -14,3 +14,4 @@ core/ai_analyzer.py
 config.ini
 logs
 __pycache__
+ui/__pycache__
