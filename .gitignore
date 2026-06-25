@@ -16,3 +16,4 @@ logs
 __pycache__
 ui/__pycache__
 core/__pycache__
+/.vscode/

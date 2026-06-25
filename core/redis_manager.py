@@ -7,21 +7,20 @@ import json
 import logging
 import configparser
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
-from datetime import timedelta
+from typing import Optional, Dict, Any
 
 import redis
-from redis.exceptions import RedisError, ConnectionError, TimeoutError
+from redis.exceptions import RedisError, ConnectionError
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_REDIS_CONFIG = {
     'host': '127.0.0.1',
     'port': 6379,
-    'password': '',
+    'password': None,
     'db': 0,
-    'socket_timeout': 10,
-    'socket_connect_timeout': 10,
+    'socket_timeout': 10.0,
+    'socket_connect_timeout': 10.0,
     'decode_responses': True,
 }
 
@@ -50,7 +49,7 @@ class RedisManager:
     负责管理Redis连接和数据读写操作
     """
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None):
         """
         初始化Redis管理器
 
@@ -87,19 +86,33 @@ class RedisManager:
 
             if 'redis' in parser:
                 section = parser['redis']
-                if section.get('host'):
-                    config['host'] = section['host']
-                if section.get('port'):
-                    config['port'] = int(section['port'])
-                if section.get('password'):
-                    config['password'] = section['password']
-                if section.get('db'):
-                    config['db'] = int(section['db'])
-                if section.get('socket_timeout'):
-                    config['socket_timeout'] = int(section['socket_timeout'])
-                if section.get('socket_connect_timeout'):
-                    config['socket_connect_timeout'] = int(section['socket_connect_timeout'])
+                # host / port / password / db
+                if parser.has_option('redis', 'host'):
+                    config['host'] = parser.get('redis', 'host')
+                if parser.has_option('redis', 'port'):
+                    config['port'] = parser.getint('redis', 'port')
+                if parser.has_option('redis', 'password'):
+                    pwd = parser.get('redis', 'password')
+                    # treat empty password as None
+                    config['password'] = pwd if pwd != '' else None
+                if parser.has_option('redis', 'db'):
+                    config['db'] = parser.getint('redis', 'db')
 
+                # timeouts and decoding flags (allow floats for timeouts)
+                if parser.has_option('redis', 'socket_timeout'):
+                    try:
+                        config['socket_timeout'] = parser.getfloat('redis', 'socket_timeout')
+                    except ValueError:
+                        config['socket_timeout'] = float(parser.getint('redis', 'socket_timeout'))
+                if parser.has_option('redis', 'socket_connect_timeout'):
+                    try:
+                        config['socket_connect_timeout'] = parser.getfloat('redis', 'socket_connect_timeout')
+                    except ValueError:
+                        config['socket_connect_timeout'] = float(parser.getint('redis', 'socket_connect_timeout'))
+                if parser.has_option('redis', 'decode_responses'):
+                    config['decode_responses'] = parser.getboolean('redis', 'decode_responses')
+
+            # Avoid printing password in logs
             logger.info(f"[Redis管理] 配置加载成功: host={config['host']}, port={config['port']}, db={config['db']}")
         except Exception as e:
             logger.warning(f"[Redis管理] 配置读取失败，使用默认配置: {e}")
@@ -486,7 +499,7 @@ class RedisManager:
         try:
             client = self.get_client()
             keys = []
-            for key in client.scan_iter(pattern=pattern, count=count):
+            for key in client.scan_iter(match=pattern, count=count):
                 keys.append(key)
             return keys
         except RedisConnectionError:
@@ -499,7 +512,7 @@ class RedisManager:
 _default_redis_manager = None
 
 
-def get_redis_manager(config_path: str = None) -> RedisManager:
+def get_redis_manager(config_path: Optional[str] = None) -> RedisManager:
     """
     获取默认的Redis管理器实例（单例模式）
 
