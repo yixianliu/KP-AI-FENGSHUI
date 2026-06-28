@@ -111,7 +111,7 @@ class AiAnalysisWorker(QThread):
                     return result or {'success': False, 'error_type': 'analysis_failed', 'error_message': '分析失败'}
 
                 time.sleep(interval)
-                self.progress_updated.emit('polling', f'等待分析结果 ({i+1}/{max_retries})')
+                self.progress_updated.emit('polling', f'等待分析结果 ({i + 1}/{max_retries})')
 
             return {'success': False, 'error_type': 'timeout', 'error_message': '分析超时'}
 

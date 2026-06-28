@@ -17,3 +17,4 @@ __pycache__
 ui/__pycache__
 core/__pycache__
 /.vscode/
+utils/__pycache__

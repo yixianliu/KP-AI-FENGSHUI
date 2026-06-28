@@ -45,7 +45,7 @@ class MeihuaResultPanel(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        self.ai_analyze_btn = QPushButton('🤖 AI解读')
+        self.ai_analyze_btn = QPushButton('🤖 重新解读')
         self.ai_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
         self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
         self.ai_analyze_btn.setVisible(False)
@@ -939,7 +939,7 @@ class MeihuaResultPanel(QWidget):
 
         self.ai_analyze_btn.setVisible(True)
         self.ai_analyze_btn.setEnabled(True)
-        self.ai_analyze_btn.setText('🤖 重新解读')
+        self.ai_analyze_btn.setText('🔄 重新解读')
 
         # 6) 滚动到 AI 区域
         QTimer.singleShot(50, self._scroll_to_ai_section_meihua)
@@ -972,7 +972,7 @@ class MeihuaResultPanel(QWidget):
         """)
         self.ai_analyze_btn.setVisible(True)
         self.ai_analyze_btn.setEnabled(True)
-        self.ai_analyze_btn.setText('🤖 重新解读')
+        self.ai_analyze_btn.setText('🔄 重新解读')
         tip = QLabel(f'⚠ {message}')
         tip.setStyleSheet(
             f"color:{Colors.TEXT2}; font-size:{Fonts.SIZE_BODY}; "

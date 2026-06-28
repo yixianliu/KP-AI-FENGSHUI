@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -86,9 +85,9 @@ class AnalysisPipeline:
     """
 
     def __init__(
-        self,
-        config_path: str = None,
-        log_level: int = logging.INFO
+            self,
+            config_path: str = None,
+            log_level: int = logging.INFO
     ):
         """
         初始化分析流程
@@ -122,10 +121,10 @@ class AnalysisPipeline:
     # ==================== 八字分析流程 ====================
 
     def run_bazi_analysis(
-        self,
-        input_data: Dict[str, Any],
-        chart_data: Dict[str, Any] = None,
-        task_id: str = None
+            self,
+            input_data: Dict[str, Any],
+            chart_data: Dict[str, Any] = None,
+            task_id: str = None
     ) -> Dict[str, Any]:
         """
         执行八字AI分析完整流程
@@ -282,9 +281,9 @@ class AnalysisPipeline:
             return self._build_error_result(report_id, 'unknown_error', error_msg, start_time)
 
     def _call_ernie_for_bazi(
-        self,
-        input_data: Dict[str, Any],
-        chart_data: Dict[str, Any]
+            self,
+            input_data: Dict[str, Any],
+            chart_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         调用ERNIE模型进行八字分析
@@ -349,8 +348,8 @@ class AnalysisPipeline:
         )
 
         required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
-                          'pattern_analysis', 'wuxing_balance', 'shishen_analysis',
-                          'improvement_plan']
+                           'pattern_analysis', 'wuxing_balance', 'shishen_analysis',
+                           'improvement_plan']
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -381,9 +380,9 @@ class AnalysisPipeline:
         }
 
     def _build_bazi_prompt(
-        self,
-        input_data: Dict[str, Any],
-        chart_data: Dict[str, Any]
+            self,
+            input_data: Dict[str, Any],
+            chart_data: Dict[str, Any]
     ) -> str:
         """
         构建八字分析提示词
@@ -505,10 +504,10 @@ class AnalysisPipeline:
     # ==================== 梅花易数分析流程 ====================
 
     def run_meihua_analysis(
-        self,
-        input_data: Dict[str, Any],
-        hexagram_data: Dict[str, Any] = None,
-        task_id: str = None
+            self,
+            input_data: Dict[str, Any],
+            hexagram_data: Dict[str, Any] = None,
+            task_id: str = None
     ) -> Dict[str, Any]:
         """
         执行梅花易数AI分析完整流程
@@ -617,9 +616,9 @@ class AnalysisPipeline:
             return self._build_error_result(report_id, type(e).__name__, error_msg, start_time)
 
     def _call_ernie_for_meihua(
-        self,
-        input_data: Dict[str, Any],
-        hexagram_data: Dict[str, Any]
+            self,
+            input_data: Dict[str, Any],
+            hexagram_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         调用ERNIE模型进行梅花易数分析
@@ -683,9 +682,9 @@ class AnalysisPipeline:
         }
 
     def _build_meihua_prompt(
-        self,
-        input_data: Dict[str, Any],
-        hexagram_data: Dict[str, Any]
+            self,
+            input_data: Dict[str, Any],
+            hexagram_data: Dict[str, Any]
     ) -> str:
         """
         构建梅花易数分析提示词
@@ -812,11 +811,11 @@ class AnalysisPipeline:
     # ==================== 通用方法 ====================
 
     def _build_error_result(
-        self,
-        report_id: Optional[int],
-        error_type: str,
-        error_message: str,
-        start_time: datetime
+            self,
+            report_id: Optional[int],
+            error_type: str,
+            error_message: str,
+            start_time: datetime
     ) -> Dict[str, Any]:
         """
         构建错误结果

@@ -1,16 +1,17 @@
 """
-用户登录注册对话框 - 极简轻量国风
+用户登录注册对话框 v5.0 - 精美国风 · 柔和动画 · 优雅交互
 """
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFrame, QMessageBox
+    QPushButton, QFrame, QMessageBox, QGraphicsDropShadowEffect
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QColor
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 
 
 class LoginDialog(QDialog):
-    """登录对话框"""
+    """登录对话框 v5.0"""
 
     user_logged_in = Signal(int, str)  # user_id, username
     switch_to_register = Signal()
@@ -19,70 +20,148 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.db_manager = db_manager
         self.setWindowTitle('用户登录')
-        self.setFixedSize(420, 360)
+        self.setFixedSize(440, 480)
         self.setStyleSheet(f"background-color: {Colors.BG};")
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(18)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 标题
-        title = QLabel('☯ 用户登录')
-        title.setStyleSheet(f"""
-            font-size: {Fonts.SZ_TITLE};
+        # ===== 顶部装饰条 =====
+        top_bar = QFrame()
+        top_bar.setFixedHeight(120)
+        top_bar.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.QINGHUA_DARK}, stop:0.5 {Colors.QINGHUA}, stop:1 {Colors.QINGHUA_DARK});
+                border: none;
+            }}
+        """)
+        top_layout = QVBoxLayout(top_bar)
+        top_layout.setAlignment(Qt.AlignCenter)
+        top_layout.setSpacing(6)
+
+        top_icon = QLabel('☯')
+        top_icon.setStyleSheet(f"font-size: 32px; color: {Colors.TEXT_INV}; background: transparent;")
+        top_icon.setAlignment(Qt.AlignCenter)
+
+        top_title = QLabel('风水排盘')
+        top_title.setStyleSheet(f"""
+            font-size: {Fonts.SZ_HERO};
             font-weight: {Fonts.W_BOLD};
-            color: {Colors.TEXT};
+            color: {Colors.TEXT_INV};
             font-family: {Fonts.TITLE};
+            background: transparent;
+            letter-spacing: 4px;
         """)
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        top_title.setAlignment(Qt.AlignCenter)
 
-        # 副标题
-        subtitle = QLabel('登录后可保存排盘记录')
-        subtitle.setStyleSheet(f"""
+        top_sub = QLabel('登录以保存您的排盘记录')
+        top_sub.setStyleSheet(f"""
             font-size: {Fonts.SZ_SMALL};
-            color: {Colors.TEXT3};
+            color: rgba(255,255,255,0.75);
             font-family: {Fonts.BODY};
+            background: transparent;
         """)
-        subtitle.setAlignment(Qt.AlignCenter)
-        layout.addWidget(subtitle)
+        top_sub.setAlignment(Qt.AlignCenter)
 
-        # 分割线
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet(f"background-color: {Colors.QINGHUA_LIGHT};")
-        layout.addWidget(div)
+        top_layout.addWidget(top_icon)
+        top_layout.addWidget(top_title)
+        top_layout.addWidget(top_sub)
+        layout.addWidget(top_bar)
+
+        # ===== 内容区 =====
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {Colors.CARD};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(40, 32, 40, 24)
+        content_layout.setSpacing(16)
 
         # 用户名
-        layout.addWidget(self._form_label('用户名'))
+        username_label = QLabel('👤 用户名')
+        username_label.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
+            margin-top: 4px;
+        """)
+        content_layout.addWidget(username_label)
+
         self.username_edit = QLineEdit()
         self.username_edit.setStyleSheet(Stylesheets.INPUT)
         self.username_edit.setPlaceholderText('请输入用户名')
-        layout.addWidget(self.username_edit)
+        self.username_edit.setFixedHeight(42)
+        content_layout.addWidget(self.username_edit)
 
         # 密码
-        layout.addWidget(self._form_label('密码'))
+        password_label = QLabel('🔒 密码')
+        password_label.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
+            margin-top: 4px;
+        """)
+        content_layout.addWidget(password_label)
+
         self.password_edit = QLineEdit()
         self.password_edit.setStyleSheet(Stylesheets.INPUT)
         self.password_edit.setPlaceholderText('请输入密码')
         self.password_edit.setEchoMode(QLineEdit.Password)
-        layout.addWidget(self.password_edit)
+        self.password_edit.setFixedHeight(42)
+        content_layout.addWidget(self.password_edit)
 
-        layout.addSpacing(8)
+        content_layout.addSpacing(8)
 
-        # 登录按钮
+        # 登录按钮（带阴影）
         self.login_btn = QPushButton('登 录')
-        self.login_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
+        self.login_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.ZHUSHA}, stop:1 {Colors.ZHUSHA_DARK});
+                color: {Colors.TEXT_INV};
+                border: none;
+                border-radius: {Spacing.RADIUS_SM};
+                font-size: 15px;
+                font-weight: {Fonts.W_MEDIUM};
+                font-family: {Fonts.BODY};
+                padding: 12px 0;
+                letter-spacing: 8px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.ZHUSHA_DARK}, stop:1 {Colors.ZHUSHA_DARK});
+            }}
+            QPushButton:pressed {{
+                background: {Colors.ZHUSHA_DARK};
+            }}
+            QPushButton:disabled {{
+                background: {Colors.BORDER};
+                color: {Colors.TEXT3};
+            }}
+        """)
         self.login_btn.setCursor(Qt.PointingHandCursor)
-        self.login_btn.setFixedHeight(44)
+        self.login_btn.setFixedHeight(46)
         self.login_btn.clicked.connect(self._on_login)
-        layout.addWidget(self.login_btn)
+
+        # 按钮阴影
+        btn_shadow = QGraphicsDropShadowEffect()
+        btn_shadow.setBlurRadius(12)
+        btn_shadow.setOffset(0, 3)
+        btn_shadow.setColor(QColor(196, 85, 69, 80))
+        self.login_btn.setGraphicsEffect(btn_shadow)
+
+        content_layout.addWidget(self.login_btn)
+
+        content_layout.addSpacing(8)
 
         # 切换到注册
         switch_layout = QHBoxLayout()
         switch_layout.setAlignment(Qt.AlignCenter)
+        switch_layout.setSpacing(4)
         switch_label = QLabel('还没有账号？')
         switch_label.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         self.switch_btn = QPushButton('立即注册')
@@ -92,28 +171,32 @@ class LoginDialog(QDialog):
                 border: none;
                 color: {Colors.QINGHUA};
                 font-size: {Fonts.SZ_SMALL};
+                font-weight: {Fonts.W_MEDIUM};
                 font-family: {Fonts.BODY};
                 text-decoration: underline;
                 padding: 0;
             }}
-            QPushButton:hover {{ color: {Colors.QINGHUA_LIGHT}; }}
+            QPushButton:hover {{ color: {Colors.QINGHUA_DARK}; }}
         """)
         self.switch_btn.setCursor(Qt.PointingHandCursor)
         self.switch_btn.clicked.connect(self.switch_to_register.emit)
         switch_layout.addWidget(switch_label)
         switch_layout.addWidget(self.switch_btn)
-        layout.addLayout(switch_layout)
+        content_layout.addLayout(switch_layout)
 
-        layout.addStretch()
+        layout.addWidget(content, 1)
 
-    def _form_label(self, text):
-        label = QLabel(text)
-        label.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SMALL};
-            color: {Colors.TEXT2};
+        # ===== 底部提示 =====
+        bottom_hint = QLabel('支持离线排盘 · 数据安全加密存储')
+        bottom_hint.setStyleSheet(f"""
+            font-size: 10px;
+            color: {Colors.TEXT4};
             font-family: {Fonts.BODY};
+            padding: 8px 0;
+            background: transparent;
         """)
-        return label
+        bottom_hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(bottom_hint)
 
     def _on_login(self):
         username = self.username_edit.text().strip()
@@ -143,7 +226,7 @@ class LoginDialog(QDialog):
 
 
 class RegisterDialog(QDialog):
-    """注册对话框"""
+    """注册对话框 v5.0"""
 
     user_registered = Signal(int, str)  # user_id, username
     switch_to_login = Signal()
@@ -152,76 +235,166 @@ class RegisterDialog(QDialog):
         super().__init__(parent)
         self.db_manager = db_manager
         self.setWindowTitle('用户注册')
-        self.setFixedSize(420, 420)
+        self.setFixedSize(440, 540)
         self.setStyleSheet(f"background-color: {Colors.BG};")
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(16)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 标题
-        title = QLabel('☯ 用户注册')
-        title.setStyleSheet(f"""
-            font-size: {Fonts.SZ_TITLE};
+        # ===== 顶部装饰条 =====
+        top_bar = QFrame()
+        top_bar.setFixedHeight(120)
+        top_bar.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.LIUJIN_DARK}, stop:0.5 {Colors.LIUJIN}, stop:1 {Colors.LIUJIN_DARK});
+                border: none;
+            }}
+        """)
+        top_layout = QVBoxLayout(top_bar)
+        top_layout.setAlignment(Qt.AlignCenter)
+        top_layout.setSpacing(6)
+
+        top_icon = QLabel('☯')
+        top_icon.setStyleSheet(f"font-size: 32px; color: {Colors.TEXT_INV}; background: transparent;")
+        top_icon.setAlignment(Qt.AlignCenter)
+
+        top_title = QLabel('创建账号')
+        top_title.setStyleSheet(f"""
+            font-size: {Fonts.SZ_HERO};
             font-weight: {Fonts.W_BOLD};
-            color: {Colors.TEXT};
+            color: {Colors.TEXT_INV};
             font-family: {Fonts.TITLE};
+            background: transparent;
+            letter-spacing: 4px;
         """)
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        top_title.setAlignment(Qt.AlignCenter)
 
-        subtitle = QLabel('创建账号以保存您的排盘记录')
-        subtitle.setStyleSheet(f"""
+        top_sub = QLabel('注册后即可保存排盘记录')
+        top_sub.setStyleSheet(f"""
             font-size: {Fonts.SZ_SMALL};
-            color: {Colors.TEXT3};
+            color: rgba(255,255,255,0.75);
             font-family: {Fonts.BODY};
+            background: transparent;
         """)
-        subtitle.setAlignment(Qt.AlignCenter)
-        layout.addWidget(subtitle)
+        top_sub.setAlignment(Qt.AlignCenter)
 
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet(f"background-color: {Colors.QINGHUA_LIGHT};")
-        layout.addWidget(div)
+        top_layout.addWidget(top_icon)
+        top_layout.addWidget(top_title)
+        top_layout.addWidget(top_sub)
+        layout.addWidget(top_bar)
+
+        # ===== 内容区 =====
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {Colors.CARD};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(40, 32, 40, 24)
+        content_layout.setSpacing(14)
 
         # 用户名
-        layout.addWidget(self._form_label('用户名'))
+        username_label = QLabel('👤 用户名')
+        username_label.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
+            margin-top: 4px;
+        """)
+        content_layout.addWidget(username_label)
+
         self.username_edit = QLineEdit()
         self.username_edit.setStyleSheet(Stylesheets.INPUT)
         self.username_edit.setPlaceholderText('请输入用户名（3-20位字符）')
-        layout.addWidget(self.username_edit)
+        self.username_edit.setFixedHeight(42)
+        content_layout.addWidget(self.username_edit)
 
         # 密码
-        layout.addWidget(self._form_label('密码'))
+        password_label = QLabel('🔒 密码')
+        password_label.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
+            margin-top: 4px;
+        """)
+        content_layout.addWidget(password_label)
+
         self.password_edit = QLineEdit()
         self.password_edit.setStyleSheet(Stylesheets.INPUT)
         self.password_edit.setPlaceholderText('请输入密码（至少6位）')
         self.password_edit.setEchoMode(QLineEdit.Password)
-        layout.addWidget(self.password_edit)
+        self.password_edit.setFixedHeight(42)
+        content_layout.addWidget(self.password_edit)
 
         # 确认密码
-        layout.addWidget(self._form_label('确认密码'))
+        confirm_label = QLabel('🔒 确认密码')
+        confirm_label.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
+            margin-top: 4px;
+        """)
+        content_layout.addWidget(confirm_label)
+
         self.confirm_edit = QLineEdit()
         self.confirm_edit.setStyleSheet(Stylesheets.INPUT)
         self.confirm_edit.setPlaceholderText('请再次输入密码')
         self.confirm_edit.setEchoMode(QLineEdit.Password)
-        layout.addWidget(self.confirm_edit)
+        self.confirm_edit.setFixedHeight(42)
+        content_layout.addWidget(self.confirm_edit)
 
-        layout.addSpacing(8)
+        content_layout.addSpacing(8)
 
-        # 注册按钮
+        # 注册按钮（带阴影）
         self.register_btn = QPushButton('注 册')
-        self.register_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
+        self.register_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.LIUJIN}, stop:1 {Colors.LIUJIN_DARK});
+                color: {Colors.TEXT_INV};
+                border: none;
+                border-radius: {Spacing.RADIUS_SM};
+                font-size: 15px;
+                font-weight: {Fonts.W_MEDIUM};
+                font-family: {Fonts.BODY};
+                padding: 12px 0;
+                letter-spacing: 8px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.LIUJIN_DARK}, stop:1 {Colors.LIUJIN_DARK});
+            }}
+            QPushButton:pressed {{
+                background: {Colors.LIUJIN_DARK};
+            }}
+            QPushButton:disabled {{
+                background: {Colors.BORDER};
+                color: {Colors.TEXT3};
+            }}
+        """)
         self.register_btn.setCursor(Qt.PointingHandCursor)
-        self.register_btn.setFixedHeight(44)
+        self.register_btn.setFixedHeight(46)
         self.register_btn.clicked.connect(self._on_register)
-        layout.addWidget(self.register_btn)
+
+        # 按钮阴影
+        btn_shadow = QGraphicsDropShadowEffect()
+        btn_shadow.setBlurRadius(12)
+        btn_shadow.setOffset(0, 3)
+        btn_shadow.setColor(QColor(184, 138, 48, 80))
+        self.register_btn.setGraphicsEffect(btn_shadow)
+
+        content_layout.addWidget(self.register_btn)
+
+        content_layout.addSpacing(8)
 
         # 切换到登录
         switch_layout = QHBoxLayout()
         switch_layout.setAlignment(Qt.AlignCenter)
+        switch_layout.setSpacing(4)
         switch_label = QLabel('已有账号？')
         switch_label.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         self.switch_btn = QPushButton('立即登录')
@@ -231,28 +404,32 @@ class RegisterDialog(QDialog):
                 border: none;
                 color: {Colors.QINGHUA};
                 font-size: {Fonts.SZ_SMALL};
+                font-weight: {Fonts.W_MEDIUM};
                 font-family: {Fonts.BODY};
                 text-decoration: underline;
                 padding: 0;
             }}
-            QPushButton:hover {{ color: {Colors.QINGHUA_LIGHT}; }}
+            QPushButton:hover {{ color: {Colors.QINGHUA_DARK}; }}
         """)
         self.switch_btn.setCursor(Qt.PointingHandCursor)
         self.switch_btn.clicked.connect(self.switch_to_login.emit)
         switch_layout.addWidget(switch_label)
         switch_layout.addWidget(self.switch_btn)
-        layout.addLayout(switch_layout)
+        content_layout.addLayout(switch_layout)
 
-        layout.addStretch()
+        layout.addWidget(content, 1)
 
-    def _form_label(self, text):
-        label = QLabel(text)
-        label.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SMALL};
-            color: {Colors.TEXT2};
+        # ===== 底部提示 =====
+        bottom_hint = QLabel('支持离线排盘 · 数据安全加密存储')
+        bottom_hint.setStyleSheet(f"""
+            font-size: 10px;
+            color: {Colors.TEXT4};
             font-family: {Fonts.BODY};
+            padding: 8px 0;
+            background: transparent;
         """)
-        return label
+        bottom_hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(bottom_hint)
 
     def _on_register(self):
         username = self.username_edit.text().strip()

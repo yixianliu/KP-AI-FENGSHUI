@@ -1,13 +1,13 @@
 """
-风水排盘专业工具 v4.0 - 极简轻量国风主窗口
-QSplitter左右分栏35%/65% · 纯白底色 · 圆角卡片 · 三色点缀
+风水排盘专业工具 v5.0 - 精美国风主窗口
+QSplitter左右分栏35%/65% · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QFrame, QApplication, QStatusBar,
-                             QPushButton, QStackedWidget, QSplitter, QScrollArea,
-                             QMessageBox)
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+                               QLabel, QFrame, QApplication, QStatusBar,
+                               QPushButton, QStackedWidget, QSplitter, QScrollArea,
+                               QMessageBox, QGraphicsDropShadowEffect)
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QFont, QColor
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
@@ -40,6 +40,7 @@ NAV = [
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.module_hint = None
         self.setWindowTitle('风水排盘专业工具')
         self.setMinimumSize(1100, 700)
         self.resize(1400, 900)
@@ -100,14 +101,13 @@ class MainWindow(QMainWindow):
         self.splitter.setStyleSheet(f"""
             QSplitter::handle {{
                 background-color: {Colors.DIVIDER};
-                width: 2px;
-                border-radius: 1px;
+                width: 1px;
             }}
             QSplitter::handle:hover {{
                 background-color: {Colors.QINGHUA_LIGHT};
             }}
         """)
-        self.splitter.setHandleWidth(2)
+        self.splitter.setHandleWidth(1)
         self.splitter.setStretchFactor(0, 35)
         self.splitter.setStretchFactor(1, 65)
 
@@ -128,77 +128,101 @@ class MainWindow(QMainWindow):
         # 状态栏
         sb = QStatusBar()
         sb.setStyleSheet(Stylesheets.STATUS)
-        sb.showMessage('风水排盘专业工具 v4.0')
+        sb.showMessage('风水排盘专业工具 v5.0 · 精美国风 · AI自动分析')
         self.setStatusBar(sb)
 
     def _create_navbar(self, parent):
         bar = QFrame()
-        bar.setFixedHeight(56)
+        bar.setFixedHeight(60)
         bar.setStyleSheet(f"""
             QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.CARD}, stop:1 #FAF8F5);
+                    stop:0 #FFFFFF, stop:1 {Colors.GRADIENT_NAV_END});
                 border-bottom: 1px solid {Colors.DIVIDER};
             }}
         """)
+        # 导航栏阴影效果
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 1)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        bar.setGraphicsEffect(shadow)
+
         h = QHBoxLayout(bar)
         h.setContentsMargins(24, 0, 20, 0)
+        h.setSpacing(0)
 
-        # Logo
+        # Logo区
+        logo_container = QFrame()
+        logo_container.setStyleSheet("background: transparent; border: none;")
+        logo_hl = QHBoxLayout(logo_container)
+        logo_hl.setContentsMargins(0, 0, 0, 0)
+        logo_hl.setSpacing(4)
+
         logo = QLabel('☯')
-        logo.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN}; padding-right: 2px;")
+        logo.setStyleSheet(f"font-size: 20px; color: {Colors.LIUJIN};")
 
         title = QLabel('风水排盘')
         title.setStyleSheet(f"""
-            font-size: {Fonts.SZ_TITLE};
+            font-size: 18px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: {Fonts.TITLE};
             letter-spacing: 1px;
         """)
 
-        h.addWidget(logo)
-        h.addWidget(title)
+        logo_hl.addWidget(logo)
+        logo_hl.addWidget(title)
+        h.addWidget(logo_container)
         h.addSpacing(36)
 
-        # 导航按钮
+        # 导航按钮组
+        nav_container = QFrame()
+        nav_container.setStyleSheet(f"""
+            background: {Colors.HOVER};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS};
+            padding: 3px;
+        """)
+        nav_hl = QHBoxLayout(nav_container)
+        nav_hl.setContentsMargins(3, 3, 3, 3)
+        nav_hl.setSpacing(2)
+
         self.nav_btns = {}
         for item in NAV:
             btn = QPushButton(item['icon'] + '  ' + item['name'])
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(36)
+            btn.setFixedHeight(32)
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent;
-                    color: {Colors.TEXT3};
-                    border: 1px solid transparent;
-                    border-radius: 18px;
+                    color: {Colors.TEXT2};
+                    border: none;
+                    border-radius: 8px;
                     font-size: {Fonts.SZ_SMALL};
                     font-family: {Fonts.BODY};
-                    padding: 6px 18px;
-                    margin: 0 2px;
+                    padding: 5px 16px;
                 }}
                 QPushButton:hover {{
-                    color: {Colors.TEXT2};
-                    background: {Colors.HOVER};
-                    border-color: {Colors.BORDER};
+                    color: {Colors.TEXT};
+                    background: {Colors.CARD};
                 }}
                 QPushButton:checked {{
                     color: {Colors.TEXT_INV};
                     background: {Colors.QINGHUA};
-                    border-color: {Colors.QINGHUA};
-                    font-weight: {Fonts.W_BOLD};
+                    font-weight: {Fonts.W_MEDIUM};
                 }}
             """)
             self.nav_btns[item['id']] = btn
-            h.addWidget(btn)
+            nav_hl.addWidget(btn)
             btn.clicked.connect(lambda _, pid=item['id']: self._switch(pid))
 
+        h.addWidget(nav_container)
         h.addStretch()
 
         # 用户登录/用户名按钮
-        self.user_btn = QPushButton('登录')
+        self.user_btn = QPushButton('👤 登录')
         self.user_btn.setCursor(Qt.PointingHandCursor)
         self.user_btn.setFixedHeight(32)
         self.user_btn.setStyleSheet(f"""
@@ -212,21 +236,12 @@ class MainWindow(QMainWindow):
                 padding: 4px 16px;
             }}
             QPushButton:hover {{
-                background: rgba(91, 143, 168, 0.08);
-                color: {Colors.QINGHUA};
+                background: {Colors.QINGHUA_GLOW};
+                color: {Colors.QINGHUA_DARK};
             }}
         """)
         self.user_btn.clicked.connect(self._on_user_btn_clicked)
         h.addWidget(self.user_btn)
-
-        # 右侧模块标签
-        self.module_hint = QLabel('八字排盘')
-        self.module_hint.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SMALL};
-            color: {Colors.TEXT3};
-            font-family: {Fonts.BODY};
-        """)
-        h.addWidget(self.module_hint)
 
         parent.addWidget(bar)
 
@@ -266,7 +281,11 @@ class MainWindow(QMainWindow):
         names = {'bazi': '八字排盘', 'meihua': '梅花易数', 'terms': '术语词典', 'charts': '图表分析'}
         self.left_stack.setCurrentIndex(idx.get(pid, 0))
         self.right_stack.setCurrentIndex(idx.get(pid, 0))
-        self.module_hint.setText(names.get(pid, ''))
+
+        if self.module_hint is not None:
+            self.module_hint.setText(names.get(pid, ''))
+        else:
+            print("Label is None")
 
     def _connect_signals(self):
         self.bazi_input.submit_btn.clicked.connect(self._on_bazi)
@@ -313,10 +332,10 @@ class MainWindow(QMainWindow):
         """用户登录成功回调"""
         self.current_user_id = user_id
         self.current_username = username
-        self.user_btn.setText(username)
+        self.user_btn.setText(f'👤 {username}')
         self.user_btn.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(91, 143, 168, 0.08);
+                background: {Colors.QINGHUA_GLOW};
                 color: {Colors.QINGHUA};
                 border: 1px solid {Colors.QINGHUA_LIGHT};
                 border-radius: {Spacing.RADIUS_SM};
@@ -325,8 +344,8 @@ class MainWindow(QMainWindow):
                 padding: 4px 16px;
             }}
             QPushButton:hover {{
-                background: rgba(91, 143, 168, 0.15);
-                color: {Colors.QINGHUA};
+                background: rgba(74, 122, 144, 0.18);
+                color: {Colors.QINGHUA_DARK};
             }}
         """)
         self.statusBar().showMessage(f'欢迎回来，{username}')
@@ -335,7 +354,7 @@ class MainWindow(QMainWindow):
         """退出登录"""
         self.current_user_id = None
         self.current_username = None
-        self.user_btn.setText('登录')
+        self.user_btn.setText('👤 登录')
         self.user_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -347,8 +366,8 @@ class MainWindow(QMainWindow):
                 padding: 4px 16px;
             }}
             QPushButton:hover {{
-                background: rgba(91, 143, 168, 0.08);
-                color: {Colors.QINGHUA};
+                background: {Colors.QINGHUA_GLOW};
+                color: {Colors.QINGHUA_DARK};
             }}
         """)
         self.statusBar().showMessage('已退出登录')
@@ -495,8 +514,36 @@ class MainWindow(QMainWindow):
                 traceback.print_exc()
 
             self._save_pan_record(data, result, '八字排盘')
+
+            # ★ v5.0: 排盘完成后自动触发AI分析
+            QTimer.singleShot(300, self._trigger_bazi_auto_ai)
         except Exception as e:
             self.statusBar().showMessage(f'计算错误: {e}')
+            traceback.print_exc()
+
+    def _trigger_bazi_auto_ai(self):
+        """排盘完成后自动触发AI深度分析"""
+        try:
+            input_data = self.bazi_input.get_data()
+            chart_data = self.bazi_result.get_chart_data_for_ai()
+
+            if not chart_data or not chart_data.get('bazi', {}).get('year'):
+                print("自动AI分析跳过: 排盘数据不完整")
+                return
+
+            # 更新状态提示
+            self.statusBar().showMessage('排盘完成 · 正在自动进行AI深度分析…')
+
+            task_id = str(uuid.uuid4())
+            self._save_bazi_input_to_redis(task_id, input_data)
+
+            self._bazi_ai_worker = AiAnalysisWorker('bazi', input_data, chart_data, task_id)
+            self._bazi_ai_worker.progress_updated.connect(self._on_bazi_ai_progress)
+            self._bazi_ai_worker.analysis_finished.connect(self._on_bazi_ai_finished)
+            self._bazi_ai_worker.analysis_failed.connect(self._on_bazi_ai_failed)
+            self._bazi_ai_worker.start()
+        except Exception as e:
+            print(f"自动AI分析启动失败: {e}")
             traceback.print_exc()
 
     def _sync_chart_data(self, wx, ss, dayun, shier_shen):
@@ -547,7 +594,7 @@ class MainWindow(QMainWindow):
         sh_summary = ss.get('summary', {})
         sh_weight_summary = ss.get('weight_summary', {})
         sh_total_weights = ss.get('total_weights', {})
-        
+
         if sh_summary:
             if sh_summary.get('正官', 0) > 0 or sh_summary.get('七杀', 0) > 0:
                 a.append({'type': '中', 'text': '官杀透干，事业心强，注意工作压力'})
@@ -557,7 +604,7 @@ class MainWindow(QMainWindow):
                 a.append({'type': '吉', 'text': '印星护身，贵人相助'})
             if sh_summary.get('食神', 0) > 0 or sh_summary.get('伤官', 0) > 0:
                 a.append({'type': '中', 'text': '食伤泄秀，才华出众'})
-        
+
         if sh_total_weights:
             total = sh_total_weights.get('total', 0)
             if total > 0:
@@ -565,14 +612,14 @@ class MainWindow(QMainWindow):
                     weight = sh_total_weights.get(category, 0)
                     if weight / total >= 0.3:
                         a.append({'type': '吉', 'text': f'{category}偏旺，{label}有力'})
-        
+
         sn = ml.get('shensha', {}) if isinstance(ml, dict) else {}
         for k, key in [('positive', '吉'), ('negative', '凶')]:
             items = sn.get(k, [])
             if items:
                 ns = '、'.join(s['name'] for s in items[:3])
                 a.append({'type': key, 'text': f'命带{ns}'})
-        
+
         if not a:
             a = [{'type': '吉', 'text': '日主得令，宜积极进取'}, {'type': '中', 'text': '财星透干，理财宜谨慎'}, {'type': '凶', 'text': '官杀混杂，注意身心'}]
         return a
@@ -610,10 +657,14 @@ class MainWindow(QMainWindow):
             method, q = data['method'], data.get('question', '')
             now = datetime.now()
             hr = None
-            if method == 'time': hr = self.meihua_calc.time_divination(now.year, now.month, now.day, now.hour, q)
-            elif method == 'number': hr = self.meihua_calc.number_divination([data.get('num1', 3), data.get('num2', 5)], q)
-            elif method == 'direction': hr = self.meihua_calc.direction_divination(data.get('direction', '南方'), q)
-            elif method == 'text': hr = self.meihua_calc.text_divination(data.get('text', '梅花'), q)
+            if method == 'time':
+                hr = self.meihua_calc.time_divination(now.year, now.month, now.day, now.hour, q)
+            elif method == 'number':
+                hr = self.meihua_calc.number_divination([data.get('num1', 3), data.get('num2', 5)], q)
+            elif method == 'direction':
+                hr = self.meihua_calc.direction_divination(data.get('direction', '南方'), q)
+            elif method == 'text':
+                hr = self.meihua_calc.text_divination(data.get('text', '梅花'), q)
             if not hr: return
             all_hex = self.meihua_calc.generate_all_hexagrams(hr)
             analysis = self.hexagram_analyzer.analyze_divination(hr, all_hex)
@@ -630,8 +681,36 @@ class MainWindow(QMainWindow):
 
             # 保存到数据库（梅花易数也支持保存）
             self._save_pan_record(data, result, '梅花易数')
+
+            # ★ v5.0: 起卦完成后自动触发AI解读
+            QTimer.singleShot(300, self._trigger_meihua_auto_ai)
         except Exception as e:
             self.statusBar().showMessage(f'起卦错误: {e}')
+            traceback.print_exc()
+
+    def _trigger_meihua_auto_ai(self):
+        """起卦完成后自动触发AI深度解读"""
+        try:
+            input_data = self.meihua_input.get_data()
+            hexagram_data = self.meihua_result.get_hexagram_data_for_ai()
+
+            if not hexagram_data or not hexagram_data.get('base', {}).get('name'):
+                print("自动AI解读跳过: 卦象数据不完整")
+                return
+
+            # 更新状态提示
+            self.statusBar().showMessage('起卦完成 · 正在自动进行AI深度解读…')
+
+            task_id = str(uuid.uuid4())
+            self._save_meihua_input_to_redis(task_id, input_data)
+
+            self._meihua_ai_worker = AiAnalysisWorker('meihua', input_data, hexagram_data, task_id)
+            self._meihua_ai_worker.progress_updated.connect(self._on_meihua_ai_progress)
+            self._meihua_ai_worker.analysis_finished.connect(self._on_meihua_ai_finished)
+            self._meihua_ai_worker.analysis_failed.connect(self._on_meihua_ai_failed)
+            self._meihua_ai_worker.start()
+        except Exception as e:
+            print(f"自动AI解读启动失败: {e}")
             traceback.print_exc()
 
     def _on_meihua_reset(self):
@@ -689,7 +768,7 @@ class MainWindow(QMainWindow):
             elapsed = result.get('elapsed_seconds', 0)
             self.statusBar().showMessage(
                 f'AI分析完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒 · 结果已同步至Redis'
             )
         except Exception as e:
             self.statusBar().showMessage(f'显示AI分析结果失败: {e}')
@@ -766,7 +845,7 @@ class MainWindow(QMainWindow):
             elapsed = result.get('elapsed_seconds', 0)
             self.statusBar().showMessage(
                 f'AI解读完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒 · 结果已同步至Redis'
             )
         except Exception as e:
             self.statusBar().showMessage(f'显示AI解读结果失败: {e}')

@@ -32,7 +32,7 @@ class DataIntegrator:
     def collect_raw_data(self, input_data: Dict[str, Any], chart_data: Dict[str, Any] = None):
         """收集原始数据"""
         logger.info("[数据整合] 开始收集原始数据...")
-        
+
         self.raw_data['input'] = {
             'name': input_data.get('name', '').strip(),
             'gender': input_data.get('gender', '').strip(),
@@ -54,9 +54,9 @@ class DataIntegrator:
         logger.info(f"[数据整合] 原始数据收集完成，输入字段: {list(self.raw_data['input'].keys())}")
 
     def collect_processed_data(self, wuxing_result: Dict[str, Any] = None,
-                              shishen_result: Dict[str, Any] = None,
-                              mingli_result: Dict[str, Any] = None,
-                              major_fortune: Dict[str, Any] = None):
+                               shishen_result: Dict[str, Any] = None,
+                               mingli_result: Dict[str, Any] = None,
+                               major_fortune: Dict[str, Any] = None):
         """收集中间处理结果"""
         logger.info("[数据整合] 开始收集中间处理结果...")
 
