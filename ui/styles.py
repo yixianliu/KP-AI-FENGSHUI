@@ -6,40 +6,47 @@ from PySide6.QtGui import QColor
 
 
 class Colors:
-    # 底色
-    BG = '#F7F6F3'
+    # 底色 - 暖米色调，提升视觉舒适度
+    BG = '#F5F2EC'
     BG_WHITE = '#FFFFFF'
     CARD = '#FFFFFF'
-    HOVER = '#F0EFEC'
+    HOVER = '#F0ECE4'
+    CARD_HOVER = '#F8F6F2'
 
-    # 三色点缀
-    ZHUSHA = '#C45C48'
-    ZHUSHA_LIGHT = '#E8A090'
-    ZHUSHA_DARK = '#9E3D2B'
-    QINGHUA = '#5B8FA8'
-    QINGHUA_LIGHT = '#A8C8D8'
-    LIUJIN = '#C49A3C'
-    LIUJIN_LIGHT = '#E8D5A0'
+    # 三色点缀 - 调整饱和度，更雅致
+    ZHUSHA = '#B84A3A'
+    ZHUSHA_LIGHT = '#E8B0A0'
+    ZHUSHA_DARK = '#8B3025'
+    QINGHUA = '#4A7A90'
+    QINGHUA_LIGHT = '#A0C4D4'
+    LIUJIN = '#B88A30'
+    LIUJIN_LIGHT = '#E0D0A0'
 
-    # 文字
-    TEXT = '#1A1A1A'
-    TEXT2 = '#666666'
-    TEXT3 = '#999999'
+    # 文字 - 增强对比度
+    TEXT = '#1A1816'
+    TEXT2 = '#5A5550'
+    TEXT3 = '#8A8580'
     TEXT_INV = '#FFFFFF'
 
     # 边框
-    BORDER = '#E5E3DE'
-    BORDER2 = '#D0CEC8'
-    DIVIDER = '#E8E6E1'
+    BORDER = '#E5E0D8'
+    BORDER2 = '#D0CBC0'
+    DIVIDER = '#E8E3DA'
 
     # 状态
-    SUCCESS = '#5A8F6E'
-    WARNING = '#C49548'
-    DANGER = '#C45C48'
+    SUCCESS = '#4A7A5E'
+    WARNING = '#B88A30'
+    DANGER = '#B84A3A'
 
-    # 阴影
-    SHADOW = 'rgba(0,0,0,0.06)'
-    SHADOW_HOVER = 'rgba(0,0,0,0.10)'
+    # 渐变背景
+    GRADIENT_WARM = '#F5F2EC'
+    GRADIENT_COOL = '#EEF2F5'
+    ACCENT_GRADIENT_START = '#4A7A90'
+    ACCENT_GRADIENT_END = '#6A9AB0'
+
+    # 卡片阴影颜色
+    SHADOW = 'rgba(0,0,0,0.04)'
+    SHADOW_HOVER = 'rgba(0,0,0,0.08)'
 
     # ==================== 旧版兼容别名 ====================
     BACKGROUND = BG
@@ -123,7 +130,30 @@ class Spacing:
 
 
 class Stylesheets:
-    MAIN = f"QMainWindow {{ background-color: {Colors.BG}; }}"
+    MAIN = f"""
+        QMainWindow {{
+            background-color: {Colors.BG};
+        }}
+        QWidget {{
+            font-family: {Fonts.BODY};
+        }}
+    """
+
+    # 全局控件基础样式
+    GLOBAL = f"""
+        * {{
+            outline: none;
+        }}
+        QToolTip {{
+            background: {Colors.CARD};
+            color: {Colors.TEXT};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            padding: 8px 12px;
+            font-size: {Fonts.SZ_SMALL};
+            font-family: {Fonts.BODY};
+        }}
+    """
 
     CARD = f"""
         QFrame {{
@@ -131,13 +161,16 @@ class Stylesheets:
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.RADIUS};
         }}
+        QFrame:hover {{
+            border-color: {Colors.BORDER2};
+        }}
     """
 
     BTN_PRIMARY = f"""
         QPushButton {{
             background-color: {Colors.ZHUSHA};
             color: {Colors.TEXT_INV};
-            border: 1.5px solid {Colors.LIUJIN};
+            border: none;
             border-radius: {Spacing.RADIUS_SM};
             font-size: 14px;
             font-weight: {Fonts.W_BOLD};
@@ -146,12 +179,11 @@ class Stylesheets:
             min-height: 40px;
         }}
         QPushButton:hover {{
-            background-color: {Colors.ZHUSHA_LIGHT};
-            border-color: {Colors.LIUJIN};
+            background-color: {Colors.ZHUSHA_DARK};
         }}
         QPushButton:pressed {{ background-color: {Colors.ZHUSHA_DARK}; }}
         QPushButton:disabled {{
-            background-color: {Colors.BORDER}; border-color: {Colors.BORDER};
+            background-color: {Colors.BORDER};
             color: {Colors.TEXT3};
         }}
     """
@@ -168,9 +200,9 @@ class Stylesheets:
             min-height: 40px;
         }}
         QPushButton:hover {{
-            background-color: #FFF0EE;
-            border-color: {Colors.ZHUSHA_LIGHT};
-            color: {Colors.ZHUSHA};
+            background-color: {Colors.CARD_HOVER};
+            border-color: {Colors.QINGHUA_LIGHT};
+            color: {Colors.QINGHUA};
         }}
         QPushButton:pressed {{ background-color: {Colors.HOVER}; }}
     """
@@ -184,15 +216,18 @@ class Stylesheets:
             font-size: 12px;
             font-family: {Fonts.BODY};
             padding: 5px 14px;
+            transition: all 0.2s ease;
         }}
         QPushButton:hover {{
             border-color: {Colors.QINGHUA_LIGHT};
             color: {Colors.QINGHUA};
+            background-color: {Colors.CARD_HOVER};
         }}
         QPushButton:checked {{
             background-color: {Colors.QINGHUA};
             color: {Colors.TEXT_INV};
             border-color: {Colors.QINGHUA};
+            font-weight: {Fonts.W_BOLD};
         }}
     """
 
@@ -209,7 +244,7 @@ class Stylesheets:
             selection-background-color: {Colors.QINGHUA};
             selection-color: white;
         }}
-        QLineEdit:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
+        QLineEdit:focus {{ border: 1.5px solid {Colors.QINGHUA}; background-color: {Colors.CARD_HOVER}; }}
         QLineEdit:hover:!focus {{ border-color: {Colors.BORDER2}; }}
         QLineEdit::placeholder {{ color: {Colors.TEXT3}; }}
     """
@@ -221,18 +256,21 @@ class Stylesheets:
             border-radius: {Spacing.RADIUS_SM};
             font-size: {Fonts.SZ_BODY};
             font-family: {Fonts.BODY};
-            padding: 6px 12px;
+            padding: 6px 28px 6px 12px;
             min-height: 34px;
             color: {Colors.TEXT};
         }}
         QComboBox:focus {{ border: 1.5px solid {Colors.QINGHUA}; }}
         QComboBox:hover:!focus {{ border-color: {Colors.BORDER2}; }}
-        QComboBox::drop-down {{ border: none; width: 22px; subcontrol-origin: padding; }}
+        QComboBox::drop-down {{ border: none; width: 24px; subcontrol-origin: padding; subcontrol-position: right center; padding-right: 8px; }}
         QComboBox::down-arrow {{
             image: none;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
             border-top: 5px solid {Colors.TEXT3};
+        }}
+        QComboBox::down-arrow:hover {{
+            border-top-color: {Colors.QINGHUA};
         }}
         QComboBox QAbstractItemView {{
             border: 1px solid {Colors.BORDER};
@@ -240,13 +278,13 @@ class Stylesheets:
             background: {Colors.CARD};
             selection-background-color: {Colors.QINGHUA};
             selection-color: white;
-            padding: 4px;
+            padding: 6px;
             font-size: {Fonts.SZ_BODY};
             font-family: {Fonts.BODY};
             outline: none;
         }}
         QComboBox QAbstractItemView::item {{
-            padding: 6px 10px; border-radius: 4px; min-height: 28px;
+            padding: 8px 12px; border-radius: 4px; min-height: 30px;
         }}
         QComboBox QAbstractItemView::item:hover {{ background-color: {Colors.HOVER}; }}
     """
@@ -276,21 +314,34 @@ class Stylesheets:
     SCROLL = f"""
         QScrollArea {{ background: transparent; border: none; }}
         QScrollBar:vertical {{
-            background: transparent; width: 6px; border-radius: 3px; margin: 0;
+            background: transparent; width: 8px; border-radius: 4px; margin: 2px;
         }}
         QScrollBar::handle:vertical {{
-            background: {Colors.BORDER2}; border-radius: 3px; min-height: 30px;
+            background: {Colors.BORDER}; border-radius: 4px; min-height: 30px;
         }}
-        QScrollBar::handle:vertical:hover {{ background: {Colors.TEXT3}; }}
+        QScrollBar::handle:vertical:hover {{ background: {Colors.BORDER2}; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+        QScrollBar:horizontal {{
+            background: transparent; height: 8px; border-radius: 4px; margin: 2px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {Colors.BORDER}; border-radius: 4px; min-width: 30px;
+        }}
+        QScrollBar::handle:horizontal:hover {{ background: {Colors.BORDER2}; }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
     """
 
     STATUS = f"""
         QStatusBar {{
             background: {Colors.CARD}; color: {Colors.TEXT3};
             border-top: 1px solid {Colors.DIVIDER};
-            font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.BODY}; padding: 3px 10px;
+            font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.BODY}; padding: 4px 12px;
+            min-height: 28px;
+        }}
+        QStatusBar::item {{
+            border: none;
         }}
     """
 

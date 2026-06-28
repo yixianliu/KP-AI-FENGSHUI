@@ -100,10 +100,14 @@ class MainWindow(QMainWindow):
         self.splitter.setStyleSheet(f"""
             QSplitter::handle {{
                 background-color: {Colors.DIVIDER};
-                width: 1px;
+                width: 2px;
+                border-radius: 1px;
+            }}
+            QSplitter::handle:hover {{
+                background-color: {Colors.QINGHUA_LIGHT};
             }}
         """)
-        self.splitter.setHandleWidth(1)
+        self.splitter.setHandleWidth(2)
         self.splitter.setStretchFactor(0, 35)
         self.splitter.setStretchFactor(1, 65)
 
@@ -129,19 +133,20 @@ class MainWindow(QMainWindow):
 
     def _create_navbar(self, parent):
         bar = QFrame()
-        bar.setFixedHeight(52)
+        bar.setFixedHeight(56)
         bar.setStyleSheet(f"""
             QFrame {{
-                background: {Colors.CARD};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.CARD}, stop:1 #FAF8F5);
                 border-bottom: 1px solid {Colors.DIVIDER};
             }}
         """)
         h = QHBoxLayout(bar)
-        h.setContentsMargins(20, 0, 20, 0)
+        h.setContentsMargins(24, 0, 20, 0)
 
         # Logo
         logo = QLabel('☯')
-        logo.setStyleSheet(f"font-size: 16px; color: {Colors.LIUJIN};")
+        logo.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN}; padding-right: 2px;")
 
         title = QLabel('风水排盘')
         title.setStyleSheet(f"""
@@ -149,11 +154,12 @@ class MainWindow(QMainWindow):
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: {Fonts.TITLE};
+            letter-spacing: 1px;
         """)
 
         h.addWidget(logo)
         h.addWidget(title)
-        h.addSpacing(30)
+        h.addSpacing(36)
 
         # 导航按钮
         self.nav_btns = {}
@@ -161,25 +167,28 @@ class MainWindow(QMainWindow):
             btn = QPushButton(item['icon'] + '  ' + item['name'])
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(34)
+            btn.setFixedHeight(36)
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent;
                     color: {Colors.TEXT3};
                     border: 1px solid transparent;
-                    border-radius: {Spacing.RADIUS_SM};
+                    border-radius: 18px;
                     font-size: {Fonts.SZ_SMALL};
                     font-family: {Fonts.BODY};
-                    padding: 5px 16px;
+                    padding: 6px 18px;
+                    margin: 0 2px;
                 }}
                 QPushButton:hover {{
                     color: {Colors.TEXT2};
                     background: {Colors.HOVER};
+                    border-color: {Colors.BORDER};
                 }}
                 QPushButton:checked {{
-                    color: {Colors.QINGHUA};
-                    background: rgba(91, 143, 168, 0.08);
-                    border-color: {Colors.QINGHUA_LIGHT};
+                    color: {Colors.TEXT_INV};
+                    background: {Colors.QINGHUA};
+                    border-color: {Colors.QINGHUA};
+                    font-weight: {Fonts.W_BOLD};
                 }}
             """)
             self.nav_btns[item['id']] = btn

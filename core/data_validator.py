@@ -431,7 +431,9 @@ class DataValidator:
         logger.info(f"[数据验证] 开始验证AI分析结果（{analysis_type}）")
 
         if analysis_type == 'bazi':
-            required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions']
+            required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
+                               'pattern_analysis', 'wuxing_balance', 'shishen_analysis',
+                               'improvement_plan']
         elif analysis_type == 'meihua':
             required_fields = ['gua_overview', 'situation_analysis', 'good_omens',
                                'bad_omens', 'action_advice', 'final_verdict']

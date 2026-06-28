@@ -337,12 +337,20 @@ class AnalysisPipeline:
             "- pattern_analysis（格局分析，字符串数组，3-5条，每条50-100字）\n"
             "- wuxing_balance（五行平衡分析，字符串数组，3-5条，每条50-100字）\n"
             "- shishen_analysis（十神分析，字符串数组，3-5条，每条50-100字）\n"
+            "- improvement_plan（改善方案，字符串数组，4-6条，每条50-100字）：针对命主五行失衡、\n"
+            "  十神不利、格局缺陷等问题，给出具体可行的改善建议，包括但不限于：\n"
+            "  · 五行补救方法（颜色、方位、配饰、饮食等）\n"
+            "  · 行为习惯调整建议\n"
+            "  · 风水布局优化方向\n"
+            "  · 时机选择与趋吉避凶策略\n"
+            "  每条改善方案需基于命理分析结果，具有针对性和可操作性。\n"
             "\n"
             "请结合命理知识进行深度分析，不要泛泛而谈，每条分析要有具体的命理依据。"
         )
 
         required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
-                          'pattern_analysis', 'wuxing_balance', 'shishen_analysis']
+                          'pattern_analysis', 'wuxing_balance', 'shishen_analysis',
+                          'improvement_plan']
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -453,7 +461,8 @@ class AnalysisPipeline:
             'suggestions': ['建议', '忠告', '提示', '注意事项'],
             'pattern_analysis': ['格局', '格', '局'],
             'wuxing_balance': ['五行', '平衡', '生克'],
-            'shishen_analysis': ['十神', '用神', '忌神']
+            'shishen_analysis': ['十神', '用神', '忌神'],
+            'improvement_plan': ['改善', '补救', '调理', '化解', '趋吉避凶']
         }
 
         result = {}

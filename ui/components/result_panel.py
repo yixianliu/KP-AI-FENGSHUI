@@ -137,53 +137,54 @@ class ResultPanel(QWidget):
         w.setMinimumHeight(400)
         return w
 
-    def _card(self, title, icon, child):
+    def _card(self, title, icon, child, accent_color=None):
         card = QFrame()
+        border_color = accent_color or Colors.BORDER
+        hover_color = accent_color or Colors.QINGHUA
         card.setStyleSheet(f"""
             QFrame {{
                 background: {Colors.CARD};
-                border: 1px solid {Colors.BORDER};
+                border: 1px solid {border_color};
                 border-radius: {Spacing.RADIUS};
             }}
             QFrame:hover {{
-                border: 1.5px solid {Colors.QINGHUA};
+                border-color: {hover_color};
             }}
         """)
-        # 添加阴影效果（通过样式模拟）
         card.setGraphicsEffect(None)
         l = QVBoxLayout(card)
-        l.setContentsMargins(16, 12, 16, 12)
-        l.setSpacing(8)
+        l.setContentsMargins(18, 14, 18, 14)
+        l.setSpacing(10)
 
         hdr = QHBoxLayout()
         ic = QLabel(icon)
-        ic.setStyleSheet(f"font-size: 14px; color: {Colors.QINGHUA};")
+        ic.setStyleSheet(f"font-size: 16px;")
+        ic.setFixedWidth(24)
         tl = QLabel(title)
         tl.setStyleSheet(f"""
             font-size: {Fonts.SZ_SMALL}; font-weight: {Fonts.W_BOLD};
-            color: {Colors.TEXT2}; font-family: {Fonts.BODY};
+            color: {Colors.TEXT}; font-family: {Fonts.BODY};
         """)
         hdr.addWidget(ic); hdr.addWidget(tl); hdr.addStretch()
         l.addLayout(hdr)
 
-        # 青蓝分割线（与左侧风格一致）
+        # 分割线
         div = QFrame()
         div.setFixedHeight(1)
-        div.setStyleSheet(f"background-color: {Colors.QINGHUA_LIGHT};")
+        div.setStyleSheet(f"background-color: {Colors.DIVIDER}; margin: 2px 0;")
         l.addWidget(div)
         l.addWidget(child)
         return card
 
     def _info_row(self, data):
         w = QWidget(); w.setStyleSheet("background: transparent;")
-        # 使用网格布局，允许换行
         gl = QGridLayout(w); gl.setContentsMargins(0,0,0,0); gl.setSpacing(8)
-        cols = 3  # 每行3列
+        cols = 3
         for i, (label, value) in enumerate(data):
             row, col = divmod(i, cols)
             item = QFrame()
-            item.setStyleSheet(f"background: {Colors.BG}; border-radius: {Spacing.RADIUS_SM};")
-            il = QVBoxLayout(item); il.setContentsMargins(10,6,10,6); il.setSpacing(2)
+            item.setStyleSheet(f"background: {Colors.BG}; border-radius: {Spacing.RADIUS_SM}; padding: 2px;")
+            il = QVBoxLayout(item); il.setContentsMargins(10,8,10,8); il.setSpacing(4)
             lb = QLabel(label)
             lb.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
             vb = QLabel(str(value))
@@ -203,36 +204,38 @@ class ResultPanel(QWidget):
 
     def _pillars(self, bazi):
         w = QWidget(); w.setStyleSheet("background: transparent;")
-        # 使用网格布局，2x2排列，自动适应宽度
-        gl = QGridLayout(w); gl.setContentsMargins(0,0,0,0); gl.setSpacing(8)
+        gl = QGridLayout(w); gl.setContentsMargins(0,0,0,0); gl.setSpacing(10)
         for idx, (name, p) in enumerate([('年柱',bazi['year_pillar']),('月柱',bazi['month_pillar']),
                                           ('日柱',bazi['day_pillar']),('时柱',bazi['hour_pillar'])]):
             is_day = name == '日柱'
             c = QFrame()
-            bc = Colors.LIUJIN if is_day else Colors.BORDER
+            bc = Colors.LIUJIN if is_day else Colors.QINGHUA_LIGHT
+            bg = '#FFF9F0' if is_day else Colors.BG
             c.setStyleSheet(f"""
-                QFrame {{ background: {Colors.BG}; border: 1.5px solid {bc}; border-radius: {Spacing.RADIUS_SM}; }}
+                QFrame {{ background: {bg}; border: 1.5px solid {bc}; border-radius: {Spacing.RADIUS}; }}
             """)
-            cl = QVBoxLayout(c); cl.setContentsMargins(10,8,10,8); cl.setSpacing(3); cl.setAlignment(Qt.AlignCenter)
+            cl = QVBoxLayout(c); cl.setContentsMargins(12,10,12,10); cl.setSpacing(4); cl.setAlignment(Qt.AlignCenter)
             nl = QLabel(name)
-            nl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+            nl_color = Colors.LIUJIN if is_day else Colors.TEXT3
+            nl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {nl_color}; font-family: {Fonts.BODY}; font-weight: {Fonts.W_BOLD};")
             nl.setAlignment(Qt.AlignCenter)
 
-            # 天干带五行颜色
+            # 天干
             gan_char = p[0]
             gan_color = self._get_wuxing_color(gan_char, is_gan=True)
             gan = QLabel(gan_char)
-            gan.setStyleSheet(f"font-size: 22px; font-weight: {Fonts.W_BOLD}; color: {gan_color}; font-family: {Fonts.TITLE};")
+            gan.setStyleSheet(f"font-size: 26px; font-weight: {Fonts.W_BOLD}; color: {gan_color}; font-family: {Fonts.TITLE};")
             gan.setAlignment(Qt.AlignCenter)
 
-            line = QFrame(); line.setFixedHeight(1.5); line.setFixedWidth(18)
+            # 分隔
+            line = QFrame(); line.setFixedHeight(1.5); line.setFixedWidth(20)
             line.setStyleSheet(f"background-color: {bc}; border-radius: 1px;")
 
-            # 地支带五行颜色
+            # 地支
             zhi_char = p[1]
             zhi_color = self._get_wuxing_color(zhi_char, is_gan=False)
             zhi = QLabel(zhi_char)
-            zhi.setStyleSheet(f"font-size: 22px; font-weight: {Fonts.W_BOLD}; color: {zhi_color}; font-family: {Fonts.TITLE};")
+            zhi.setStyleSheet(f"font-size: 26px; font-weight: {Fonts.W_BOLD}; color: {zhi_color}; font-family: {Fonts.TITLE};")
             zhi.setAlignment(Qt.AlignCenter)
 
             # 五行标签
@@ -249,37 +252,39 @@ class ResultPanel(QWidget):
 
     def _wuxing(self, wx):
         w = QWidget(); w.setStyleSheet("background: transparent;")
-        l = QVBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
+        l = QVBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setSpacing(10)
         els = [('金',wx.get('金',0),'#B8B0A0','#D0C8B8'),('木',wx.get('木',0),'#5A8F6E','#7AB89A'),
-               ('水',wx.get('水',0),'#5B8FA8','#8AB8D0'),('火',wx.get('火',0),'#C45C48','#D88A78'),
+               ('水',wx.get('水',0),'#4A7A90','#8AB8D0'),('火',wx.get('火',0),'#B84A3A','#D88A78'),
                ('土',wx.get('土',0),'#8B7355','#A68B6B')]
         total = sum(v for _,v,_,_ in els) or 1
         for name, val, c1, c2 in els:
-            row = QHBoxLayout(); row.setSpacing(8)
-            tag = QLabel(f' {name} ')
-            tag.setStyleSheet(f"background:{c1}; color:white; font-size:12px; font-weight:{Fonts.W_BOLD}; border-radius:3px; padding:2px 8px; font-family:{Fonts.BODY};")
+            row = QHBoxLayout(); row.setSpacing(10)
+            tag = QLabel(name)
+            tag.setFixedWidth(24)
+            tag.setAlignment(Qt.AlignCenter)
+            tag.setStyleSheet(f"background:{c1}; color:white; font-size:12px; font-weight:{Fonts.W_BOLD}; border-radius:4px; padding:3px 0; font-family:{Fonts.BODY};")
             tag.setFixedHeight(22)
-            bar = QProgressBar(); bar.setValue(val); bar.setTextVisible(False); bar.setFixedHeight(10)
+            bar = QProgressBar(); bar.setValue(val); bar.setTextVisible(False); bar.setFixedHeight(12)
             pct = int(val/total*100)
             bar.setStyleSheet(f"""
-                QProgressBar {{ border:none; border-radius:5px; background:{Colors.BG}; }}
-                QProgressBar::chunk {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {c1},stop:1 {c2}); border-radius:5px; }}
+                QProgressBar {{ border:none; border-radius:6px; background:{Colors.BG}; }}
+                QProgressBar::chunk {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {c1},stop:1 {c2}); border-radius:6px; }}
             """)
             vl = QLabel(f'{val} ({pct}%)')
             vl.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT2}; font-family:{Fonts.MONO};")
-            vl.setFixedWidth(55); vl.setAlignment(Qt.AlignRight)
+            vl.setFixedWidth(55); vl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             row.addWidget(tag); row.addWidget(bar,1); row.addWidget(vl)
             l.addLayout(row)
         return w
 
     def _annotations(self, data):
         w = QWidget(); w.setStyleSheet("background: transparent;")
-        l = QVBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setSpacing(6)
+        l = QVBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
         for item in data:
             tp = item.get('type','中')
-            if tp == '吉': bc, bg, icon = Colors.SUCCESS, 'rgba(90,143,110,0.08)', '✦'
-            elif tp == '凶': bc, bg, icon = Colors.DANGER, 'rgba(196,92,72,0.08)', '✦'
-            else: bc, bg, icon = Colors.WARNING, 'rgba(196,149,72,0.08)', '◈'
+            if tp == '吉': bc, bg, icon = Colors.SUCCESS, 'rgba(74,122,94,0.08)', '✦'
+            elif tp == '凶': bc, bg, icon = Colors.DANGER, 'rgba(184,74,58,0.08)', '✦'
+            else: bc, bg, icon = Colors.WARNING, 'rgba(184,138,48,0.08)', '◈'
             if tp == '吉': tc = Colors.SUCCESS
             elif tp == '凶': tc = Colors.DANGER
             else: tc = Colors.TEXT
@@ -287,31 +292,29 @@ class ResultPanel(QWidget):
             card.setStyleSheet(f"""
                 QFrame {{
                     background:{bg};
-                    border-left: 3px solid {bc};
+                    border-left: 4px solid {bc};
                     border-radius: {Spacing.RADIUS_SM};
                 }}
                 QFrame:hover {{
-                    background: {bg.replace('0.08', '0.12')};
-                    border-left: 3px solid {bc};
+                    background: {bg.replace('0.08', '0.14')};
                 }}
             """)
-            cl = QHBoxLayout(card); cl.setContentsMargins(10,7,10,7); cl.setSpacing(8)
+            cl = QHBoxLayout(card); cl.setContentsMargins(12,10,12,10); cl.setSpacing(10)
 
-            # 图标+标签组合
             badge_container = QVBoxLayout()
-            badge_container.setSpacing(2)
+            badge_container.setSpacing(3)
             icon_lbl = QLabel(icon)
-            icon_lbl.setStyleSheet(f"font-size: 16px; color: {bc};")
+            icon_lbl.setStyleSheet(f"font-size: 18px; color: {bc};")
             icon_lbl.setAlignment(Qt.AlignCenter)
             badge = QLabel(tp)
-            badge.setStyleSheet(f"background:{bc}; color:white; font-size:11px; font-weight:{Fonts.W_BOLD}; border-radius:3px; padding:2px 8px; font-family:{Fonts.BODY};")
-            badge.setFixedHeight(20)
+            badge.setStyleSheet(f"background:{bc}; color:white; font-size:11px; font-weight:{Fonts.W_BOLD}; border-radius:4px; padding:3px 10px; font-family:{Fonts.BODY};")
+            badge.setFixedHeight(22)
             badge_container.addWidget(icon_lbl)
             badge_container.addWidget(badge)
             badge_container.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
             txt = QLabel(item.get('text',''))
-            txt.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{tc}; font-family:{Fonts.BODY};")
+            txt.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{tc}; font-family:{Fonts.BODY}; line-height: 1.6;")
             txt.setWordWrap(True)
             cl.addLayout(badge_container)
             cl.addWidget(txt,1)
@@ -565,6 +568,10 @@ class ResultPanel(QWidget):
             ('career', '事业财运', '💼', Colors.LIUJIN),
             ('marriage', '婚姻感情', '💕', Colors.ZHUSHA),
             ('health', '健康注意', '💪', Colors.SUCCESS),
+            ('pattern_analysis', '格局分析', '🏛', Colors.QINGHUA),
+            ('wuxing_balance', '五行平衡分析', '⚖', Colors.LIUJIN),
+            ('shishen_analysis', '十神分析', '🔮', Colors.ZHUSHA),
+            ('improvement_plan', '改善方案', '🌟', Colors.LIUJIN),
             ('suggestions', '综合建议', '✨', Colors.QINGHUA),
         ]
         has_ai_content = False
