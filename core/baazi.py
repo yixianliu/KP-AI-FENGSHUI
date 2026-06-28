@@ -1,70 +1,66 @@
 from core.calendar_utils import BaZiCalendar
+from core.database_manager import DatabaseManager
 from datetime import datetime
 
-TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
-DI_ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
 
-YEAR_GANZHI = [
-    '甲子', '乙丑', '丙寅', '丁卯', '戊辰', '己巳', '庚午', '辛未', '壬申', '癸酉',
-    '甲戌', '乙亥', '丙子', '丁丑', '戊寅', '己卯', '庚辰', '辛巳', '壬午', '癸未',
-    '甲申', '乙酉', '丙戌', '丁亥', '戊子', '己丑', '庚寅', '辛卯', '壬辰', '癸巳',
-    '甲午', '乙未', '丙申', '丁酉', '戊戌', '己亥', '庚子', '辛丑', '壬寅', '癸卯',
-    '甲辰', '乙巳', '丙午', '丁未', '戊申', '己酉', '庚戌', '辛亥', '壬子', '癸丑',
-    '甲寅', '乙卯', '丙辰', '丁巳', '戊午', '己未', '庚申', '辛酉', '壬戌', '癸亥'
-]
+def _get_db():
+    return DatabaseManager()
 
-MONTH_GAN = [
-    ('甲己', ['丙', '丁', '戊', '己', '庚', '辛', '壬', '癸', '甲', '乙', '丙', '丁']),
-    ('乙庚', ['戊', '己', '庚', '辛', '壬', '癸', '甲', '乙', '丙', '丁', '戊', '己']),
-    ('丙辛', ['庚', '辛', '壬', '癸', '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛']),
-    ('丁壬', ['壬', '癸', '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']),
-    ('戊癸', ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸', '甲', '乙'])
-]
 
-SHIER_SHEN = ['长生', '沐浴', '冠带', '临官', '帝旺', '衰', '病', '死', '墓', '绝', '胎', '养']
-
-SHIER_SHEN_DETAIL = {
-    '长生': {'description': '万物初生，生机勃勃，主开端、潜力、发展', 'influence': '生命力旺盛，有发展潜力，适合开创事业'},
-    '沐浴': {'description': '万物始生，形体柔脆，主接受、修养、调整', 'influence': '需要静心修养，不宜急进，适合学习提升'},
-    '冠带': {'description': '万物渐荣，初具形态，主成长、准备、修饰', 'influence': '能力逐渐显现，适合展现才华，准备承担重任'},
-    '临官': {'description': '万物长成，开始发挥作用，主事业、权力、地位', 'influence': '事业发展期，适合追求功名，提升地位'},
-    '帝旺': {'description': '万物成熟，达到鼎盛，主成功、辉煌、巅峰', 'influence': '运势强盛，适合把握机会，追求最大成就'},
-    '衰': {'description': '万物开始衰退，主渐退、保守、调整', 'influence': '运势转弱，不宜冒进，适合巩固成果'},
-    '病': {'description': '万物病弱，主疾病、困扰、阻碍', 'influence': '需要注意健康，谨慎行事，避免风险'},
-    '死': {'description': '万物死亡，主结束、终止、衰败', 'influence': '运势低落，适合总结反思，准备新的开始'},
-    '墓': {'description': '万物收藏，主储存、积聚、隐藏', 'influence': '适合积累资源，隐藏锋芒，等待时机'},
-    '绝': {'description': '万物灭绝，主断绝、消亡、重生', 'influence': '旧事物终结，新事物开始，适合彻底改变'},
-    '胎': {'description': '万物孕育，主孕育、萌芽、准备', 'influence': '新的机会正在孕育，适合耐心等待，做好准备'},
-    '养': {'description': '万物养形，主滋养、成长、培养', 'influence': '适合培养能力，积累经验，为未来发展打基础'}
-}
-
-TIAN_GAN_SHIER_SHEN_MAP = {
-    '甲': ['亥', '子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌'],
-    '乙': ['午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌', '酉', '申', '未'],
-    '丙': ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'],
-    '丁': ['酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌'],
-    '戊': ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'],
-    '己': ['酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑', '子', '亥', '戌'],
-    '庚': ['巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑', '寅', '卯', '辰'],
-    '辛': ['子', '亥', '戌', '酉', '申', '未', '午', '巳', '辰', '卯', '寅', '丑'],
-    '壬': ['申', '酉', '戌', '亥', '子', '丑', '寅', '卯', '辰', '巳', '午', '未'],
-    '癸': ['卯', '寅', '丑', '子', '亥', '戌', '酉', '申', '未', '午', '巳', '辰']
-}
-
-SHIER_SHEN_LOOKUP = {}
-for gan, zhi_list in TIAN_GAN_SHIER_SHEN_MAP.items():
-    SHIER_SHEN_LOOKUP[gan] = {}
-    for idx, zhi in enumerate(zhi_list):
-        shen_name = SHIER_SHEN[idx]
-        detail = SHIER_SHEN_DETAIL.get(shen_name, {})
-        SHIER_SHEN_LOOKUP[gan][zhi] = {
-            'name': shen_name,
-            'description': detail.get('description', ''),
-            'influence': detail.get('influence', '')
+def _ensure_data():
+    global TIAN_GAN, DI_ZHI, YEAR_GANZHI, MONTH_GAN, SHIER_SHEN
+    global SHIER_SHEN_DETAIL, SHIER_SHEN_LOOKUP
+    db = _get_db()
+    TIAN_GAN = db.get_tian_gan_list()
+    DI_ZHI = db.get_di_zhi_list()
+    YEAR_GANZHI = db.get_sixty_jiazi()
+    
+    # 月干规则
+    rules = db.get_month_gan_rules()
+    MONTH_GAN = []
+    for key, gan_list in rules.items():
+        MONTH_GAN.append((key, gan_list))
+    
+    # 十二长生
+    changsheng_rows = db.get_shier_changsheng()
+    SHIER_SHEN = list(changsheng_rows.keys())
+    SHIER_SHEN_DETAIL = {}
+    for name, info in changsheng_rows.items():
+        SHIER_SHEN_DETAIL[name] = {
+            'description': info.get('description', info.get('meaning', '')),
+            'influence': info.get('influence', '')
         }
+    
+    # 十二长生映射 - 从数据库 changsheng_lookup 表获取
+    changsheng_lookup = db.get_changsheng_lookup()
+    SHIER_SHEN_LOOKUP = {}
+    for gan, zhi_map in changsheng_lookup.items():
+        SHIER_SHEN_LOOKUP[gan] = {}
+        for zhi, shen_name in zhi_map.items():
+            detail = SHIER_SHEN_DETAIL.get(shen_name, {})
+            SHIER_SHEN_LOOKUP[gan][zhi] = {
+                'name': shen_name,
+                'description': detail.get('description', ''),
+                'influence': detail.get('influence', '')
+            }
+
+
+# 模块级变量，首次使用时加载
+TIAN_GAN = None
+DI_ZHI = None
+YEAR_GANZHI = None
+MONTH_GAN = None
+SHIER_SHEN = None
+SHIER_SHEN_DETAIL = None
+SHIER_SHEN_LOOKUP = None
 
 FIRST_DAY_GANZHI = '甲子'
 BASE_YEAR = 1900
+
+
+def _lazy_init():
+    if TIAN_GAN is None:
+        _ensure_data()
 
 
 class BaZiCalculator:
@@ -79,6 +75,7 @@ class BaZiCalculator:
     """
     
     def __init__(self):
+        _lazy_init()
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
         self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}

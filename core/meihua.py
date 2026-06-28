@@ -2,7 +2,7 @@
 梅花易数起卦模块 - 实现传统梅花易数的起卦和解卦功能
 """
 import datetime
-from core.baazi import TIAN_GAN, DI_ZHI, YEAR_GANZHI
+import core.baazi as _baazi_module
 
 
 YAO_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
@@ -12,8 +12,9 @@ class MeiHuaCalculator:
     """梅花易数计算器 - 实现多种起卦方式"""
 
     def __init__(self):
-        self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
-        self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
+        _baazi_module._lazy_init()
+        self.tian_gan_map = {tg: i for i, tg in enumerate(_baazi_module.TIAN_GAN)}
+        self.di_zhi_map = {dz: i for i, dz in enumerate(_baazi_module.DI_ZHI)}
 
     def _convert_to_hexagram(self, num):
         """将数字转换为卦象"""

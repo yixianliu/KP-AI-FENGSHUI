@@ -8,66 +8,50 @@
 4. 完善运势趋势判断
 """
 
-from core.calendar_utils import YEAR_GANZHI, TIAN_GAN, DI_ZHI
+import core.calendar_utils as _cal_module
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING
+from core.database_manager import DatabaseManager
 
-YUNSHI_ANALYSIS = {
-    '甲': {
-        'positive': '甲木参天，蓬勃向上，主创新、开拓、积极进取',
-        'negative': '过旺则固执、冲动，需注意人际关系'
-    },
-    '乙': {
-        'positive': '乙木柔韧，善于变通，主智慧、文雅、富有艺术气质',
-        'negative': '过弱则意志不坚，容易随波逐流'
-    },
-    '丙': {
-        'positive': '丙火炎炎，热情洋溢，主光明、才华、社交能力强',
-        'negative': '过旺则急躁、冲动，需控制情绪'
-    },
-    '丁': {
-        'positive': '丁火柔和，温文尔雅，主细腻、体贴、富有同情心',
-        'negative': '过弱则缺乏主见，容易犹豫不决'
-    },
-    '戊': {
-        'positive': '戊土厚重，稳重可靠，主踏实、守信、有责任感',
-        'negative': '过旺则固执、保守，需灵活变通'
-    },
-    '己': {
-        'positive': '己土温润，包容万物，主善良、谦和、善于协调',
-        'negative': '过弱则缺乏自信，容易依赖他人'
-    },
-    '庚': {
-        'positive': '庚金锐利，果断刚毅，主决断、勇敢、事业心强',
-        'negative': '过旺则刻薄、刚愎自用，需注意人际关系'
-    },
-    '辛': {
-        'positive': '辛金清秀，才华出众，主聪慧、优雅、追求完美',
-        'negative': '过弱则缺乏魄力，容易优柔寡断'
-    },
-    '壬': {
-        'positive': '壬水奔腾，活力充沛，主智慧、灵活、适应能力强',
-        'negative': '过旺则散漫、缺乏定力，需专注目标'
-    },
-    '癸': {
-        'positive': '癸水柔顺，聪明伶俐，主敏感、细腻、富有想象力',
-        'negative': '过弱则胆小、缺乏自信，需增强勇气'
-    }
-}
 
-ZHI_ANALYSIS = {
-    '子': '子水智慧，主思维敏捷，但需防桃花困扰',
-    '丑': '丑土厚重，主稳重踏实，但需防固执保守',
-    '寅': '寅木生发，主积极进取，但需防冲动鲁莽',
-    '卯': '卯木柔顺，主文雅艺术，但需防犹豫不决',
-    '辰': '辰土藏龙，主潜力无限，但需防优柔寡断',
-    '巳': '巳火热情，主活力四射，但需防急躁冲动',
-    '午': '午火旺盛，主光明正大，但需防骄傲自满',
-    '未': '未土温和，主善良包容，但需防依赖他人',
-    '申': '申金锐利，主果断刚毅，但需防刻薄寡恩',
-    '酉': '酉金清秀，主才华出众，但需防孤芳自赏',
-    '戌': '戌土厚重，主稳重可靠，但需防固执己见',
-    '亥': '亥水智慧，主聪明灵活，但需防散漫无章'
-}
+def _get_db():
+    return DatabaseManager()
+
+
+# 模块级变量，首次使用时加载
+_YUNSHI_GAN = None
+_YUNSHI_ZHI = None
+
+
+def _lazy_init():
+    global _YUNSHI_GAN, _YUNSHI_ZHI
+    if _YUNSHI_GAN is None:
+        db = _get_db()
+        _YUNSHI_GAN = db.get_yunshi_gan_analysis()
+        _YUNSHI_ZHI = db.get_yunshi_zhi_analysis()
+
+
+def _get_gan_info(gan):
+    """获取天干运势分析信息，返回兼容旧格式的dict"""
+    _lazy_init()
+    row = _YUNSHI_GAN.get(gan, {})
+    if row:
+        return {
+            'positive': row.get('positive_desc', ''),
+            'negative': row.get('negative_desc', '')
+        }
+    return {}
+
+
+def _get_zhi_info(zhi):
+    """获取地支运势分析文本"""
+    _lazy_init()
+    row = _YUNSHI_ZHI.get(zhi, {})
+    return row.get('description', '') if row else ''
+
+
+# 保留旧模块级变量名称兼容性（但内容已清空）
+YUNSHI_ANALYSIS = {}
+ZHI_ANALYSIS = {}
 
 
 class YunShiCalculator:
@@ -81,14 +65,15 @@ class YunShiCalculator:
     """
     
     def __init__(self):
-        self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
-        self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
-        self.ganzhi_map = {gz: i for i, gz in enumerate(YEAR_GANZHI)}
+        _cal_module._lazy_init()
+        self.tian_gan_map = {tg: i for i, tg in enumerate(_cal_module.TIAN_GAN)}
+        self.di_zhi_map = {dz: i for i, dz in enumerate(_cal_module.DI_ZHI)}
+        self.ganzhi_map = {gz: i for i, gz in enumerate(_cal_module.YEAR_GANZHI)}
 
     def get_year_ganzhi(self, year):
         """计算年干支（使用标准公式）"""
         idx = (year - 4) % 60
-        return YEAR_GANZHI[idx]
+        return _cal_module.YEAR_GANZHI[idx]
 
     def calculate_major_fortune(self, bazhi, gender, birth_year):
         """计算大运
@@ -113,7 +98,7 @@ class YunShiCalculator:
             else:
                 ganzhi_idx = (start_idx - i + 60) % 60
             
-            ganzhi = YEAR_GANZHI[ganzhi_idx]
+            ganzhi = _cal_module.YEAR_GANZHI[ganzhi_idx]
             
             start_age = 0 if i == 0 else 10 + i * 10
             start_year = birth_year + start_age
@@ -164,15 +149,15 @@ class YunShiCalculator:
         rizhu_idx = self.tian_gan_map[rizhu]
         year_idx = (year - 4) % 60
         minor_idx = (rizhu_idx * 2 + year_idx) % 60
-        return YEAR_GANZHI[minor_idx]
+        return _cal_module.YEAR_GANZHI[minor_idx]
 
     def _analyze_fortune_period(self, ganzhi, bazhi):
         """分析大运（含五行制衡分析）"""
         gan = ganzhi[0]
         zhi = ganzhi[1]
         
-        gan_info = YUNSHI_ANALYSIS.get(gan, {})
-        zhi_info = ZHI_ANALYSIS.get(zhi, '')
+        gan_info = _get_gan_info(gan)
+        zhi_info = _get_zhi_info(zhi)
         
         rizhu = bazhi.get('rizhu', '')
         rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
@@ -210,8 +195,8 @@ class YunShiCalculator:
         year_gan = year_ganzhi[0]
         year_zhi = year_ganzhi[1]
         
-        gan_info = YUNSHI_ANALYSIS.get(year_gan, {})
-        zhi_info = ZHI_ANALYSIS.get(year_zhi, '')
+        gan_info = _get_gan_info(year_gan)
+        zhi_info = _get_zhi_info(year_zhi)
         
         rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
         gan_wx = TIAN_GAN_WUXING.get(year_gan, '')
@@ -243,12 +228,22 @@ class YunShiCalculator:
         }
 
     def _get_wuxing_relation(self, wx1, wx2):
-        """获取五行关系"""
+        """获取五行关系（从数据库获取生克关系）"""
         if not wx1 or not wx2:
             return ''
         
-        sheng = {'木': '火', '火': '土', '土': '金', '金': '水', '水': '木'}
-        ke = {'木': '土', '土': '水', '水': '火', '火': '金', '金': '木'}
+        db = _get_db()
+        wx_relations = db.get_wuxing_relations()
+        
+        # 从数据库构建生克映射
+        sheng = {}
+        ke = {}
+        if 'sheng' in wx_relations:
+            for rel in wx_relations['sheng']['relations']:
+                sheng[rel['from']] = rel['to']
+        if 'ke' in wx_relations:
+            for rel in wx_relations['ke']['relations']:
+                ke[rel['from']] = rel['to']
         
         if wx1 == wx2:
             return '比和'

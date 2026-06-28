@@ -10,68 +10,51 @@
 5. 特殊格局：伤官见官、官杀混杂、财官双美等
 """
 from core.calendar_utils import WuxingQuantifier
+from core.database_manager import DatabaseManager
 
-TIAN_GAN_WUXING = {
-    '甲': '木', '乙': '木',
-    '丙': '火', '丁': '火',
-    '戊': '土', '己': '土',
-    '庚': '金', '辛': '金',
-    '壬': '水', '癸': '水'
-}
 
-TIAN_GAN_HE = {
-    '甲己': '土',
-    '乙庚': '金',
-    '丙辛': '水',
-    '丁壬': '木',
-    '戊癸': '火'
-}
+def _get_db():
+    return DatabaseManager()
 
-DI_ZHI_HE = {
-    '子丑': '土',
-    '寅亥': '木',
-    '卯戌': '火',
-    '辰酉': '金',
-    '巳申': '水',
-    '午未': '土'
-}
 
-DI_ZHI_SAN_HE = {
-    '申子辰': '水',
-    '亥卯未': '木',
-    '寅午戌': '火',
-    '巳酉丑': '金'
-}
+# 模块级变量，首次使用时加载
+_TIAN_GAN_WUXING = None
+_TIAN_GAN_HE = None
+_DI_ZHI_HE = None
+_DI_ZHI_SAN_HE = None
+_DI_ZHI_CHONG = None
+_DI_ZHI_XING = None
+_TIAN_GAN_MAP = None
 
-DI_ZHI_CHONG = {
-    '子': '午', '午': '子',
-    '丑': '未', '未': '丑',
-    '寅': '申', '申': '寅',
-    '卯': '酉', '酉': '卯',
-    '辰': '戌', '戌': '辰',
-    '巳': '亥', '亥': '巳'
-}
 
-DI_ZHI_XING = {
-    '子': ['卯'],
-    '丑': ['戌', '未'],
-    '寅': ['巳', '申'],
-    '卯': ['子'],
-    '辰': ['辰'],
-    '巳': ['寅', '申'],
-    '午': ['午'],
-    '未': ['丑', '戌'],
-    '申': ['寅', '巳'],
-    '酉': ['酉'],
-    '戌': ['丑', '未'],
-    '亥': ['亥']
-}
+def _lazy_init():
+    global _TIAN_GAN_WUXING, _TIAN_GAN_HE, _DI_ZHI_HE
+    global _DI_ZHI_SAN_HE, _DI_ZHI_CHONG, _DI_ZHI_XING, _TIAN_GAN_MAP
+    if _TIAN_GAN_WUXING is None:
+        db = _get_db()
+        _TIAN_GAN_WUXING = db.get_tian_gan_wuxing()
+        _TIAN_GAN_HE = db.get_tian_gan_he()
+        _DI_ZHI_HE = db.get_di_zhi_he()
+        _DI_ZHI_SAN_HE = db.get_di_zhi_san_he()
+        _DI_ZHI_CHONG = db.get_di_zhi_chong_map()
+        _DI_ZHI_XING = db.get_di_zhi_xing_map()
+        _TIAN_GAN_MAP = db.get_tian_gan_map()
+
+
+# 保留旧模块级变量名称兼容性（内容已清空，实际通过 _lazy_init() 加载）
+TIAN_GAN_WUXING = None
+TIAN_GAN_HE = None
+DI_ZHI_HE = None
+DI_ZHI_SAN_HE = None
+DI_ZHI_CHONG = None
+DI_ZHI_XING = None
 
 
 class GeJuAnalyzer:
     """格局判定分析器"""
 
     def __init__(self):
+        _lazy_init()
         self.wuxing_quantifier = WuxingQuantifier()
 
     def analyze(self, bazi, wuxing_result=None, month_zhi=None):
@@ -106,7 +89,7 @@ class GeJuAnalyzer:
     def _judge_main_geju(self, bazi, wuxing_result, wangshuai):
         """判定主格局"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         total_score = wuxing_result.get('total_score', 0)
         rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
@@ -202,7 +185,7 @@ class GeJuAnalyzer:
             return False
         
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         total_score = wuxing_result.get('total_score', 0)
         rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
@@ -223,7 +206,7 @@ class GeJuAnalyzer:
         max_wx = sorted_wx[0]
         
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         if max_wx in ['木', '火'] and max_wx != rizhu_wx:
             return '从儿格'
@@ -237,7 +220,7 @@ class GeJuAnalyzer:
     def _is_sha_gong(self, bazi, wuxing_result):
         """判定杀印相生格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
         zhi_list = [ganzhi[1] for ganzhi in bazi['四柱']]
@@ -246,7 +229,7 @@ class GeJuAnalyzer:
         has_yin = False
         
         for gan in gan_list:
-            gan_wx = TIAN_GAN_WUXING.get(gan, '')
+            gan_wx = _TIAN_GAN_WUXING.get(gan, '')
             if self._is_killing(rizhu, gan):
                 has_sha = True
             if self._is_seal(rizhu, gan):
@@ -257,7 +240,7 @@ class GeJuAnalyzer:
     def _is_cai_gong(self, bazi, wuxing_result):
         """判定身强用财格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         total_score = wuxing_result.get('total_score', 0)
         cai_wx = self._get_cai_wx(rizhu_wx)
@@ -269,7 +252,7 @@ class GeJuAnalyzer:
     def _is_shi_sang(self, bazi, wuxing_result):
         """判定食神吐秀格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         total_score = wuxing_result.get('total_score', 0)
         shi_wx = self._get_shi_wx(rizhu_wx)
@@ -281,7 +264,7 @@ class GeJuAnalyzer:
     def _is_yin_gong(self, bazi, wuxing_result):
         """判定身弱用印格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         total_score = wuxing_result.get('total_score', 0)
         yin_wx = self._get_yin_wx(rizhu_wx)
@@ -293,7 +276,7 @@ class GeJuAnalyzer:
     def _is_bi_jie(self, bazi, wuxing_result):
         """判定身弱用比劫格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         tonggen = wuxing_result.get('tonggen', {})
         tonggen_total = tonggen.get('total', 0)
@@ -305,7 +288,7 @@ class GeJuAnalyzer:
     def _is_cai_guan_shuang_mei(self, bazi, wuxing_result):
         """判定财官双美格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         cai_wx = self._get_cai_wx(rizhu_wx)
         guan_wx = self._get_guan_wx(rizhu_wx)
@@ -322,7 +305,7 @@ class GeJuAnalyzer:
     def _is_yin_shang_sheng_gui(self, bazi, wuxing_result):
         """判定印绶生贵格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         yin_wx = self._get_yin_wx(rizhu_wx)
         guan_wx = self._get_guan_wx(rizhu_wx)
@@ -348,11 +331,12 @@ class GeJuAnalyzer:
                 if i >= j:
                     continue
                 he_key = ''.join(sorted([gan1, gan2]))
-                if he_key in TIAN_GAN_HE:
+                he_row = _TIAN_GAN_HE.get(he_key)
+                if he_row:
                     result.append({
                         'type': '天干五合',
                         'elements': f'{gan1}合{gan2}',
-                        'hehua': TIAN_GAN_HE[he_key],
+                        'hehua': he_row.get('hua_wuxing', ''),
                         'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
                         'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
                     })
@@ -362,21 +346,22 @@ class GeJuAnalyzer:
                 if i >= j:
                     continue
                 he_key = ''.join(sorted([zhi1, zhi2]))
-                if he_key in DI_ZHI_HE:
+                he_row = _DI_ZHI_HE.get(he_key)
+                if he_row:
                     result.append({
                         'type': '地支六合',
                         'elements': f'{zhi1}合{zhi2}',
-                        'hehua': DI_ZHI_HE[he_key],
+                        'hehua': he_row.get('hua_wuxing', ''),
                         'pillar1': ['年柱', '月柱', '日柱', '时柱'][i],
                         'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
                     })
         
-        for sanhe_key, hehua_wx in DI_ZHI_SAN_HE.items():
+        for sanhe_key, sanhe_row in _DI_ZHI_SAN_HE.items():
             if all(zhi in zhi_list for zhi in sanhe_key):
                 result.append({
                     'type': '地支三合',
                     'elements': sanhe_key,
-                    'hehua': hehua_wx
+                    'hehua': sanhe_row.get('hua_wuxing', '')
                 })
         
         return result
@@ -392,7 +377,7 @@ class GeJuAnalyzer:
                 if i >= j:
                     continue
                 
-                if DI_ZHI_CHONG.get(zhi1) == zhi2:
+                if _DI_ZHI_CHONG.get(zhi1) == zhi2:
                     result.append({
                         'type': '相冲',
                         'elements': f'{zhi1}冲{zhi2}',
@@ -400,7 +385,7 @@ class GeJuAnalyzer:
                         'pillar2': ['年柱', '月柱', '日柱', '时柱'][j]
                     })
                 
-                if zhi2 in DI_ZHI_XING.get(zhi1, []):
+                if zhi2 in _DI_ZHI_XING.get(zhi1, []):
                     result.append({
                         'type': '相刑',
                         'elements': f'{zhi1}刑{zhi2}',
@@ -455,17 +440,14 @@ class GeJuAnalyzer:
         """判定伤官见官"""
         gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
         
-        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
-                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
-        
         rizhu = bazi.get('rizhu', '')
-        rizhu_idx = tian_gan_map.get(rizhu)
+        rizhu_idx = _TIAN_GAN_MAP.get(rizhu)
         
         has_shang_guan = False
         has_guan = False
         
         for gan in gan_list:
-            gan_idx = tian_gan_map.get(gan)
+            gan_idx = _TIAN_GAN_MAP.get(gan)
             if gan_idx is None or rizhu_idx is None:
                 continue
             
@@ -481,17 +463,14 @@ class GeJuAnalyzer:
         """判定官杀混杂"""
         gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
         
-        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
-                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
-        
         rizhu = bazi.get('rizhu', '')
-        rizhu_idx = tian_gan_map.get(rizhu)
+        rizhu_idx = _TIAN_GAN_MAP.get(rizhu)
         
         has_zheng_guan = False
         has_sha = False
         
         for gan in gan_list:
-            gan_idx = tian_gan_map.get(gan)
+            gan_idx = _TIAN_GAN_MAP.get(gan)
             if gan_idx is None or rizhu_idx is None:
                 continue
             
@@ -510,7 +489,7 @@ class GeJuAnalyzer:
     def _is_yin_sheng_ri_zhu(self, bazi, wuxing_result):
         """判定印星生身"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         yin_wx = self._get_yin_wx(rizhu_wx)
         
@@ -525,7 +504,7 @@ class GeJuAnalyzer:
     def _is_cai_sheng_sha(self, bazi, wuxing_result):
         """判定财生杀"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         cai_wx = self._get_cai_wx(rizhu_wx)
         sha_wx = self._get_guan_wx(rizhu_wx)
@@ -542,7 +521,7 @@ class GeJuAnalyzer:
     def _is_sha_sheng_yin(self, bazi, wuxing_result):
         """判定杀生印"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         sha_wx = self._get_guan_wx(rizhu_wx)
         yin_wx = self._get_yin_wx(rizhu_wx)
@@ -558,11 +537,8 @@ class GeJuAnalyzer:
 
     def _is_killing(self, rizhu, other):
         """判断是否为官杀"""
-        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
-                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
-        
-        rizhu_idx = tian_gan_map.get(rizhu)
-        other_idx = tian_gan_map.get(other)
+        rizhu_idx = _TIAN_GAN_MAP.get(rizhu)
+        other_idx = _TIAN_GAN_MAP.get(other)
         
         if rizhu_idx is None or other_idx is None:
             return False
@@ -572,11 +548,8 @@ class GeJuAnalyzer:
 
     def _is_seal(self, rizhu, other):
         """判断是否为印星"""
-        tian_gan_map = {'甲': 0, '乙': 1, '丙': 2, '丁': 3, '戊': 4, 
-                        '己': 5, '庚': 6, '辛': 7, '壬': 8, '癸': 9}
-        
-        rizhu_idx = tian_gan_map.get(rizhu)
-        other_idx = tian_gan_map.get(other)
+        rizhu_idx = _TIAN_GAN_MAP.get(rizhu)
+        other_idx = _TIAN_GAN_MAP.get(other)
         
         if rizhu_idx is None or other_idx is None:
             return False

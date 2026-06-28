@@ -8,36 +8,37 @@
 """
 
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_HIDDEN_GAN_DETAIL
-from core.baazi import TIAN_GAN
+import core.baazi as _baazi_module
+from core.database_manager import DatabaseManager
 
-SHISHEN_MAP = {
-    '生我': '印星',
-    '我生': '食伤',
-    '克我': '官杀',
-    '我克': '财星',
-    '同我': '比劫'
-}
 
-SHISHEN_DETAIL = {
-    '生我': {'阳': '偏印', '阴': '正印'},
-    '我生': {'阳': '伤官', '阴': '食神'},
-    '克我': {'阳': '七杀', '阴': '正官'},
-    '我克': {'阳': '偏财', '阴': '正财'},
-    '同我': {'阳': '比肩', '阴': '劫财'}
-}
+def _get_db():
+    return DatabaseManager()
 
-SHISHEN_WUXING_MAP = {
-    '正印': '生我',
-    '偏印': '生我',
-    '食神': '我生',
-    '伤官': '我生',
-    '正官': '克我',
-    '七杀': '克我',
-    '正财': '我克',
-    '偏财': '我克',
-    '比肩': '同我',
-    '劫财': '同我'
-}
+
+# 模块级变量，首次使用时加载
+_SHISHEN_DETAIL = None
+_SHISHEN_WUXING_MAP = None
+
+
+def _lazy_init():
+    global _SHISHEN_DETAIL, _SHISHEN_WUXING_MAP
+    if _SHISHEN_DETAIL is None:
+        db = _get_db()
+        shishen_map_rows = db.get_shishen_map()
+        _SHISHEN_DETAIL = {}
+        for shishen_type, row in shishen_map_rows.items():
+            _SHISHEN_DETAIL[shishen_type] = {
+                '阳': row.get('yang_name', ''),
+                '阴': row.get('yin_name', '')
+            }
+        _SHISHEN_WUXING_MAP = db.get_shishen_wuxing_map()
+
+
+# 保留旧模块级变量名称兼容性（内容已清空，实际通过 _lazy_init() 加载）
+SHISHEN_MAP = {}
+SHISHEN_DETAIL = None
+SHISHEN_WUXING_MAP = None
 
 
 class ShiShenAnalyzer:
@@ -50,7 +51,10 @@ class ShiShenAnalyzer:
     """
     
     def __init__(self):
-        self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
+        _lazy_init()
+        # 确保 baazi 模块的 TIAN_GAN 也已加载
+        _baazi_module._lazy_init()
+        self.tian_gan_map = {tg: i for i, tg in enumerate(_baazi_module.TIAN_GAN)}
     
     def get_shishen_type(self, rizhu, other):
         """获取十神类型（生我/我生/克我/我克/同我）"""
@@ -86,7 +90,7 @@ class ShiShenAnalyzer:
         else:
             is_yang = not other_yang
         
-        return SHISHEN_DETAIL[shishen_type]['阳' if is_yang else '阴']
+        return _SHISHEN_DETAIL[shishen_type]['阳' if is_yang else '阴']
     
     def analyze(self, bazhi):
         """分析十神分布（含权重计算）

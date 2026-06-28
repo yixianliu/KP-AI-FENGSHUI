@@ -1,5 +1,6 @@
 """
 五行量化分析模块 - 完善五行能量计算体系
+数据来源：MySQL数据库
 
 修复内容：
 1. 细化藏干能量分值：本气0.6、中气0.3、余气0.1（原为统一0.5）
@@ -8,64 +9,96 @@
 4. 完善五行均衡分析逻辑
 """
 
-TIAN_GAN_WUXING = {
-    '甲': '木', '乙': '木',
-    '丙': '火', '丁': '火',
-    '戊': '土', '己': '土',
-    '庚': '金', '辛': '金',
-    '壬': '水', '癸': '水'
-}
+from core.database_manager import DatabaseManager
 
-DI_ZHI_WUXING = {
-    '子': '水', '丑': '土', '寅': '木', '卯': '木',
-    '辰': '土', '巳': '火', '午': '火', '未': '土',
-    '申': '金', '酉': '金', '戌': '土', '亥': '水'
-}
+# 懒加载数据库数据
+_db = None
+_TIAN_GAN_WUXING = None
+_DI_ZHI_WUXING = None
+_DI_ZHI_HIDDEN_GAN = None
+_DI_ZHI_HIDDEN_GAN_DETAIL = None
+_YUE_LING_WEIGHT = None
 
-DI_ZHI_HIDDEN_GAN = {
-    '子': ['癸'],
-    '丑': ['己', '辛', '癸'],
-    '寅': ['甲', '丙', '戊'],
-    '卯': ['乙'],
-    '辰': ['戊', '乙', '癸'],
-    '巳': ['丙', '戊', '庚'],
-    '午': ['丁', '己'],
-    '未': ['己', '丁', '乙'],
-    '申': ['庚', '壬', '戊'],
-    '酉': ['辛'],
-    '戌': ['戊', '辛', '丁'],
-    '亥': ['壬', '甲']
-}
 
-DI_ZHI_HIDDEN_GAN_DETAIL = {
-    '子': [('癸', '本气', 0.6)],
-    '丑': [('己', '本气', 0.6), ('辛', '中气', 0.3), ('癸', '余气', 0.1)],
-    '寅': [('甲', '本气', 0.6), ('丙', '中气', 0.3), ('戊', '余气', 0.1)],
-    '卯': [('乙', '本气', 0.6)],
-    '辰': [('戊', '本气', 0.6), ('乙', '中气', 0.3), ('癸', '余气', 0.1)],
-    '巳': [('丙', '本气', 0.6), ('戊', '中气', 0.3), ('庚', '余气', 0.1)],
-    '午': [('丁', '本气', 0.6), ('己', '中气', 0.3)],
-    '未': [('己', '本气', 0.6), ('丁', '中气', 0.3), ('乙', '余气', 0.1)],
-    '申': [('庚', '本气', 0.6), ('壬', '中气', 0.3), ('戊', '余气', 0.1)],
-    '酉': [('辛', '本气', 0.6)],
-    '戌': [('戊', '本气', 0.6), ('辛', '中气', 0.3), ('丁', '余气', 0.1)],
-    '亥': [('壬', '本气', 0.6), ('甲', '中气', 0.3)]
-}
+def _ensure_db():
+    """确保数据库连接并加载数据"""
+    global _db, _TIAN_GAN_WUXING, _DI_ZHI_WUXING
+    global _DI_ZHI_HIDDEN_GAN, _DI_ZHI_HIDDEN_GAN_DETAIL, _YUE_LING_WEIGHT
+    if _db is None:
+        _db = DatabaseManager()
+        _TIAN_GAN_WUXING = _db.get_tian_gan_wuxing()
+        _DI_ZHI_WUXING = _db.get_di_zhi_wuxing()
+        _DI_ZHI_HIDDEN_GAN_DETAIL = _db.get_di_zhi_hidden_gan()
+        _DI_ZHI_HIDDEN_GAN = _db.get_di_zhi_hidden_gan_simple()
+        _YUE_LING_WEIGHT = _db.get_yue_ling_weight()
 
-YUE_LING_WEIGHT = {
-    '寅': {'木': 1.5, '火': 0.5, '土': 0.3, '金': 0.2, '水': 0.3},
-    '卯': {'木': 1.5, '火': 0.6, '土': 0.2, '金': 0.1, '水': 0.3},
-    '辰': {'土': 1.0, '木': 0.4, '水': 0.3, '火': 0.2, '金': 0.3},
-    '巳': {'火': 1.5, '土': 0.4, '金': 0.2, '木': 0.3, '水': 0.2},
-    '午': {'火': 1.5, '土': 0.5, '金': 0.1, '木': 0.2, '水': 0.2},
-    '未': {'土': 1.0, '火': 0.4, '木': 0.3, '水': 0.2, '金': 0.3},
-    '申': {'金': 1.5, '水': 0.5, '土': 0.3, '木': 0.2, '火': 0.2},
-    '酉': {'金': 1.5, '土': 0.4, '水': 0.3, '木': 0.1, '火': 0.2},
-    '戌': {'土': 1.0, '金': 0.4, '火': 0.3, '木': 0.2, '水': 0.2},
-    '亥': {'水': 1.5, '木': 0.5, '火': 0.2, '土': 0.3, '金': 0.3},
-    '子': {'水': 1.5, '金': 0.4, '火': 0.1, '木': 0.3, '土': 0.3},
-    '丑': {'土': 1.0, '水': 0.4, '金': 0.3, '火': 0.2, '木': 0.2}
-}
+
+def get_tian_gan_wuxing():
+    """获取天干五行映射"""
+    _ensure_db()
+    return _TIAN_GAN_WUXING
+
+
+def get_di_zhi_wuxing():
+    """获取地支五行映射"""
+    _ensure_db()
+    return _DI_ZHI_WUXING
+
+
+def get_di_zhi_hidden_gan_detail():
+    """获取地支藏干详细数据"""
+    _ensure_db()
+    return _DI_ZHI_HIDDEN_GAN_DETAIL
+
+
+def get_yue_ling_weight():
+    """获取月令权重"""
+    _ensure_db()
+    return _YUE_LING_WEIGHT
+
+
+# 兼容旧代码的模块级变量（通过属性访问延迟加载）
+class _LazyDict:
+    """延迟加载字典"""
+    def __init__(self, loader):
+        self._loader = loader
+        self._data = None
+    
+    def _load(self):
+        if self._data is None:
+            self._data = self._loader()
+        return self._data
+    
+    def __getitem__(self, key):
+        return self._load().__getitem__(key)
+    
+    def get(self, key, default=None):
+        return self._load().get(key, default)
+    
+    def items(self):
+        return self._load().items()
+    
+    def keys(self):
+        return self._load().keys()
+    
+    def values(self):
+        return self._load().values()
+    
+    def __iter__(self):
+        return iter(self._load())
+    
+    def __len__(self):
+        return len(self._load())
+    
+    def __contains__(self, key):
+        return key in self._load()
+
+
+TIAN_GAN_WUXING = _LazyDict(lambda: (_ensure_db() or _TIAN_GAN_WUXING))
+DI_ZHI_WUXING = _LazyDict(lambda: (_ensure_db() or _DI_ZHI_WUXING))
+DI_ZHI_HIDDEN_GAN = _LazyDict(lambda: (_ensure_db() or _DI_ZHI_HIDDEN_GAN))
+DI_ZHI_HIDDEN_GAN_DETAIL = _LazyDict(lambda: (_ensure_db() or _DI_ZHI_HIDDEN_GAN_DETAIL))
+YUE_LING_WEIGHT = _LazyDict(lambda: (_ensure_db() or _YUE_LING_WEIGHT))
 
 
 class WuXingAnalyzer:
@@ -79,6 +112,7 @@ class WuXingAnalyzer:
     """
     
     def __init__(self):
+        _ensure_db()
         self.wuxing = ['木', '火', '土', '金', '水']
     
     def analyze(self, bazhi, month_zhi=None):
@@ -93,7 +127,7 @@ class WuXingAnalyzer:
                  for wx in self.wuxing}
         
         lunar_month_zhi = month_zhi if month_zhi else bazhi.get('month_zhi', '')
-        yue_ling_weight = YUE_LING_WEIGHT.get(lunar_month_zhi, {})
+        yue_ling_weight = _YUE_LING_WEIGHT.get(lunar_month_zhi, {})
         
         for pillar_name, ganzhi in zip(['年柱', '月柱', '日柱', '时柱'], ganzhi_list):
             if not ganzhi:
@@ -102,7 +136,7 @@ class WuXingAnalyzer:
             gan = ganzhi[0]
             zhi = ganzhi[1]
             
-            wx_gan = TIAN_GAN_WUXING[gan]
+            wx_gan = _TIAN_GAN_WUXING[gan]
             base_score = 1.0
             if lunar_month_zhi and wx_gan in yue_ling_weight:
                 base_score *= yue_ling_weight[wx_gan]
@@ -112,7 +146,7 @@ class WuXingAnalyzer:
             result[wx_gan]['elements'].append(gan)
             result[wx_gan]['sources'].append(f'{pillar_name}天干{gan}')
             
-            wx_zhi = DI_ZHI_WUXING[zhi]
+            wx_zhi = _DI_ZHI_WUXING[zhi]
             base_score = 1.0
             if lunar_month_zhi and wx_zhi in yue_ling_weight:
                 base_score *= yue_ling_weight[wx_zhi]
@@ -122,9 +156,9 @@ class WuXingAnalyzer:
             result[wx_zhi]['elements'].append(zhi)
             result[wx_zhi]['sources'].append(f'{pillar_name}地支{zhi}')
             
-            hidden_gans = DI_ZHI_HIDDEN_GAN_DETAIL.get(zhi, [])
+            hidden_gans = _DI_ZHI_HIDDEN_GAN_DETAIL.get(zhi, [])
             for hidden_gan, qi_type, qi_score in hidden_gans:
-                wx_hidden = TIAN_GAN_WUXING[hidden_gan]
+                wx_hidden = _TIAN_GAN_WUXING[hidden_gan]
                 base_score = qi_score
                 if lunar_month_zhi and wx_hidden in yue_ling_weight:
                     base_score *= yue_ling_weight[wx_hidden]
@@ -138,7 +172,7 @@ class WuXingAnalyzer:
         total_count = sum(result[wx]['count'] for wx in self.wuxing)
         
         rizhu = bazhi.get('rizhu', '')
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         tonggen_info = self._analyze_tonggen(bazhi, rizhu)
         
@@ -162,7 +196,7 @@ class WuXingAnalyzer:
     
     def _analyze_tonggen(self, bazhi, rizhu):
         """分析日主通根情况（新增）"""
-        rizhu_wx = TIAN_GAN_WUXING.get(rizhu, '')
+        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
         
         tonggen_list = []
         strong_count = 0
@@ -173,10 +207,10 @@ class WuXingAnalyzer:
                 continue
                 
             zhi = ganzhi[1]
-            zhi_wx = DI_ZHI_WUXING.get(zhi)
+            zhi_wx = _DI_ZHI_WUXING.get(zhi)
             
             if zhi_wx == rizhu_wx:
-                hidden_gans = DI_ZHI_HIDDEN_GAN_DETAIL.get(zhi, [])
+                hidden_gans = _DI_ZHI_HIDDEN_GAN_DETAIL.get(zhi, [])
                 has_rizhu_in_hidden = any(hg[0] == rizhu for hg in hidden_gans)
                 
                 if has_rizhu_in_hidden:
@@ -264,7 +298,7 @@ class WuXingAnalyzer:
     
     def analyze_wangshuai(self, bazhi, month_zhi=None):
         """判断日主旺衰（新增完整方法）"""
-        wuxing_result = self.analyze(bazi, month_zhi)
+        wuxing_result = self.analyze(bazhi, month_zhi)
         
         rizhu_wx = wuxing_result.get('rizhu_wx', '')
         rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
