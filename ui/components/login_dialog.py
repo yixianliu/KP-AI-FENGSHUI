@@ -3,7 +3,7 @@
 """
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFrame, QMessageBox, QGraphicsDropShadowEffect
+    QPushButton, QFrame, QMessageBox, QGraphicsDropShadowEffect, QWidget
 )
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor

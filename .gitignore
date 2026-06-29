@@ -19,3 +19,4 @@ core/__pycache__
 /.vscode/
 utils/__pycache__
 ui/components/__pycache__
+/.workbuddy/

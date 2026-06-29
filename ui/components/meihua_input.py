@@ -147,7 +147,7 @@ class MeihuaInputPanel(QWidget):
         outer.addWidget(scroll)
 
     def _label(self, text):
-        l = QLabel(text); l.setFixedWidth(48)
+        l = QLabel(text); l.setFixedWidth(42)
         l.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
         return l
 

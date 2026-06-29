@@ -242,7 +242,7 @@ class InputPanel(QWidget):
 
     def _label(self, text):
         l = QLabel(text)
-        l.setFixedWidth(48)
+        l.setFixedWidth(42)
         l.setStyleSheet(f"""
             font-size: {Fonts.SZ_SMALL};
             color: {Colors.TEXT2};

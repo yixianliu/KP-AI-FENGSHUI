@@ -240,13 +240,13 @@ class ResultPanel(QWidget):
         return w
 
     def _info_row(self, data):
-        """信息行 - 改为更清晰的key-value布局"""
+        """信息行 - 优化可读性"""
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         gl = QGridLayout(w)
-        gl.setContentsMargins(0, 4, 0, 4)
-        gl.setHorizontalSpacing(20)
-        gl.setVerticalSpacing(10)
+        gl.setContentsMargins(8, 6, 8, 6)
+        gl.setHorizontalSpacing(24)
+        gl.setVerticalSpacing(12)
         cols = 3
         for i, (label, value) in enumerate(data):
             row, col = divmod(i, cols)
@@ -257,12 +257,12 @@ class ResultPanel(QWidget):
                 padding: 2px;
             """)
             il = QVBoxLayout(item_w)
-            il.setContentsMargins(12, 8, 12, 8)
-            il.setSpacing(3)
+            il.setContentsMargins(14, 10, 14, 10)
+            il.setSpacing(4)
             lb = QLabel(label)
             lb.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
             vb = QLabel(str(value))
-            vb.setStyleSheet(f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY};")
+            vb.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT}; font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY};")
             vb.setWordWrap(True)
             il.addWidget(lb)
             il.addWidget(vb)
@@ -282,9 +282,9 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         gl = QGridLayout(w)
-        gl.setContentsMargins(0, 4, 0, 4)
-        gl.setHorizontalSpacing(10)
-        gl.setVerticalSpacing(10)
+        gl.setContentsMargins(10, 6, 10, 6)
+        gl.setHorizontalSpacing(14)
+        gl.setVerticalSpacing(14)
 
         for idx, (name, p) in enumerate([('年柱', bazi['year_pillar']), ('月柱', bazi['month_pillar']),
                                           ('日柱', bazi['day_pillar']), ('时柱', bazi['hour_pillar'])]):
@@ -363,8 +363,8 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(0, 4, 0, 4)
-        l.setSpacing(10)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(12)
 
         els = [
             ('金', wx.get('金', 0), Colors.METAL, Colors.METAL_LIGHT),
@@ -429,8 +429,8 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(0, 4, 0, 4)
-        l.setSpacing(8)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(10)
         for item in data:
             tp = item.get('type', '中')
             if tp == '吉':
@@ -891,8 +891,8 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(0, 4, 0, 4)
-        l.setSpacing(8)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(10)
         for idx, item in enumerate(items):
             row = QHBoxLayout()
             row.setSpacing(10)

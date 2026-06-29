@@ -1,6 +1,6 @@
 """
 风水排盘专业工具 v5.0 - 精美国风主窗口
-QSplitter左右分栏35%/65% · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
+QSplitter左右分栏28%/72% · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFrame, QApplication, QStatusBar,
@@ -13,8 +13,6 @@ from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from ui.components.meihua_input import MeihuaInputPanel
 from ui.components.meihua_result_panel import MeihuaResultPanel
-from ui.components.term_dictionary_panel import TermDictionaryPanel
-from ui.components.chart_widget import ChartWidget
 from ui.components.login_dialog import LoginDialog, RegisterDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
 from core.bazi_calculator import BaziCalculator
@@ -32,8 +30,6 @@ import uuid
 NAV = [
     {'id': 'bazi', 'name': '八字排盘', 'icon': '☯'},
     {'id': 'meihua', 'name': '梅花易数', 'icon': '⚊'},
-    {'id': 'terms', 'name': '术语词典', 'icon': '📖'},
-    {'id': 'charts', 'name': '图表分析', 'icon': '📊'},
 ]
 
 
@@ -108,8 +104,8 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.splitter.setHandleWidth(1)
-        self.splitter.setStretchFactor(0, 35)
-        self.splitter.setStretchFactor(1, 65)
+        self.splitter.setStretchFactor(0, 28)
+        self.splitter.setStretchFactor(1, 72)
 
         # 左侧
         self.left_stack = QStackedWidget()
@@ -130,26 +126,21 @@ class MainWindow(QMainWindow):
         sb.setStyleSheet(Stylesheets.STATUS)
         sb.showMessage('风水排盘专业工具 v5.0 · 精美国风 · AI自动分析')
         self.setStatusBar(sb)
+        self.module_hint = None  # 预留：当前模块提示
 
     def _create_navbar(self, parent):
         bar = QFrame()
-        bar.setFixedHeight(60)
+        bar.setFixedHeight(56)
         bar.setStyleSheet(f"""
             QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #FFFFFF, stop:1 {Colors.GRADIENT_NAV_END});
-                border-bottom: 1px solid {Colors.DIVIDER};
+                border-bottom: none;
             }}
         """)
-        # 导航栏阴影效果
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(8)
-        shadow.setOffset(0, 1)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        bar.setGraphicsEffect(shadow)
 
         h = QHBoxLayout(bar)
-        h.setContentsMargins(24, 0, 20, 0)
+        h.setContentsMargins(20, 0, 16, 0)
         h.setSpacing(0)
 
         # Logo区
@@ -157,52 +148,52 @@ class MainWindow(QMainWindow):
         logo_container.setStyleSheet("background: transparent; border: none;")
         logo_hl = QHBoxLayout(logo_container)
         logo_hl.setContentsMargins(0, 0, 0, 0)
-        logo_hl.setSpacing(4)
+        logo_hl.setSpacing(6)
 
         logo = QLabel('☯')
-        logo.setStyleSheet(f"font-size: 20px; color: {Colors.LIUJIN};")
+        logo.setStyleSheet(f"font-size: 22px; color: {Colors.LIUJIN};")
 
         title = QLabel('风水排盘')
         title.setStyleSheet(f"""
-            font-size: 18px;
+            font-size: 17px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: {Fonts.TITLE};
-            letter-spacing: 1px;
+            letter-spacing: 2px;
         """)
 
         logo_hl.addWidget(logo)
         logo_hl.addWidget(title)
         h.addWidget(logo_container)
-        h.addSpacing(36)
+        h.addSpacing(28)
 
-        # 导航按钮组
+        # 导航按钮组 - 改为胶囊式切换
         nav_container = QFrame()
         nav_container.setStyleSheet(f"""
             background: {Colors.HOVER};
             border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.RADIUS};
-            padding: 3px;
+            border-radius: {Spacing.RADIUS_LG};
+            padding: 2px;
         """)
         nav_hl = QHBoxLayout(nav_container)
-        nav_hl.setContentsMargins(3, 3, 3, 3)
-        nav_hl.setSpacing(2)
+        nav_hl.setContentsMargins(4, 4, 4, 4)
+        nav_hl.setSpacing(0)
 
         self.nav_btns = {}
         for item in NAV:
-            btn = QPushButton(item['icon'] + '  ' + item['name'])
+            btn = QPushButton(item['icon'] + ' ' + item['name'])
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(32)
+            btn.setFixedHeight(34)
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent;
                     color: {Colors.TEXT2};
                     border: none;
-                    border-radius: 8px;
-                    font-size: {Fonts.SZ_SMALL};
+                    border-radius: {Spacing.RADIUS};
+                    font-size: {Fonts.SZ_BODY};
                     font-family: {Fonts.BODY};
-                    padding: 5px 16px;
+                    padding: 4px 20px;
                 }}
                 QPushButton:hover {{
                     color: {Colors.TEXT};
@@ -221,10 +212,10 @@ class MainWindow(QMainWindow):
         h.addWidget(nav_container)
         h.addStretch()
 
-        # 用户登录/用户名按钮
+        # 用户登录按钮 - 简化
         self.user_btn = QPushButton('👤 登录')
         self.user_btn.setCursor(Qt.PointingHandCursor)
-        self.user_btn.setFixedHeight(32)
+        self.user_btn.setFixedHeight(30)
         self.user_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -233,11 +224,10 @@ class MainWindow(QMainWindow):
                 border-radius: {Spacing.RADIUS_SM};
                 font-size: {Fonts.SZ_SMALL};
                 font-family: {Fonts.BODY};
-                padding: 4px 16px;
+                padding: 3px 12px;
             }}
             QPushButton:hover {{
                 background: {Colors.QINGHUA_GLOW};
-                color: {Colors.QINGHUA_DARK};
             }}
         """)
         self.user_btn.clicked.connect(self._on_user_btn_clicked)
@@ -250,42 +240,19 @@ class MainWindow(QMainWindow):
         self.left_stack.addWidget(self.bazi_input)
         self.meihua_input = MeihuaInputPanel()
         self.left_stack.addWidget(self.meihua_input)
-        self.terms_panel = TermDictionaryPanel()
-        self.left_stack.addWidget(self.terms_panel)
-        # 图表占位
-        w = QWidget()
-        l = QLabel('图表分析参数', w)
-        l.setStyleSheet(f"color:{Colors.TEXT3}; font-size:16px;")
-        l.setAlignment(Qt.AlignCenter)
-        self.left_stack.addWidget(w)
 
     def _build_right(self):
         self.bazi_result = ResultPanel()
         self.right_stack.addWidget(self.bazi_result)
         self.meihua_result = MeihuaResultPanel()
         self.right_stack.addWidget(self.meihua_result)
-        # 术语
-        tw = QWidget()
-        tl = QVBoxLayout(tw)
-        tl.setContentsMargins(40, 40, 40, 40)
-        tl.addWidget(QLabel('← 请从左侧选择术语分类'))
-        self.right_stack.addWidget(tw)
-        # 图表
-        self.chart_widget = ChartWidget()
-        self.right_stack.addWidget(self.chart_widget)
 
     def _switch(self, pid):
         for k, b in self.nav_btns.items():
             b.setChecked(k == pid)
-        idx = {'bazi': 0, 'meihua': 1, 'terms': 2, 'charts': 3}
-        names = {'bazi': '八字排盘', 'meihua': '梅花易数', 'terms': '术语词典', 'charts': '图表分析'}
+        idx = {'bazi': 0, 'meihua': 1}
         self.left_stack.setCurrentIndex(idx.get(pid, 0))
         self.right_stack.setCurrentIndex(idx.get(pid, 0))
-
-        if self.module_hint is not None:
-            self.module_hint.setText(names.get(pid, ''))
-        else:
-            print("Label is None")
 
     def _connect_signals(self):
         self.bazi_input.submit_btn.clicked.connect(self._on_bazi)
@@ -445,7 +412,6 @@ class MainWindow(QMainWindow):
             wx = self.bazi_calc.get_wuxing(bazi)
             ss = self.bazi_calc.get_shishen(bazi)
             ml = self.bazi_calc.get_mingli(bazi)
-            # 新增：大运与十二长生（图表与深度分析依赖）
             try:
                 dayun = self.bazi_calc.get_dayun(bazi, gender, y)
             except Exception as e:
@@ -453,7 +419,6 @@ class MainWindow(QMainWindow):
                 dayun = {'periods': [], 'direction': '顺行'}
             try:
                 shier_shen_raw = self.bazi_calc.get_shier_shen(bazi)
-                # 转换格式：{pillar: {name, ...}}，供图表组件使用
                 shier_shen = {}
                 for item in shier_shen_raw.get('shier_shen', []):
                     shier_shen[item['pillar']] = {
@@ -503,15 +468,8 @@ class MainWindow(QMainWindow):
             }
             self.bazi_result.display_result(result)
             self.statusBar().showMessage(
-                f'排盘完成 · {data["city"]} {y}年{m}月{d}日 · 图表数据已就绪，可切换至「图表分析」查看'
+                f'排盘完成 · {data["city"]} {y}年{m}月{d}日'
             )
-
-            # 关键修复：把排盘数据同步到图表组件，确保图表分析视图能正常渲染
-            try:
-                self._sync_chart_data(wx, ss, dayun, shier_shen)
-            except Exception as chart_err:
-                print(f"图表数据同步失败: {chart_err}")
-                traceback.print_exc()
 
             self._save_pan_record(data, result, '八字排盘')
 
@@ -545,49 +503,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"自动AI分析启动失败: {e}")
             traceback.print_exc()
-
-    def _sync_chart_data(self, wx, ss, dayun, shier_shen):
-        """同步排盘数据到图表组件
-
-        关键修复：将五行/十神/大运/十二长生数据按 chart_widget 期望的格式
-        整理后传入，确保「图表分析」视图能正常显示各类图表。
-        """
-        # 1) 五行数据：chart_widget 透传给 chart_gen，
-        #    chart_gen 期望 {wx: {count, percentage}}，与 get_wuxing 返回兼容
-        chart_wuxing = {}
-        if isinstance(wx, dict):
-            for k in ('木', '火', '土', '金', '水'):
-                v = wx.get(k, {})
-                if isinstance(v, dict):
-                    chart_wuxing[k] = {
-                        'count': v.get('count', 0),
-                        'percentage': v.get('percentage', 0),
-                    }
-                else:
-                    chart_wuxing[k] = {'count': v or 0, 'percentage': 0}
-
-        # 2) 十神数据：chart_gen 期望 summary 字段（与 get_shishen 返回一致）
-        chart_shishen = ss if isinstance(ss, dict) else {'summary': {}}
-
-        # 3) 大运数据：chart_gen 期望 periods 字段（与 get_dayun 返回一致）
-        chart_dayun = dayun if isinstance(dayun, dict) else {'periods': []}
-
-        # 4) 十二长生：chart_gen 期望 {柱位: {name, ...}}，已在 _do_bazi 中转换
-        chart_changsheng = shier_shen if isinstance(shier_shen, dict) else {}
-
-        self.chart_widget.set_data(
-            wuxing=chart_wuxing,
-            shishen=chart_shishen,
-            dayun=chart_dayun,
-            changsheng=chart_changsheng,
-        )
-        # 缓存最近一次图表数据，便于切回图表视图时自动恢复
-        self._last_chart_data = {
-            'wuxing': chart_wuxing,
-            'shishen': chart_shishen,
-            'dayun': chart_dayun,
-            'changsheng': chart_changsheng,
-        }
 
     def _analysis(self, ml, ss):
         a = []
