@@ -193,6 +193,8 @@ class HexagramAnalyzer:
                 'lower_num': base_lower,
                 'upper_name': self.get_bagua_info(base_upper)['name'],
                 'lower_name': self.get_bagua_info(base_lower)['name'],
+                'upper_element': self.get_bagua_info(base_upper)['wuxing'],
+                'lower_element': self.get_bagua_info(base_lower)['wuxing'],
                 'upper_nature': self.get_bagua_info(base_upper)['nature'],
                 'lower_nature': self.get_bagua_info(base_lower)['nature'],
                 'upper_symbol': self.get_bagua_info(base_upper)['symbol'],

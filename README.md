@@ -2,7 +2,7 @@
 
 > 中国传统命理学 x 现代 AI 大模型 · 桌面端专业命理分析工具
 
-基于 Python + PySide6 开发的桌面端风水命理分析软件，将八字排盘、梅花易数等传统命理学与现代 AI 大模型（百度千帆 DeepSeek-v3.1）深度结合，提供从命理计算、数据分析到 AI 智能解读的一站式解决方案。
+基于 Python + PySide6 开发的桌面端风水命理分析软件，将八字排盘、梅花易数等传统命理学与现代 AI 大模型（Agnes AI / agnes-2.0-flash）深度结合，提供从命理计算、数据分析到 AI 智能解读的一站式解决方案。
 
 ---
 
@@ -18,8 +18,6 @@
 - **格局分析**：正格/变格自动判定，格局层次评估
 - **AI 智能分析**：双模型融合校验（传统规则引擎 + AI 大模型），生成性格、事业、婚姻、健康、财富等多维度报告
 - **梅花易数**：支持时间起卦、报数起卦、方位起卦、文字起卦，本卦/互卦/变卦/错卦/综卦完整解卦
-- **图表可视化**：五行分布饼图、十神柱状图/雷达图、大运折线图、十二长生图、综合仪表盘
-- **术语词典**：覆盖天干、地支、神煞、纳音、卦象、命理专业术语的完整查询系统
 
 ### 辅助功能
 
@@ -35,8 +33,8 @@
 ```
 +------------------------------------------------------------------+
 |                     UI 表现层 (PySide6)                           |
-|  MainWindow -> Tab: 八字排盘 / 梅花易数 / 术语词典 /              |
-|              图表分析 / 历史记录 / AI 分析结果                     |
+|  MainWindow -> Tab: 八字排盘 / 梅花易数 / 历史记录 /              |
+|              AI 分析结果                                           |
 +----------------------------------------+-------------------------+
                                          | 用户交互 & 信号槽机制
 +----------------------------------------v-------------------------+
@@ -53,7 +51,7 @@
                                          | 数据请求 & 分析结果
 +----------------------------------------v-------------------------+
 |                  基础设施层                                         |
-|  MySQL (数据库)  .  Redis (任务队列)  .  百度千帆 API             |
+|  MySQL (数据库)  .  Redis (任务队列)  .  Agnes AI API            |
 +------------------------------------------------------------------+
 ```
 
@@ -81,8 +79,8 @@
       数据清洗 -> 格式统一 -> 知识库注入 -> 构建 500+ 行结构化 Prompt
         |
         v
-  5. AI 异步分析 (analysis_pipeline + ernie_client)
-      QThread 后台执行 -> 调用百度千帆 API -> 结果存入 Redis + MySQL
+  5. AI 异步分析 (analysis_pipeline + agnes_client)
+      QThread 后台执行 -> 调用 Agnes AI API -> 结果存入 Redis + MySQL
         |
         v
   6. 前端轮询 & 展示 (ResultPanel)
@@ -99,9 +97,8 @@
 | GUI 框架 | PySide6 (Qt for Python) | 6.6+ |
 | 数据库 | MySQL | 8.0+ |
 | 缓存/消息队列 | Redis | 3.0+ |
-| AI 模型 | 百度千帆 (ERNIE) | DeepSeek-v3.1 |
+| AI 模型 | Agnes AI | agnes-2.0-flash |
 | 农历转换 | lunarcalendar | 0.0.9 |
-| 图表渲染 | Matplotlib | — |
 
 ---
 
@@ -119,7 +116,7 @@ venv/Scripts/activate  # Windows
 pip install -r requirements.txt
 ```
 
-> 注意：项目还使用了 `requests`、`matplotlib`、`urllib3` 等库，请确保已安装。
+> 注意：项目还使用了 `requests`、`urllib3` 等库，请确保已安装。
 
 ### 2. 数据库配置
 
@@ -154,14 +151,16 @@ db = 0
 
 ### 4. 配置 AI 接口
 
-编辑 `config.ini` 中的百度千帆 API：
+编辑 `config.ini` 中的 Agnes AI API：
 
 ```ini
-[ernie]
-api_url = https://qianfan.baidubce.com/v2/chat/completions
+[agnes]
+api_url = https://apihub.agnes-ai.com/v1/chat/completions
 api_key = Bearer your_api_key
-model = deepseek-v3.1-250821
-timeout = 120
+model = agnes-2.0-flash
+max_retries = 2
+retry_delay = 2
+timeout = 60
 ```
 
 ### 5. 运行程序
@@ -196,8 +195,6 @@ KP-AI-FENGSHUI/
 │   ├── data_integration.py          # 数据整合 & Prompt 构建
 │   ├── analysis_storage.py          # 分析报告持久化（MySQL）
 │   ├── knowledge_base.py            # 命理知识库上下文注入
-│   ├── term_explainer.py            # 术语解释器
-│   ├── chart_generator.py           # Matplotlib 图表生成器
 │   ├── solar_time.py                # 真太阳时计算（均时差+经度修正）
 │   ├── calendar_utils.py            # 日历工具（节气/均时差计算）
 │   ├── lunar_converter.py           # 农历/公历转换
@@ -216,8 +213,6 @@ KP-AI-FENGSHUI/
 │   │   ├── result_panel.py          # 分析结果面板（四柱/五行/十神/AI报告）
 │   │   ├── meihua_input.py          # 梅花易数输入面板
 │   │   ├── meihua_result_panel.py   # 梅花易数结果面板
-│   │   ├── chart_widget.py          # 图表组件（封装 Matplotlib）
-│   │   ├── term_dictionary_panel.py # 术语词典面板
 │   │   ├── ai_analysis_worker.py    # AI 分析工作线程（QThread）
 │   │   ├── login_dialog.py          # 用户登录对话框
 │   │   └── export_dialog.py         # 导出格式选择对话框
@@ -228,7 +223,7 @@ KP-AI-FENGSHUI/
 │       └── csv_exporter.py          # CSV 导出
 │
 ├── api/                             # AI 接口层
-│   └── ernie_client.py              # 百度千帆 API 客户端（支持 function call）
+│   └── agnes_client.py              # Agnes AI API 客户端（OpenAI 兼容）
 │
 ├── database/                        # 数据库 Schema
 │   └── base.sql                     # 完整数据库建表脚本（30+ 张表）
@@ -304,9 +299,9 @@ KP-AI-FENGSHUI/
 ### AI 智能分析
 
 1. **数据整合**：`DataIntegrator` 将 20+ 字段的不同数据类型统一清洗
-2. **知识库注入**：从 MySQL 预加载五行特性、十神含义、术语释义等上下文
+2. **知识库注入**：从 MySQL 预加载五行特性、十神含义等上下文
 3. **Prompt 构建**：生成 500+ 行结构化自然语言 Prompt
-4. **异步执行**：`QThread` 后台调用百度千帆 API，不阻塞 UI
+4. **异步执行**：`QThread` 后台调用 Agnes AI API，不阻塞 UI
 5. **Redis 状态机**：pending -> analyzing -> completed，前端轮询获取结果
 6. **持久化存储**：完整分析报告以 JSON 格式存入 MySQL
 
@@ -402,13 +397,13 @@ port = 6379
 password =
 db = 0
 
-[ernie]
-api_url = https://qianfan.baidubce.com/v2/chat/completions
+[agnes]
+api_url = https://apihub.agnes-ai.com/v1/chat/completions
 api_key = Bearer your_api_key
-model = deepseek-v3.1-250821
-max_retries = 3
-retry_delay = 3
-timeout = 120
+model = agnes-2.0-flash
+max_retries = 2
+retry_delay = 2
+timeout = 60
 ```
 
 > **安全提示**：API Key 和数据库密码应妥善保管，不要提交到版本控制系统。可使用 `config.ini.example` 作为模板，实际配置加入 `.gitignore`。

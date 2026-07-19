@@ -199,23 +199,49 @@ class GeJuAnalyzer:
         return False
 
     def _get_congge_name(self, bazi, wuxing_result):
-        """获取从格名称"""
+        """获取从格名称
+
+        修复：旧逻辑用 if/elif 枚举五行，导致『从财格』仅当最强五行为『土』时才能命中，
+        金/火日主永无机会判定为从财格。现改为依据『日主五行 ↔ 最强五行』的十神关系判定，
+        使从财格（最强五行为日主之『我克』）可被任意日主正确触发。
+        """
         sorted_wx = sorted(['木', '火', '土', '金', '水'],
                           key=lambda x: wuxing_result[x]['score'], reverse=True)
-        
+
         max_wx = sorted_wx[0]
-        
+
         rizhu = bazi.get('rizhu', '')
         rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
-        
-        if max_wx in ['木', '火'] and max_wx != rizhu_wx:
-            return '从儿格'
-        elif max_wx in ['金', '火']:
-            return '从官杀格'
-        elif max_wx in ['土', '金']:
-            return '从财格'
-        else:
-            return '从势格'
+
+        rel = self._wuxing_relation(rizhu_wx, max_wx)
+        mapping = {
+            '我生': '从儿格',
+            '克我': '从官杀格',
+            '我克': '从财格',
+            '生我': '从印格',
+            '同我': '从旺格',
+        }
+        return mapping.get(rel, '从势格')
+
+    @staticmethod
+    def _wuxing_relation(day_wx, other_wx):
+        """返回 day_wx 与 other_wx 的五行生克关系（十神大类）"""
+        order = ['木', '火', '土', '金', '水']
+        if day_wx not in order or other_wx not in order:
+            return '同我'
+        a = order.index(day_wx)
+        b = order.index(other_wx)
+        if a == b:
+            return '同我'
+        if (a + 1) % 5 == b:
+            return '我生'
+        if (a + 4) % 5 == b:
+            return '生我'
+        if (a + 2) % 5 == b:
+            return '我克'
+        if (a + 3) % 5 == b:
+            return '克我'
+        return '同我'
 
     def _is_sha_gong(self, bazi, wuxing_result):
         """判定杀印相生格"""

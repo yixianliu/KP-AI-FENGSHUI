@@ -41,7 +41,7 @@ class DataIntegrator:
             'day': input_data.get('day'),
             'hour': input_data.get('hour', 0),
             'minute': input_data.get('minute', 0),
-            'city': input_data.get('city', '').strip(),
+            'city': (input_data.get('location') or input_data.get('city', '')).strip(),
             'longitude': input_data.get('longitude', 120.0),
             'is_lunar': input_data.get('is_lunar', False),
             'question': input_data.get('question', '').strip(),
@@ -122,7 +122,7 @@ class DataIntegrator:
         input_data = self.raw_data.get('input', {})
         cleaned = {}
 
-        for key in ['name', 'gender', 'city']:
+        for key in ['name', 'gender', 'location', 'city']:
             cleaned[key] = str(input_data.get(key, '')).strip() or '未提供'
 
         for key in ['year', 'month', 'day', 'hour', 'minute']:
@@ -365,7 +365,7 @@ class DataIntegrator:
         parts.append(f"性别：{input_data.get('gender', '')}")
         parts.append(f"出生日期：{input_data.get('year')}年{input_data.get('month')}月{input_data.get('day')}日")
         parts.append(f"出生时间：{input_data.get('hour'):02d}:{input_data.get('minute'):02d}")
-        parts.append(f"出生地：{input_data.get('city')}（经度：{input_data.get('longitude')}°）")
+        parts.append(f"出生地：{input_data.get('location') or input_data.get('city')}（经度：{input_data.get('longitude')}°）")
         parts.append(f"是否农历：{'是' if input_data.get('is_lunar') else '否'}")
 
         parts.append("\n" + "=" * 70)

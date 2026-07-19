@@ -243,7 +243,7 @@ class AnalysisStorage:
                     f"{input_data.get('minute', 0):02d}"
                 )
 
-            city = input_data.get('city', '')
+            city = input_data.get('location') or input_data.get('city', '')
             question = input_data.get('question', '')
 
             with self._get_connection() as conn:

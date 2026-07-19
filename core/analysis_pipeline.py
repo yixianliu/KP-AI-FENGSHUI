@@ -15,9 +15,9 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from api.ernie_client import (
-    ErnieClient, ErnieClientError, ErnieRequestError,
-    ErnieTimeoutError, ErnieResponseError
+from api.agnes_client import (
+    AgnesClient, AgnesClientError, AgnesRequestError,
+    AgnesTimeoutError, AgnesResponseError
 )
 from core.data_validator import DataValidator, DataValidationError
 from core.analysis_storage import (
@@ -106,7 +106,7 @@ class AnalysisPipeline:
         try:
             self.validator = DataValidator()
             self.storage = AnalysisStorage(config_path)
-            self.ernie_client = ErnieClient(verify_ssl=False)
+            self.agnes_client = AgnesClient(verify_ssl=False)
             self.redis_manager = get_redis_manager(config_path)
             if self.redis_manager.test_connection():
                 logger.info("[分析流程] Redis连接成功")
@@ -166,7 +166,7 @@ class AnalysisPipeline:
 
             self._update_redis_status('bazi', task_id, 'analyzing')
 
-            ai_result = self._call_ernie_for_bazi(input_data, chart_data)
+            ai_result = self._call_agnes_for_bazi(input_data, chart_data)
 
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
             ai_analysis = ai_result.get('analysis', {})
@@ -188,7 +188,7 @@ class AnalysisPipeline:
                 report_id=report_id,
                 chart_data=chart_data,
                 ai_analysis=ai_analysis,
-                ai_model=self.ernie_client.model,
+                ai_model=self.agnes_client.model,
                 token_usage=token_usage
             )
 
@@ -222,7 +222,7 @@ class AnalysisPipeline:
                 self.storage.add_log(report_id, 'ERROR', '数据验证失败', {'error': error_msg})
             return self._build_error_result(report_id, 'validation_error', error_msg, start_time)
 
-        except ErnieTimeoutError as e:
+        except AgnesTimeoutError as e:
             error_msg = f"AI模型请求超时: {e}"
             logger.error(f"[八字分析] {error_msg}")
             if report_id:
@@ -230,7 +230,7 @@ class AnalysisPipeline:
                 self.storage.add_log(report_id, 'ERROR', 'AI请求超时', {'error': str(e)})
             return self._build_error_result(report_id, 'ai_timeout', error_msg, start_time)
 
-        except ErnieRequestError as e:
+        except AgnesRequestError as e:
             error_msg = f"AI模型请求失败: {e}"
             logger.error(f"[八字分析] {error_msg}")
             if report_id:
@@ -238,7 +238,7 @@ class AnalysisPipeline:
                 self.storage.add_log(report_id, 'ERROR', 'AI请求失败', {'error': str(e)})
             return self._build_error_result(report_id, 'ai_request_error', error_msg, start_time)
 
-        except ErnieResponseError as e:
+        except AgnesResponseError as e:
             error_msg = f"AI响应解析失败: {e}"
             logger.error(f"[八字分析] {error_msg}")
             if report_id:
@@ -280,13 +280,13 @@ class AnalysisPipeline:
             })
             return self._build_error_result(report_id, 'unknown_error', error_msg, start_time)
 
-    def _call_ernie_for_bazi(
+    def _call_agnes_for_bazi(
             self,
             input_data: Dict[str, Any],
             chart_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        调用ERNIE模型进行八字分析
+        调用AGNES模型进行八字分析
 
         Args:
             input_data: 输入数据
@@ -356,18 +356,18 @@ class AnalysisPipeline:
             {"role": "user", "content": prompt}
         ]
 
-        logger.info("[八字分析] 调用ERNIE AI模型进行分析...")
-        result = self.ernie_client.chat_completion(messages, temperature=0.3, max_tokens=4096)
+        logger.info("[八字分析] 调用AGNES AI模型进行分析...")
+        result = self.agnes_client.chat_completion(messages, temperature=0.3, max_tokens=4096)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
 
-        cleaned_content = self.ernie_client._clean_json_response(content)
+        cleaned_content = self.agnes_client._clean_json_response(content)
 
         import json
         try:
             analysis = json.loads(cleaned_content)
-            analysis = self.ernie_client._validate_json_result(analysis, required_fields)
+            analysis = self.agnes_client._validate_json_result(analysis, required_fields)
         except json.JSONDecodeError:
             logger.warning("[八字分析] JSON解析失败，尝试文本解析")
             analysis = self._parse_text_to_bazi_fields(cleaned_content, required_fields)
@@ -407,8 +407,9 @@ class AnalysisPipeline:
             birth_time = f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}"
             parts.append(f"出生时间：公历{birth_date} {birth_time}")
 
-        if 'city' in input_data and input_data['city']:
-            parts.append(f"出生地：{input_data['city']}")
+        loc = input_data.get('location') or input_data.get('city')
+        if loc:
+            parts.append(f"出生地：{loc}")
 
         if chart_data:
             bazi = chart_data.get('bazi', chart_data)
@@ -546,7 +547,7 @@ class AnalysisPipeline:
 
             self._update_redis_status('meihua', task_id, 'analyzing')
 
-            ai_result = self._call_ernie_for_meihua(input_data, hexagram_data)
+            ai_result = self._call_agnes_for_meihua(input_data, hexagram_data)
 
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
             ai_analysis = ai_result.get('analysis', {})
@@ -568,7 +569,7 @@ class AnalysisPipeline:
                 report_id=report_id,
                 chart_data=hexagram_data,
                 ai_analysis=ai_analysis,
-                ai_model=self.ernie_client.model,
+                ai_model=self.agnes_client.model,
                 token_usage=token_usage
             )
 
@@ -615,13 +616,13 @@ class AnalysisPipeline:
             })
             return self._build_error_result(report_id, type(e).__name__, error_msg, start_time)
 
-    def _call_ernie_for_meihua(
+    def _call_agnes_for_meihua(
             self,
             input_data: Dict[str, Any],
             hexagram_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        调用ERNIE模型进行梅花易数分析
+        调用AGNES模型进行梅花易数分析
 
         Args:
             input_data: 输入数据
@@ -658,18 +659,18 @@ class AnalysisPipeline:
             {"role": "user", "content": prompt}
         ]
 
-        logger.info("[梅花易数] 调用ERNIE AI模型进行分析...")
-        result = self.ernie_client.chat_completion(messages, temperature=0.5, max_tokens=2048)
+        logger.info("[梅花易数] 调用AGNES AI模型进行分析...")
+        result = self.agnes_client.chat_completion(messages, temperature=0.5, max_tokens=2048)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
 
-        cleaned_content = self.ernie_client._clean_json_response(content)
+        cleaned_content = self.agnes_client._clean_json_response(content)
 
         import json
         try:
             analysis = json.loads(cleaned_content)
-            analysis = self.ernie_client._validate_json_result(analysis, required_fields)
+            analysis = self.agnes_client._validate_json_result(analysis, required_fields)
         except json.JSONDecodeError:
             logger.warning("[梅花易数] JSON解析失败，尝试文本解析")
             analysis = self._parse_text_to_meihua_fields(cleaned_content, required_fields)
@@ -707,7 +708,10 @@ class AnalysisPipeline:
             method_names = {
                 'time': '时间起卦',
                 'number': '数字起卦',
-                'text': '测字起卦'
+                'direction': '方位起卦',
+                'text': '测字起卦',
+                'copper_coin': '铜钱摇卦',
+                'stroke': '笔画起卦'
             }
             parts.append(f"起卦方式：{method_names.get(method, method)}")
 
@@ -747,6 +751,273 @@ class AnalysisPipeline:
             parts.append(f"\n综合吉凶判断：{overall}")
 
         return '\n'.join(parts)
+
+    # ========== 大六壬 ==========
+    def run_liuren_analysis(
+            self,
+            input_data: Dict[str, Any],
+            liuren_data: Dict[str, Any] = None,
+            task_id: str = None
+    ) -> Dict[str, Any]:
+        """
+        执行大六壬AI分析完整流程（镜像 run_meihua_analysis）。
+        """
+        report_id = None
+        start_time = datetime.now()
+
+        try:
+            logger.info("[大六壬] ======== 开始大六壬AI分析流程 ========")
+            logger.info(f"[大六壬] 所问之事: {input_data.get('question', '未指定')}, task_id={task_id}")
+
+            if not self.validator.validate_liuren_input(input_data):
+                errors = self.validator.get_errors()
+                error_msg = f"输入数据验证失败: {'; '.join(errors)}"
+                logger.error(f"[大六壬] {error_msg}")
+                raise DataValidationError(error_msg)
+
+            report_id = self.storage.create_pending_report('liuren', input_data)
+            logger.info(f"[大六壬] 创建待处理报告，ID: {report_id}")
+
+            self.storage.add_log(report_id, 'INFO', '大六壬分析流程开始', {
+                'method': input_data.get('method', 'unknown'),
+                'question': input_data.get('question', '')
+            })
+
+            if liuren_data is None:
+                liuren_data = {}
+
+            self._update_redis_status('liuren', task_id, 'analyzing')
+
+            ai_result = self._call_agnes_for_liuren(input_data, liuren_data)
+
+            token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
+            ai_analysis = ai_result.get('analysis', {})
+
+            self.storage.add_log(report_id, 'INFO', 'AI分析完成', {
+                'token_usage': token_usage,
+                'analysis_fields': list(ai_analysis.keys())
+            })
+
+            if not self.validator.validate_ai_analysis_result(ai_analysis, 'liuren'):
+                warnings = self.validator.get_warnings()
+                if warnings:
+                    logger.warning(f"[大六壬] AI结果有警告: {'; '.join(warnings)}")
+                    self.storage.add_log(report_id, 'WARNING', 'AI结果验证有警告', {
+                        'warnings': warnings
+                    })
+
+            self.storage.update_report_result(
+                report_id=report_id,
+                chart_data=liuren_data,
+                ai_analysis=ai_analysis,
+                ai_model=self.agnes_client.model,
+                token_usage=token_usage
+            )
+
+            self._save_redis_result('liuren', task_id, {
+                'success': True,
+                'report_id': report_id,
+                'ai_analysis': ai_analysis,
+                'liuren_data': liuren_data,
+                'token_usage': token_usage
+            })
+            self._update_redis_status('liuren', task_id, 'completed')
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[大六壬] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
+            logger.info("[大六壬] ======================================")
+
+            return {
+                'success': True,
+                'report_id': report_id,
+                'ai_analysis': ai_analysis,
+                'liuren_data': liuren_data,
+                'token_usage': token_usage,
+                'elapsed_seconds': elapsed
+            }
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            logger.error(f"[大六壬] {error_msg}")
+            logger.error(traceback.format_exc())
+            if report_id:
+                try:
+                    self.storage.update_report_status(report_id, 'failed', error_msg)
+                    self.storage.add_log(report_id, 'ERROR', '分析失败', {
+                        'error_type': type(e).__name__,
+                        'error': str(e)
+                    })
+                except Exception:
+                    pass
+            self._update_redis_status('liuren', task_id, 'failed')
+            self._save_redis_result('liuren', task_id, {
+                'success': False,
+                'error_type': type(e).__name__,
+                'error_message': error_msg
+            })
+            return self._build_error_result(report_id, type(e).__name__, error_msg, start_time)
+
+    def _call_agnes_for_liuren(
+            self,
+            input_data: Dict[str, Any],
+            liuren_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        调用AGNES模型进行大六壬分析。
+        """
+        logger.info("[大六壬] 构建AI分析请求...")
+
+        prompt = self._build_liuren_prompt(input_data, liuren_data)
+
+        system_prompt = (
+            "你是一位精通大六壬（六壬神课）的专业术数大师，深谙天地盘、四课、"
+            "三传、十二天将、神煞格局与九宗门取用法门。"
+            "请基于用户提供的六壬课体信息进行专业深入的解读和分析。"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。"
+            "JSON必须包含以下字段："
+            "ke_overview（课体总览，字符串数组，3-5条）、"
+            "si_ke_analysis（四课精解，字符串数组，3-5条）、"
+            "san_chuan_analysis（三传推演，字符串数组，3-5条）、"
+            "tian_jiang_analysis（天将神煞，字符串数组，3-5条）、"
+            "final_verdict（总结判断与建议，字符串）。"
+            "请结合四课生克、三传进退、天将阴阳、神煞吉凶进行深度分析，针对所问之事给出具体实用的建议。"
+        )
+
+        required_fields = [
+            'ke_overview', 'si_ke_analysis', 'san_chuan_analysis',
+            'tian_jiang_analysis', 'final_verdict'
+        ]
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        logger.info("[大六壬] 调用AGNES AI模型进行分析...")
+        result = self.agnes_client.chat_completion(
+            messages, temperature=0.5, max_tokens=2048)
+
+        content = result.get('content', '')
+        usage = result.get('usage', {})
+
+        cleaned_content = self.agnes_client._clean_json_response(content)
+
+        import json
+        try:
+            analysis = json.loads(cleaned_content)
+            analysis = self.agnes_client._validate_json_result(analysis, required_fields)
+        except json.JSONDecodeError:
+            logger.warning("[大六壬] JSON解析失败，尝试文本解析")
+            analysis = self._parse_text_to_liuren_fields(cleaned_content, required_fields)
+
+        logger.info(f"[大六壬] AI分析完成，生成字段: {list(analysis.keys())}")
+
+        return {
+            'analysis': analysis,
+            'usage': usage
+        }
+
+    def _build_liuren_prompt(
+            self,
+            input_data: Dict[str, Any],
+            liuren_data: Dict[str, Any]
+    ) -> str:
+        """
+        构建大六壬分析提示词。
+        """
+        parts = []
+
+        question = liuren_data.get('question', input_data.get('question', ''))
+        if question:
+            parts.append(f"所问之事：{question}")
+
+        method_name = liuren_data.get('method_name', '')
+        if method_name:
+            parts.append(f"起课方式（取用法）：{method_name}")
+
+        time = liuren_data.get('time', '')
+        if time:
+            parts.append(f"占问时间：{time}")
+
+        ri_gan = liuren_data.get('ri_gan', '')
+        ri_zhi = liuren_data.get('ri_zhi', '')
+        ri_gan_wx = liuren_data.get('ri_gan_wx', '')
+        if ri_gan and ri_zhi:
+            parts.append(f"日干支：{ri_gan}{ri_zhi}（日干五行：{ri_gan_wx}）")
+
+        yue_jiang = liuren_data.get('yue_jiang', '')
+        if yue_jiang:
+            parts.append(f"月将：{yue_jiang}")
+
+        zhan_shi = liuren_data.get('zhan_shi', '')
+        if zhan_shi:
+            parts.append(f"占时：{zhan_shi}")
+
+        tian_pan = liuren_data.get('tian_pan', {})
+        if tian_pan:
+            tp_pairs = '，'.join(f"{k}上见{v}" for k, v in tian_pan.items())
+            parts.append(f"天盘（月将加占时）：{tp_pairs}")
+
+        si_ke = liuren_data.get('si_ke', {})
+        if si_ke:
+            parts.append(
+                f"四课：第一课干上 {si_ke.get('gan_shang','')}；"
+                f"第二课干阴 {si_ke.get('gan_yin','')}；"
+                f"第三课支上 {si_ke.get('zhi_shang','')}；"
+                f"第四课支阴 {si_ke.get('zhi_yin','')}"
+            )
+
+        san_chuan = liuren_data.get('san_chuan', {})
+        if san_chuan:
+            parts.append(
+                f"三传：初传 {san_chuan.get('chu','')} → "
+                f"中传 {san_chuan.get('zhong','')} → "
+                f"末传 {san_chuan.get('mo','')}（取用法：{san_chuan.get('gate','')}）"
+            )
+
+        tian_jiang = liuren_data.get('tian_jiang', [])
+        if tian_jiang:
+            tj = '，'.join(tian_jiang)
+            parts.append(f"十二天将：{tj}")
+
+        shen_sha = liuren_data.get('shen_sha', {})
+        if shen_sha:
+            ss = '；'.join(f"{k}：{v}" for k, v in shen_sha.items())
+            parts.append(f"神煞：{ss}")
+
+        parts.append("请综合四课生克、三传进退、天将阴阳、神煞吉凶，针对所问之事做专业解读。")
+        return '\n'.join(parts)
+
+    def _parse_text_to_liuren_fields(self, content: str, required_fields: List[str]) -> Dict[str, Any]:
+        """
+        解析非JSON格式的大六壬分析文本。
+        """
+        section_keywords = {
+            'ke_overview': ['课体总览', '课体', '总览', '概况'],
+            'si_ke_analysis': ['四课', '四课精解', '课义'],
+            'san_chuan_analysis': ['三传', '三传推演', '传变'],
+            'tian_jiang_analysis': ['天将', '神煞', '将神'],
+            'final_verdict': ['总结', '结论', '判断', '建议']
+        }
+
+        result = {}
+        for field in required_fields:
+            keywords = section_keywords.get(field, [])
+            found = []
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                if any(kw in line for kw in keywords):
+                    found.append(line)
+            if found:
+                result[field] = found[:5]
+            else:
+                result[field] = [content[:200]] if field != 'final_verdict' else content[:200]
+
+        if 'final_verdict' not in result or not result.get('final_verdict'):
+            result['final_verdict'] = content[:200]
+        return result
 
     def _parse_text_to_meihua_fields(self, content: str, required_fields: List[str]) -> Dict[str, Any]:
         """

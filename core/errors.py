@@ -56,7 +56,7 @@ class ApiKeyMissingError(AppException):
     def __init__(self):
         super().__init__(
             ErrorCode.API_KEY_MISSING,
-            "API密钥未配置，请设置环境变量 ERNIE_API_KEY"
+            "API密钥未配置，请在 config.ini 的 [agnes] 段配置 api_key"
         )
 
 

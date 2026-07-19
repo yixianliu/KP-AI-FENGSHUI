@@ -355,6 +355,40 @@ class Stylesheets:
         }}
     """
 
+    # ==================== 单选按钮 ====================
+    RADIO = f"""
+        QRadioButton {{
+            background-color: {Colors.CARD};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            padding: 6px 14px;
+            min-height: 32px;
+            color: {Colors.TEXT};
+        }}
+        QRadioButton:hover {{
+            border-color: {Colors.BORDER2};
+            background-color: {Colors.CARD_HOVER};
+        }}
+        QRadioButton:checked {{
+            border: 1.5px solid {Colors.QINGHUA};
+            background-color: {Colors.QINGHUA_LIGHT};
+            color: {Colors.QINGHUA};
+            font-weight: {Fonts.W_BOLD};
+        }}
+        QRadioButton::indicator {{
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            border: 1.5px solid {Colors.BORDER2};
+        }}
+        QRadioButton::indicator:checked {{
+            background-color: {Colors.QINGHUA};
+            border-color: {Colors.QINGHUA};
+        }}
+    """
+
     # ==================== 日期选择 ====================
     DATE = f"""
         QDateEdit {{

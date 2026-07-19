@@ -2,9 +2,40 @@
 梅花易数起卦结果展示面板
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QGridLayout)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
+                             QScrollArea, QPushButton, QGridLayout, QSizePolicy)
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
+from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.components.collapsible_card import CollapsibleCard, ai_section_header
+
+
+class RotatingLabel(QLabel):
+    """支持 rotation 属性的 QLabel，用于在 paintEvent 中按角度旋转绘制。"""
+
+    def __init__(self, text='☯', parent=None):
+        super().__init__(text, parent)
+        self._angle = 0.0
+        self.setAlignment(Qt.AlignCenter)
+
+    def getRotation(self):
+        return self._angle
+
+    def setRotation(self, value):
+        self._angle = value
+        self.update()
+
+    rotation = Property(float, getRotation, setRotation)
+
+    def paintEvent(self, event):
+        if self._angle:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.translate(self.width() / 2.0, self.height() / 2.0)
+            painter.rotate(self._angle)
+            painter.translate(-self.width() / 2.0, -self.height() / 2.0)
+            super().paintEvent(event)
+        else:
+            super().paintEvent(event)
 
 
 class MeihuaResultPanel(QWidget):
@@ -82,9 +113,11 @@ class MeihuaResultPanel(QWidget):
         self.content_area.setFrameShape(QFrame.NoFrame)
 
         self.content_widget = QWidget()
+        # 横向自适应填满滚动区视口，使内部卡片随右侧宽度撑满、不拥挤
+        self.content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(16)
+        self.content_layout.setSpacing(18)
 
         self.empty_state = self._create_empty_state()
         self.content_layout.addWidget(self.empty_state)
@@ -132,49 +165,14 @@ class MeihuaResultPanel(QWidget):
         return widget
 
     def _create_result_card(self, title, icon, content_widget, highlight=False):
-        """创建结果卡片"""
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Colors.CARD};
-                border: 1px solid {Colors.BORDER_LIGHT};
-                border-radius: {Spacing.CARD_RADIUS};
-            }}
-            QFrame:hover {{
-                border-color: {Colors.HIGHLIGHT};
-            }}
-        """)
+        """创建结果卡片（统一复用 CollapsibleCard：左侧强调色条 + 图标 + 标题，可折叠）。
 
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
-
-        header = QHBoxLayout()
-        header.setSpacing(8)
-
-        icon_label = QLabel(icon)
-        icon_label.setStyleSheet(f"font-size: 20px; color: {Colors.PRIMARY};")
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_SECTION};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            color: {Colors.PRIMARY};
-            font-family: {Fonts.FAMILY_CN};
-        """)
-
-        header.addWidget(icon_label)
-        header.addWidget(title_label)
-        header.addStretch()
-
-        divider = QFrame()
-        divider.setFixedHeight(1)
-        divider.setStyleSheet(f"background-color: {Colors.BORDER_LIGHT};")
-
-        layout.addLayout(header)
-        layout.addWidget(divider)
-        layout.addWidget(content_widget)
-
+        配色：排盘类卡片用青色条(Colors.QINGHUA)，AI/强调类用鎏金色条(Colors.LIUJIN)，
+        与八字、大六壬面板保持一致。
+        """
+        accent = Colors.LIUJIN if highlight else Colors.QINGHUA
+        card = CollapsibleCard(title, icon, accent_color=accent, collapsed=False)
+        card.set_content(content_widget)
         return card
 
     def _create_hexagram_display(self, hexagram_info, hex_type='本卦'):
@@ -206,13 +204,13 @@ class MeihuaResultPanel(QWidget):
             border-radius: 4px;
         """)
 
-        name_label = QLabel(f'{name} {symbol}')
+        name_label = QLabel(f'{name}　{symbol}')
         name_label.setStyleSheet(f"""
-            font-size: 22px;
+            font-size: 24px;
             font-weight: {Fonts.WEIGHT_BOLD};
             color: {Colors.ACCENT};
             font-family: {Fonts.FAMILY_SERIF};
-            letter-spacing: 2px;
+            letter-spacing: 3px;
         """)
 
         header_row.addWidget(type_label)
@@ -220,12 +218,16 @@ class MeihuaResultPanel(QWidget):
         header_row.addStretch()
         layout.addLayout(header_row)
 
-        gua_info = QLabel(f'上卦：{upper_gua}　下卦：{lower_gua}')
+        gua_info = QLabel(f'上卦　{upper_gua}　　下卦　{lower_gua}')
         gua_info.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.TEXT_SECONDARY};
             font-family: {Fonts.FAMILY_CN};
+            background-color: {Colors.BACKGROUND};
+            border-radius: {Spacing.CONTROL_RADIUS};
+            padding: 8px 12px;
         """)
+        gua_info.setAlignment(Qt.AlignCenter)
         layout.addWidget(gua_info)
 
         if judgment:
@@ -353,10 +355,10 @@ class MeihuaResultPanel(QWidget):
         if overall:
             overall_label = QLabel(overall)
             overall_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
+                font-size: {Fonts.SIZE_SECTION};
                 color: {Colors.TEXT_SECONDARY};
                 font-family: {Fonts.FAMILY_CN};
-                line-height: 1.6;
+                line-height: 1.7;
                 text-align: center;
             """)
             overall_label.setWordWrap(True)
@@ -401,9 +403,9 @@ class MeihuaResultPanel(QWidget):
             text = QLabel(suggestion)
             text.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_SECONDARY};
+                color: {Colors.TEXT_PRIMARY};
                 font-family: {Fonts.FAMILY_CN};
-                line-height: 1.5;
+                line-height: 1.6;
             """)
             text.setWordWrap(True)
 
@@ -411,6 +413,183 @@ class MeihuaResultPanel(QWidget):
             sug_layout.addWidget(text, 1)
             layout.addWidget(sug_widget)
 
+        return widget
+
+    def _create_ti_yong_relationship(self, ben_gua):
+        """创庺体用生克关系图"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        upper_element = ben_gua.get('upper_element', '')
+        lower_element = ben_gua.get('lower_element', '')
+        upper_gua_name = ben_gua.get('upper_name', '')
+        lower_gua_name = ben_gua.get('lower_name', '')
+
+        if not upper_element or not lower_element:
+            return None
+
+        # 五行元素颜色映射（使用系统自带五行色）
+        WX_COLORS = {
+            '金': Colors.METAL,
+            '木': Colors.WOOD,
+            '水': Colors.WATER,
+            '火': Colors.FIRE,
+            '土': Colors.EARTH,
+        }
+        
+        # 体用关系判断（梅花易数：不动为体，动者为用）
+        ti_gua = f"{upper_gua_name}(体)"
+        yong_gua = f"{lower_gua_name}(用)"
+        ti_color = WX_COLORS.get(upper_element, Colors.TEXT)
+        yong_color = WX_COLORS.get(lower_element, Colors.TEXT)
+        
+        # 生克关系计算
+        GENERATES = {'金→水', '水→木', '木→火', '火→土', '土→金'}
+        OVERCOMES = {'金→木', '木→土', '土→水', '水→火', '火→金'}
+        
+        relation_key = f"{upper_element}→{lower_element}"
+        reverse_relation_key = f"{lower_element}→{upper_element}"
+        
+        if relation_key in GENERATES or reverse_relation_key in OVERCOMES:
+            relationship = f"{upper_element}生{lower_element}" if relation_key in GENERATES else f"{lower_element}生{upper_element}"
+            relation_color = Colors.SUCCESS
+            relation_icon = "✨"
+        elif relation_key in OVERCOMES or reverse_relation_key in GENERATES:
+            relationship = f"{upper_element}克{lower_element}" if relation_key in OVERCOMES else f"{lower_element}克{upper_element}"
+            relation_color = Colors.WARNING
+            relation_icon = "⚔️"
+        else:
+            relationship = f"{upper_element}与{lower_element}比和"
+            relation_color = Colors.QINGHUA
+            relation_icon = "🤝"
+
+        # 绘制体用生克关系卡片
+        info_layout = QGridLayout()
+        info_layout.setSpacing(16)
+        
+        # 体卦
+        ti_widget = QFrame()
+        ti_widget.setStyleSheet(f"""
+            QFrame {{
+                background: linear-gradient(to bottom, {WX_COLORS.get(upper_element, Colors.TEXT)}, rgba(255,255,255,0.1));
+                border-radius: 8px;
+                padding: 12px;
+            }}
+        """)
+        ti_inner = QVBoxLayout(ti_widget)
+        ti_label = QLabel(ti_gua)
+        ti_label.setAlignment(Qt.AlignCenter)
+        ti_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: white;")
+        ti_elem = QLabel(upper_element)
+        ti_elem.setAlignment(Qt.AlignCenter)
+        ti_elem.setStyleSheet(f"font-size: 24px; color: white;")
+        ti_inner.addWidget(ti_label)
+        ti_inner.addWidget(ti_elem)
+        info_layout.addWidget(ti_widget, 0, 0)
+        
+        # 关系
+        rel_widget = QFrame()
+        rel_widget.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Colors.BACKGROUND};
+                border: 2px solid {relation_color};
+                border-radius: 8px;
+                padding: 12px;
+            }}
+        """)
+        rel_inner = QVBoxLayout(rel_widget)
+        rel_icon = QLabel(relation_icon)
+        rel_icon.setAlignment(Qt.AlignCenter)
+        rel_icon.setStyleSheet("font-size: 28px;")
+        rel_text = QLabel(relationship)
+        rel_text.setAlignment(Qt.AlignCenter)
+        rel_text.setStyleSheet(f"font-size: 16px; color: {relation_color}; font-weight: bold;")
+        rel_inner.addWidget(rel_icon)
+        rel_inner.addWidget(rel_text)
+        info_layout.addWidget(rel_widget, 0, 1)
+        
+        # 用卦
+        yong_widget = QFrame()
+        yong_widget.setStyleSheet(f"""
+            QFrame {{
+                background: linear-gradient(to bottom, {WX_COLORS.get(lower_element, Colors.TEXT)}, rgba(255,255,255,0.1));
+                border-radius: 8px;
+                padding: 12px;
+            }}
+        """)
+        yong_inner = QVBoxLayout(yong_widget)
+        yong_label = QLabel(yong_gua)
+        yong_label.setAlignment(Qt.AlignCenter)
+        yong_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: white;")
+        yong_elem = QLabel(lower_element)
+        yong_elem.setAlignment(Qt.AlignCenter)
+        yong_elem.setStyleSheet(f"font-size: 24px; color: white;")
+        yong_inner.addWidget(yong_label)
+        yong_inner.addWidget(yong_elem)
+        info_layout.addWidget(yong_widget, 0, 2)
+
+        layout.addLayout(info_layout)
+        return widget
+
+    def _create_evolution_diagram(self, result_data):
+        """创建卦象演变流程图"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        ben_gua = result_data.get('ben_gua', {})
+        hu_gua = result_data.get('hu_gua', {})
+        bian_gua = result_data.get('bian_gua', {})
+
+        stages = []
+        if ben_gua and ben_gua.get('name'):
+            stages.append(('本卦', ben_gua.get('name', ''), '初始'))
+        if hu_gua and hu_gua.get('name'):
+            stages.append(('互卦', hu_gua.get('name', ''), '过程'))
+        if bian_gua and bian_gua.get('name'):
+            stages.append(('变卦', bian_gua.get('name', ''), '结果'))
+
+        if not stages:
+            return None
+
+        stage_layout = QHBoxLayout()
+        stage_layout.setSpacing(20)
+        
+        for i, (stage_name, gua_name, meaning) in enumerate(stages):
+            card = QFrame()
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border: 1px solid {Colors.QINGHUA_LIGHT};
+                    border-radius: 6px;
+                    padding: 8px;
+                }}
+            """)
+            card_lay = QVBoxLayout(card)
+            card_lay.setAlignment(Qt.AlignCenter)
+            
+            name_label = QLabel(stage_name)
+            name_label.setStyleSheet(f"font-size: 14px; color: {Colors.TEXT_SECONDARY}; font-weight: bold;")
+            gua_label = QLabel(gua_name)
+            gua_label.setStyleSheet(f"font-size: 18px; color: {Colors.PRIMARY}; font-weight: bold;")
+            meaning_label = QLabel(meaning)
+            meaning_label.setStyleSheet(f"font-size: 12px; color: {Colors.TEXT_TERTIARY};")
+            
+            card_lay.addWidget(name_label)
+            card_lay.addWidget(gua_label)
+            card_lay.addWidget(meaning_label)
+            
+            stage_layout.addWidget(card)
+            
+            if i < len(stages) - 1:
+                arrow = QLabel('→')
+                arrow.setStyleSheet(f"font-size: 24px; color: {Colors.LIUJIN};")
+                stage_layout.addWidget(arrow)
+        
+        layout.addLayout(stage_layout)
         return widget
 
     def display_result(self, result_data):
@@ -423,6 +602,8 @@ class MeihuaResultPanel(QWidget):
 
         self.ai_analyze_btn.setVisible(True)
 
+        # 更新顶部状态栏（注意：直接更新 init_ui 中已创建的 status_bar / status_label，
+        # 切勿在此处重新 new 一个 status_bar 并塞进 content_layout，否则顶栏会一直显示加载文案）
         self.status_bar.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(90, 143, 110, 0.08);
@@ -431,7 +612,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText('✓ 起卦完成')
+        self.status_label.setText('✓ 起卦完成，卦象已生成')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.SUCCESS};
@@ -443,7 +624,10 @@ class MeihuaResultPanel(QWidget):
         if basic_info:
             info_items = []
             if 'method' in basic_info:
-                method_names = {'time': '时间起卦', 'number': '数字起卦', 'direction': '方位起卦', 'text': '文字起卦'}
+                method_names = {
+                    'time': '时间起卦', 'number': '数字起卦', 'direction': '方位起卦', 
+                    'text': '文字起卦', 'copper_coin': '铜钱摇卦', 'stroke': '笔画起卦'
+                }
                 info_items.append(('起卦方式', method_names.get(basic_info['method'], basic_info['method'])))
             if 'question' in basic_info and basic_info['question']:
                 info_items.append(('占问事项', basic_info['question']))
@@ -506,6 +690,21 @@ class MeihuaResultPanel(QWidget):
             yao_card = self._create_result_card('爻辞详解', '📜', yao_widget)
             self.content_layout.addWidget(yao_card)
 
+        # 新增：体用生克关系可视化
+        ben_gua = result_data.get('ben_gua', {})
+        if ben_gua:
+            ti_yong_widget = self._create_ti_yong_relationship(ben_gua)
+            if ti_yong_widget:
+                ti_yong_card = self._create_result_card('体用生克', '⚗', ti_yong_widget)
+                self.content_layout.addWidget(ti_yong_card)
+
+        # 新增：卦象演变流程图
+        if ben_gua or result_data.get('hu_gua') or result_data.get('bian_gua'):
+            evolution_widget = self._create_evolution_diagram(result_data)
+            if evolution_widget:
+                evolution_card = self._create_result_card('卦象演变', '🔄', evolution_widget)
+                self.content_layout.addWidget(evolution_card)
+
         suggestions = result_data.get('suggestions', [])
         if suggestions:
             sug_widget = self._create_suggestions(suggestions)
@@ -520,15 +719,18 @@ class MeihuaResultPanel(QWidget):
         self.content_layout.addStretch()
 
     def _create_info_grid(self, data):
-        """创建信息网格"""
+        """创建信息网格（标签右对齐定宽、值清晰层级并可换行）"""
         widget = QWidget()
         layout = QGridLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setHorizontalSpacing(16)
         layout.setColumnStretch(1, 1)
 
         for i, (label, value) in enumerate(data):
             label_widget = QLabel(label)
+            label_widget.setFixedWidth(76)
+            label_widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label_widget.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_SMALL};
                 color: {Colors.TEXT_TERTIARY};
@@ -555,7 +757,6 @@ class MeihuaResultPanel(QWidget):
             QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 {Colors.CARD}, stop:0.5 {Colors.HIGHLIGHT_GLOW}, stop:1 {Colors.CARD});
-                background-size: 200% 100%;
                 border: 1px solid {Colors.BORDER_LIGHT};
                 border-radius: {Spacing.CONTROL_RADIUS};
                 padding: 12px 20px;
@@ -586,7 +787,8 @@ class MeihuaResultPanel(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(20)
 
-        taiji = QLabel('☯')
+        taiji = RotatingLabel('☯')
+        taiji.setFixedSize(120, 120)
         taiji.setStyleSheet(f"font-size: 80px; color: {Colors.PRIMARY};")
         taiji.setAlignment(Qt.AlignCenter)
 
@@ -621,60 +823,38 @@ class MeihuaResultPanel(QWidget):
         if not placeholder:
             return
 
-        ai_widget = QWidget()
-        ai_layout = QVBoxLayout(ai_widget)
-        ai_layout.setContentsMargins(0, 0, 0, 0)
-        ai_layout.setSpacing(10)
+        # 容器：金色分隔标题 + 各子项折叠卡片（与八字面板 AI 区一致）
+        container = QWidget()
+        cv = QVBoxLayout(container)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(12)
+        cv.addWidget(ai_section_header('AI 智能深度解读'))
 
         sections = [
-            ('overview', '📋 卦象概览'),
-            ('situation', '🌟 情势分析'),
-            ('auspicious', '🍀 吉祥机遇'),
-            ('inauspicious', '⚠️ 凶险隐患'),
-            ('advice', '💡 行动建议'),
-            ('summary', '🎯 总结判断'),
+            ('overview', '📋', '卦象概览', Colors.QINGHUA),
+            ('situation', '🌟', '情势分析', Colors.QINGHUA),
+            ('auspicious', '🍀', '吉祥机遇', Colors.SUCCESS),
+            ('inauspicious', '⚠️', '凶险隐患', Colors.ZHUSHA),
+            ('advice', '💡', '行动建议', Colors.LIUJIN),
+            ('summary', '🎯', '总结判断', Colors.LIUJIN),
         ]
-
-        for key, title in sections:
+        for key, icon, title, color in sections:
             content = ai_result.get(key, '')
             if not content:
                 continue
-
-            section_widget = QFrame()
-            section_widget.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {Colors.BACKGROUND};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                    padding: 12px;
-                }}
-            """)
-
-            section_layout = QVBoxLayout(section_widget)
-            section_layout.setContentsMargins(12, 8, 12, 8)
-            section_layout.setSpacing(8)
-
-            title_label = QLabel(title)
-            title_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {Colors.PRIMARY};
-                font-family: {Fonts.FAMILY_CN};
-            """)
-
-            content_label = QLabel(content)
-            content_label.setStyleSheet(f"""
+            body = QLabel(content)
+            body.setWordWrap(True)
+            body.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY};
                 color: {Colors.TEXT_SECONDARY};
                 font-family: {Fonts.FAMILY_CN};
                 line-height: 1.7;
             """)
-            content_label.setWordWrap(True)
+            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+            card.set_content(body)
+            cv.addWidget(card)
 
-            section_layout.addWidget(title_label)
-            section_layout.addWidget(content_label)
-            ai_layout.addWidget(section_widget)
-
-        ai_card = self._create_result_card('🤖 AI智能解读', '🤖', ai_widget, highlight=True)
+        ai_card = container
 
         placeholder_idx = None
         for i in range(self.content_layout.count()):
@@ -780,11 +960,12 @@ class MeihuaResultPanel(QWidget):
             ('action_advice', '行动建议', '💡', Colors.PRIMARY),
         ]
 
-        # 2) 构建 AI 内容容器
-        ai_widget = QWidget()
-        ai_layout = QVBoxLayout(ai_widget)
-        ai_layout.setContentsMargins(0, 0, 0, 0)
-        ai_layout.setSpacing(10)
+        # 2) 构建 AI 内容容器：金色分隔标题 + 各子项折叠卡片（与八字面板 AI 区一致）
+        container = QWidget()
+        cv = QVBoxLayout(container)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(12)
+        cv.addWidget(ai_section_header('AI 智能深度解读'))
 
         has_ai_content = False
         for key, title, icon, color in sections:
@@ -840,7 +1021,9 @@ class MeihuaResultPanel(QWidget):
                 item_layout.addWidget(text_label, 1)
                 section_layout.addLayout(item_layout)
 
-            ai_layout.addWidget(section_widget)
+            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+            card.set_content(section_widget)
+            cv.addWidget(card)
 
         final_verdict = ai_data.get('final_verdict', '')
         if final_verdict:
@@ -876,7 +1059,9 @@ class MeihuaResultPanel(QWidget):
 
             verdict_layout.addWidget(verdict_title)
             verdict_layout.addWidget(verdict_text)
-            ai_layout.addWidget(verdict_widget)
+            card = CollapsibleCard('🎯 总结判断', '🎯', accent_color=Colors.QINGHUA, collapsed=False)
+            card.set_content(verdict_widget)
+            cv.addWidget(card)
 
         # 没有任何 AI 内容的兜底提示
         if not has_ai_content:
@@ -887,10 +1072,10 @@ class MeihuaResultPanel(QWidget):
             )
             tip.setAlignment(Qt.AlignCenter)
             tip.setWordWrap(True)
-            ai_layout.addWidget(tip)
+            cv.addWidget(tip)
 
-        # 3) 构造 AI 结果卡片（高亮）
-        ai_card = self._create_result_card('🤖 AI智能深度解读', '🤖', ai_widget, highlight=True)
+        # 3) 构造 AI 结果容器（金色分隔标题 + 各子项折叠卡片）
+        ai_card = container
 
         # 4) 兼容两种插入位置：占位符存在则替换占位符，否则插入到 stretch 之前
         placeholder = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
@@ -1006,14 +1191,19 @@ class MeihuaResultPanel(QWidget):
         hu = rd.get('hu_gua', {})
         bian = rd.get('bian_gua', {})
         overall = rd.get('overall', {})
+        
+        # 新增：铜钱摇卦/笔画起卦的特殊信息
+        div_extra = rd.get('divination_extra', {})
 
         hexagram_data = {
             'base': {
                 'name': base.get('name', ''),
                 'upper_name': base.get('upper_name', ''),
                 'lower_name': base.get('lower_name', ''),
-                'upper_nature': base.get('upper_element', ''),
-                'lower_nature': base.get('lower_element', ''),
+                'upper_element': base.get('upper_element', ''),
+                'lower_element': base.get('lower_element', ''),
+                'upper_nature': base.get('upper_nature', ''),
+                'lower_nature': base.get('lower_nature', ''),
                 'gua_ci': base.get('gua_ci', ''),
                 'description': base.get('description', ''),
             },
@@ -1028,6 +1218,27 @@ class MeihuaResultPanel(QWidget):
             },
             'overall_judgment': overall.get('level', '')
         }
+        
+        # 铜钱摇卦特殊信息
+        if div_extra.get('six_lines'):
+            hexagram_data['copper_coin_six_lines'] = div_extra['six_lines']
+            hexagram_data['changing_positions'] = div_extra.get('changing_positions', [])
+        
+        # 笔画起卦特殊信息
+        if div_extra.get('char'):
+            hexagram_data['stroke_char'] = div_extra.get('char', '')
+            hexagram_data['stroke_count'] = div_extra.get('stroke_count', 0)
+        
+        # 时间起卦
+        if div_extra.get('year'):
+            hexagram_data['time_year'] = div_extra.get('year')
+            hexagram_data['time_month'] = div_extra.get('month')
+            hexagram_data['time_day'] = div_extra.get('day')
+            hexagram_data['time_hour'] = div_extra.get('hour')
+        
+        # 数字起卦
+        if div_extra.get('numbers'):
+            hexagram_data['numbers'] = div_extra['numbers']
 
         yao_list = rd.get('yao_list', [])
         if yao_list:

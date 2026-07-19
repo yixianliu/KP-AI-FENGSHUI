@@ -3,14 +3,10 @@ AI分析Worker线程模块
 实现在后台线程中执行AI分析，避免UI阻塞
 支持Redis轮询机制读取分析结果
 """
-import sys
 import time
-from pathlib import Path
 from PySide6.QtCore import QThread, Signal, QObject
 
-project_root = Path(__file__).resolve().parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# NOTE: sys.path 已在 main.py 入口统一注入，此处不再重复 inject
 
 from core.analysis_pipeline import AnalysisPipeline
 from core.redis_manager import get_redis_manager, RedisConnectionError, RedisOperationError
@@ -57,6 +53,9 @@ class AiAnalysisWorker(QThread):
             elif self.analysis_type == 'meihua':
                 self.progress_updated.emit('analyzing', 'AI正在解读卦象玄机...')
                 result = pipeline.run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
+            elif self.analysis_type == 'liuren':
+                self.progress_updated.emit('analyzing', 'AI正在解读六壬玄机...')
+                result = pipeline.run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
             else:
                 self.analysis_failed.emit('unknown_type', f'不支持的分析类型: {self.analysis_type}')
                 return

@@ -306,8 +306,9 @@ class DataValidator:
         if hour_valid and minute_valid:
             self.validate_time(hour_val, minute_val, '出生时间')
 
-        if 'city' in input_data and input_data['city']:
-            self.validate_string_length(input_data['city'], '城市', max_len=100)
+        loc = input_data.get('location') or input_data.get('city')
+        if loc:
+            self.validate_string_length(loc, '出生地', max_len=100)
 
         passed = len(self.errors) == 0
         if passed:
@@ -360,6 +361,33 @@ class DataValidator:
             if input_data.get('text'):
                 self.validate_string_length(input_data['text'], '测字文本', min_len=1, max_len=100)
 
+        elif method == 'direction':
+            self.validate_required(input_data, 'direction', '方位')
+            direction = input_data.get('direction', '')
+            valid_directions = ['正北方', '东北方', '正东方', '东南方',
+                               '正南方', '西南方', '正西方', '西北方']
+            if direction and direction not in valid_directions:
+                self.add_error('方位', f"不支持的方位: {direction}")
+
+        elif method == 'copper_coin':
+            self.validate_required(input_data, 'six_lines', '六爻')
+            six_lines = input_data.get('six_lines', [])
+            if isinstance(six_lines, list):
+                if len(six_lines) != 6:
+                    self.add_error('六爻', f"六爻数量应为6，实际为{len(six_lines)}")
+                else:
+                    valid_yao = {'少阳', '老阴', '少阴', '老阳'}
+                    for i, y in enumerate(six_lines, 1):
+                        if y not in valid_yao:
+                            self.add_error('六爻', f"第{i}爻取值无效: {y}")
+
+        elif method == 'stroke':
+            self.validate_required(input_data, 'char', '汉字')
+            if input_data.get('char'):
+                self.validate_string_length(input_data['char'], '汉字', min_len=1, max_len=4)
+            self.validate_required(input_data, 'stroke_count', '笔画数')
+            self.validate_integer(input_data.get('stroke_count'), '笔画数', min_val=1, max_val=81)
+
         else:
             self.add_error('起卦方式', f"不支持的起卦方式: {method}")
 
@@ -371,6 +399,62 @@ class DataValidator:
             logger.info("[数据验证] 梅花易数输入数据验证通过")
         else:
             logger.error(f"[数据验证] 梅花易数输入数据验证失败，共{len(self.errors)}个错误")
+
+        return passed
+
+    def validate_liuren_input(self, input_data: Dict[str, Any]) -> bool:
+        """
+        验证大六壬起课输入数据。
+
+        Args:
+            input_data: 输入数据字典
+
+        Returns:
+            是否验证通过
+        """
+        self.reset()
+        logger.info("[数据验证] 开始验证大六壬输入数据")
+
+        from core.liuren import GATE_METHODS
+        ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+
+        method = input_data.get('method', '')
+        if not method:
+            self.add_error('起课方式', '起课方式不能为空')
+            return False
+
+        if method not in GATE_METHODS:
+            self.add_error('起课方式', f"不支持的起课方式: {method}")
+        else:
+            self.validate_required(input_data, 'year', '年份')
+            self.validate_required(input_data, 'month', '月份')
+            self.validate_required(input_data, 'day', '日期')
+            self.validate_required(input_data, 'hour', '小时')
+
+            year_valid, year_val = self.validate_integer(
+                input_data.get('year'), '年份', min_val=1900, max_val=2100)
+            month_valid, month_val = self.validate_integer(
+                input_data.get('month'), '月份', min_val=1, max_val=12)
+            day_valid, day_val = self.validate_integer(
+                input_data.get('day'), '日期', min_val=1, max_val=31)
+            hour_valid, hour_val = self.validate_integer(
+                input_data.get('hour'), '小时', min_val=0, max_val=23)
+
+            if year_valid and month_valid and day_valid:
+                self.validate_date(year_val, month_val, day_val, '起课日期')
+
+            zhan_shi = input_data.get('zhan_shi')
+            if zhan_shi and zhan_shi not in ZHI:
+                self.add_error('占时', f"不支持的占时地支: {zhan_shi}")
+
+        if 'question' in input_data and input_data['question']:
+            self.validate_string_length(input_data['question'], '所问之事', max_len=500)
+
+        passed = len(self.errors) == 0
+        if passed:
+            logger.info("[数据验证] 大六壬输入数据验证通过")
+        else:
+            logger.error(f"[数据验证] 大六壬输入数据验证失败，共{len(self.errors)}个错误")
 
         return passed
 
@@ -436,7 +520,10 @@ class DataValidator:
                                'improvement_plan']
         elif analysis_type == 'meihua':
             required_fields = ['gua_overview', 'situation_analysis', 'good_omens',
-                               'bad_omens', 'action_advice', 'final_verdict']
+                              'bad_omens', 'action_advice', 'final_verdict']
+        elif analysis_type == 'liuren':
+            required_fields = ['ke_overview', 'si_ke_analysis', 'san_chuan_analysis',
+                              'tian_jiang_analysis', 'final_verdict']
         else:
             self.add_error('分析类型', f"不支持的分析类型: {analysis_type}")
             return False

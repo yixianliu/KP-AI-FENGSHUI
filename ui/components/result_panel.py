@@ -3,10 +3,11 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
                              QPushButton, QScrollArea, QProgressBar, QGraphicsOpacityEffect,
-                             QToolButton)
+                             QToolButton, QDialog, QSizePolicy)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer
 from PySide6.QtGui import QColor
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.components.collapsible_card import CollapsibleCard
 
 # 天干五行颜色映射
 TIANGAN_WUXING = {
@@ -26,114 +27,6 @@ DIZHI_WUXING = {
     '子': ('水', Colors.WATER), '亥': ('水', Colors.WATER),
 }
 
-
-class CollapsibleCard(QFrame):
-    """可折叠卡片组件 - 点击标题栏展开/折叠内容区"""
-
-    def __init__(self, title: str, icon: str, parent=None, accent_color=None, collapsed: bool = False):
-        super().__init__(parent)
-        self._collapsed = collapsed
-        self._accent_color = accent_color or Colors.QINGHUA
-        self._content_widget = None
-
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {Colors.CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: {Spacing.RADIUS};
-            }}
-            QFrame:hover {{
-                border-color: {self._accent_color};
-            }}
-        """)
-
-        self._main_layout = QVBoxLayout(self)
-        self._main_layout.setContentsMargins(0, 0, 0, 0)
-        self._main_layout.setSpacing(0)
-
-        # 标题栏（可点击）
-        self._header = QFrame()
-        self._header.setCursor(Qt.PointingHandCursor)
-        self._header.setStyleSheet(f"""
-            QFrame {{
-                background: transparent;
-                border: none;
-                border-radius: {Spacing.RADIUS};
-                padding: 0;
-            }}
-            QFrame:hover {{
-                background: {Colors.CARD_HOVER};
-            }}
-        """)
-        header_layout = QHBoxLayout(self._header)
-        header_layout.setContentsMargins(16, 12, 16, 12)
-        header_layout.setSpacing(10)
-
-        # 折叠/展开图标
-        self._collapse_icon = QLabel('▼' if not collapsed else '▶')
-        self._collapse_icon.setStyleSheet(f"""
-            font-size: 10px;
-            color: {Colors.TEXT3};
-            min-width: 12px;
-        """)
-        self._collapse_icon.setAlignment(Qt.AlignCenter)
-
-        # 图标
-        icon_label = QLabel(icon)
-        icon_label.setStyleSheet(f"font-size: 16px;")
-        icon_label.setFixedWidth(24)
-
-        # 标题
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SECTION};
-            font-weight: {Fonts.W_MEDIUM};
-            color: {Colors.TEXT};
-            font-family: {Fonts.BODY};
-        """)
-
-        header_layout.addWidget(self._collapse_icon)
-        header_layout.addWidget(icon_label)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-
-        self._main_layout.addWidget(self._header)
-
-        # 内容容器
-        self._content_container = QWidget()
-        self._content_container.setStyleSheet("background: transparent; border: none;")
-        self._content_layout = QVBoxLayout(self._content_container)
-        self._content_layout.setContentsMargins(16, 0, 16, 14)
-        self._content_layout.setSpacing(0)
-        self._main_layout.addWidget(self._content_container)
-
-        # 标题栏点击事件
-        self._header.mousePressEvent = self._on_header_click
-
-        if collapsed:
-            self._content_container.setVisible(False)
-
-    def set_content(self, widget: QWidget):
-        """设置卡片内容"""
-        if self._content_widget:
-            self._content_layout.removeWidget(self._content_widget)
-            self._content_widget.deleteLater()
-        self._content_widget = widget
-        # 添加分割线
-        if self._content_layout.count() == 0:
-            div = QFrame()
-            div.setFixedHeight(1)
-            div.setStyleSheet(f"background-color: {Colors.DIVIDER}; margin-bottom: 12px;")
-            self._content_layout.addWidget(div)
-        self._content_layout.addWidget(widget)
-
-    def _on_header_click(self, event):
-        self._collapsed = not self._collapsed
-        self._collapse_icon.setText('▶' if self._collapsed else '▼')
-        self._content_container.setVisible(not self._collapsed)
-
-    def is_collapsed(self) -> bool:
-        return self._collapsed
 
 
 class ResultPanel(QWidget):
@@ -156,9 +49,11 @@ class ResultPanel(QWidget):
 
         self.content = QWidget()
         self.content.setStyleSheet(f"background-color: {Colors.BG};")
+        # 横向自适应填满滚动区视口，使内部卡片随右侧宽度撑满
+        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.clay = QVBoxLayout(self.content)
         self.clay.setContentsMargins(24, 20, 24, 20)
-        self.clay.setSpacing(12)
+        self.clay.setSpacing(16)
 
         # 顶部标题行
         self.clay.addLayout(self._header())
@@ -214,6 +109,7 @@ class ResultPanel(QWidget):
             self.export_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.export_btn.setCursor(Qt.PointingHandCursor)
             self.export_btn.setVisible(False)
+            self.export_btn.clicked.connect(self._on_export_click)
         hdr.addWidget(self.refresh_btn)
         hdr.addWidget(self.copy_btn)
         hdr.addWidget(self.export_btn)
@@ -358,8 +254,8 @@ class ResultPanel(QWidget):
             gl.addWidget(c, row, col)
         return w
 
-    def _wuxing(self, wx):
-        """五行分析 - 增强版进度条"""
+    def _wuxing(self, wx, rizhu_wx=None):
+        """五行分析 - 增强版进度条（高亮日主五行）"""
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
@@ -376,16 +272,17 @@ class ResultPanel(QWidget):
         total = sum(v for _, v, _, _ in els) or 1
 
         for name, val, c1, c2 in els:
+            is_rizhu = bool(rizhu_wx) and name == rizhu_wx
             row = QHBoxLayout()
             row.setSpacing(10)
 
-            # 五行标签
-            tag = QLabel(name)
-            tag.setFixedWidth(26)
+            # 五行标签（日主五行以鎏金黄高亮并标注『日』）
+            tag = QLabel(f'{name}·日' if is_rizhu else name)
+            tag.setFixedWidth(34 if is_rizhu else 26)
             tag.setFixedHeight(22)
             tag.setAlignment(Qt.AlignCenter)
             tag.setStyleSheet(f"""
-                background: {c1};
+                background: {Colors.LIUJIN if is_rizhu else c1};
                 color: white;
                 font-size: 11px;
                 font-weight: {Fonts.W_MEDIUM};
@@ -414,7 +311,9 @@ class ResultPanel(QWidget):
 
             # 数值
             vl = QLabel(f'{val} ({pct}%)')
-            vl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT2}; font-family: {Fonts.MONO};")
+            vl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT if is_rizhu else Colors.TEXT2}; "
+                             f"font-weight: {Fonts.W_MEDIUM if is_rizhu else Fonts.W_NORMAL}; "
+                             f"font-family: {Fonts.MONO};")
             vl.setFixedWidth(60)
             vl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -476,6 +375,234 @@ class ResultPanel(QWidget):
             l.addWidget(card)
         return w
 
+    def _bazi_types(self, bt):
+        """命局类型 - 日主强弱 / 格局类型 / 五行旺衰类别（含含义与用途）"""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(16)
+
+        # 日主强弱
+        if bt.get('strength'):
+            color = Colors.SUCCESS if bt['strength'] == '身强' else (Colors.WARNING if bt['strength'] == '身弱' else Colors.LIUJIN)
+            info = bt.get('strength_info', {}) or {}
+            l.addLayout(self._type_block('日主强弱', bt['strength'], color, info.get('meaning', ''), info.get('purpose', '')))
+
+        # 格局类型
+        if bt.get('geju_type'):
+            geju_color_map = {'专旺格': Colors.LIUJIN, '从格': Colors.ZHUSHA,
+                              '扶抑格': Colors.QINGHUA, '中和格': Colors.WOOD}
+            color = geju_color_map.get(bt['geju_type'], Colors.QINGHUA)
+            info = bt.get('geju_info', {}) or {}
+            meaning = info.get('meaning', '')
+            sub = bt.get('geju_name', '')
+            if sub:
+                meaning = f'{sub}（{meaning}）' if meaning else sub
+            l.addLayout(self._type_block('格局类型', bt['geju_type'], color, meaning, info.get('purpose', '')))
+
+        # 五行旺衰类别
+        cats = bt.get('wuxing_categories') or []
+        if cats:
+            for cat in cats:
+                color = Colors.FIRE if '旺' in cat['label'] else (Colors.WATER if '弱' in cat['label'] else Colors.WOOD)
+                element = cat.get('element', '')
+                label = f"{element}{cat['label']}" if element else cat['label']
+                l.addLayout(self._type_block('五行旺衰', label, color, cat.get('meaning', ''), ''))
+        elif bt.get('wuxing_summary'):
+            l.addLayout(self._type_block('五行旺衰', bt['wuxing_summary'], Colors.TEXT2, '', ''))
+
+        # 用神 / 喜神 / 忌神
+        ys = bt.get('yongshen') or {}
+        if ys.get('yongshen') or ys.get('xishen') or ys.get('jishen'):
+            yong_txt = f"用神·{ys.get('yongshen', '')}"
+            if ys.get('yongshen_name'):
+                yong_txt += f"（{ys.get('yongshen_name')}）"
+            xi_txt = '、'.join(ys.get('xishen_names', [])) or '—'
+            ji_txt = '、'.join(ys.get('jishen_names', [])) or '—'
+            purpose = f"{ys.get('purpose', '')}　喜神：{xi_txt}　忌神：{ji_txt}"
+            l.addLayout(self._type_block(
+                '用神喜忌', yong_txt, Colors.LIUJIN,
+                ys.get('meaning', ''), purpose))
+
+        return w
+
+    def _type_block(self, label, value, color, meaning='', purpose=''):
+        """类型条目：固定标签 + 色块值 + 含义/用途说明"""
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.setAlignment(Qt.AlignTop)
+
+        lb = QLabel(label)
+        lb.setFixedWidth(60)
+        lb.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY}; padding-top:5px;")
+        row.addWidget(lb)
+
+        vb = QVBoxLayout()
+        vb.setSpacing(5)
+
+        chip = QLabel(value)
+        chip.setStyleSheet(f"""
+            background: {color};
+            color: white;
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_MEDIUM};
+            border-radius: {Spacing.RADIUS_SM};
+            padding: 4px 14px;
+            font-family: {Fonts.BODY};
+        """)
+        chip.setFixedHeight(26)
+        chip.setAlignment(Qt.AlignCenter)
+        vb.addWidget(chip)
+
+        desc = meaning
+        if purpose:
+            desc = f"{desc}　·　用途：{purpose}" if desc else f"用途：{purpose}"
+        if desc:
+            dl = QLabel(desc)
+            dl.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; line-height:1.5;")
+            dl.setWordWrap(True)
+            vb.addWidget(dl)
+
+        row.addLayout(vb)
+        return row
+
+    def _yunshi(self, dayun, liunian):
+        """大运流年展示"""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(20)
+
+        # 大运展示
+        periods = dayun.get('periods', [])
+        direction = dayun.get('direction', '')
+        if periods:
+            direction_title = QLabel(f'大运方向：{direction}')
+            direction_title.setStyleSheet(
+                f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
+                f"color:{Colors.LIUJIN}; font-family:{Fonts.BODY}; padding-bottom:8px;"
+            )
+            l.addWidget(direction_title)
+
+            # 起运（修复后：真实出生->节气天数 ÷ 3）
+            qiyun_text = dayun.get('qiyun_text')
+            if qiyun_text:
+                qiyun_title = QLabel(f'起运：{qiyun_text}')
+                qiyun_title.setStyleSheet(
+                    f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
+                    f"color:{Colors.TEXT2}; font-family:{Fonts.BODY}; padding-bottom:8px;"
+                )
+                l.addWidget(qiyun_title)
+
+            for i, period in enumerate(periods[:5], 1):
+                period_w = QWidget()
+                period_w.setStyleSheet("background: transparent;")
+                period_l = QHBoxLayout(period_w)
+                period_l.setSpacing(12)
+
+                # 期数
+                num = QLabel(f'{period["period"]}')
+                num.setStyleSheet(f"""
+                    background: {Colors.LIUJIN}; color: white;
+                    font-size:11px; font-weight:{Fonts.W_MEDIUM};
+                    border-radius:10px; min-width:20px; min-height:20px;
+                    font-family:{Fonts.BODY};
+                """)
+                num.setAlignment(Qt.AlignCenter)
+                num.setFixedSize(20, 20)
+
+                # 干支
+                ganzhi = QLabel(period['ganzhi'])
+                ganzhi.setStyleSheet(f"""
+                    background: {Colors.QINGHUA}; color: white;
+                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
+                    border-radius:{Spacing.RADIUS_SM}; padding:4px 12px;
+                    font-family:{Fonts.BODY}; min-width:60px;
+                """)
+                ganzhi.setAlignment(Qt.AlignCenter)
+
+                # 年龄范围
+                age = QLabel(f'{period["start_age"]}-{period["end_age"]}岁')
+                age.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; min-width:70px;")
+
+                # 年份范围
+                years = QLabel(f'{period["start_year"]}-{period["end_year"]}年')
+                years.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
+
+                # 分析
+                analysis = QLabel(period.get('analysis', ''))
+                analysis.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY}; line-height:1.4;")
+                analysis.setWordWrap(True)
+
+                period_l.addWidget(num)
+                period_l.addWidget(ganzhi)
+                period_l.addWidget(age)
+                period_l.addWidget(years)
+                period_l.addWidget(analysis, 1)
+
+                l.addWidget(period_w)
+
+            if len(periods) > 5:
+                more_label = QLabel(f'…还有 {len(periods) - 5} 步大运')
+                more_label.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY}; padding-top:4px;")
+                l.addWidget(more_label)
+
+        # 流年展示
+        years_list = liunian.get('years', [])
+        if years_list:
+            divider = QFrame()
+            divider.setFixedHeight(1)
+            divider.setStyleSheet(f"background:{Colors.TEXT3}; opacity:0.3; margin:8px 0;")
+            l.addWidget(divider)
+
+            flow_title = QLabel('流年运势（未来10年）')
+            flow_title.setStyleSheet(
+                f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
+                f"color:{Colors.LIUJIN}; font-family:{Fonts.BODY}; padding-bottom:8px;"
+            )
+            l.addWidget(flow_title)
+
+            for year_data in years_list:
+                year_w = QWidget()
+                year_w.setStyleSheet("background: transparent;")
+                year_l = QHBoxLayout(year_w)
+                year_l.setSpacing(12)
+
+                # 年份
+                year = QLabel(str(year_data['year']))
+                year.setStyleSheet(f"""
+                    background: {Colors.LIUJIN}; color: white;
+                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
+                    border-radius:{Spacing.RADIUS_SM}; padding:4px 10px;
+                    font-family:{Fonts.BODY}; min-width:50px;
+                """)
+                year.setAlignment(Qt.AlignCenter)
+
+                # 干支
+                ganzhi = QLabel(year_data['ganzhi'])
+                ganzhi.setStyleSheet(f"""
+                    background: {Colors.QINGHUA}; color: white;
+                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
+                    border-radius:{Spacing.RADIUS_SM}; padding:4px 10px;
+                    font-family:{Fonts.BODY}; min-width:60px;
+                """)
+                ganzhi.setAlignment(Qt.AlignCenter)
+
+                # 分析
+                analysis = QLabel(year_data.get('analysis', ''))
+                analysis.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY}; line-height:1.4;")
+                analysis.setWordWrap(True)
+
+                year_l.addWidget(year)
+                year_l.addWidget(ganzhi)
+                year_l.addWidget(analysis, 1)
+
+                l.addWidget(year_w)
+
+        return w
+
     def _rebuild_header(self):
         """重建头部"""
         self.clay.addLayout(self._header())
@@ -497,6 +624,78 @@ class ResultPanel(QWidget):
                 anim.setEasingCurve(QEasingCurve.OutCubic)
                 self._fade_anims.append(anim)
                 QTimer.singleShot(i * 60, anim.start)
+
+    def _yuncheng(self, yc):
+        """渲染运程总结（事业 / 财运 / 健康 / 感情）"""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(14)
+
+        # 综合（置顶高亮）
+        overview = yc.get('overview', '')
+        if overview:
+            ov = QLabel(overview)
+            ov.setWordWrap(True)
+            ov.setStyleSheet(
+                f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT}; "
+                f"font-family:{Fonts.BODY}; line-height:1.5; "
+                f"background:{Colors.QINGHUA_GLOW}; border-left:3px solid {Colors.LIUJIN}; "
+                f"padding:8px 12px; border-radius:{Spacing.RADIUS_SM};"
+            )
+            l.addWidget(ov)
+
+        sections = [
+            ('事业', yc.get('career', ''), Colors.QINGHUA),
+            ('财运', yc.get('wealth', ''), Colors.ZHUSHA),
+            ('健康', yc.get('health', ''), Colors.SUCCESS),
+            ('感情', yc.get('love', ''), Colors.LIUJIN),
+        ]
+        for title, text, color in sections:
+            if not text:
+                continue
+            sub = QWidget()
+            sub.setStyleSheet("background: transparent;")
+            sl = QVBoxLayout(sub)
+            sl.setContentsMargins(0, 0, 0, 0)
+            sl.setSpacing(4)
+            th = QLabel(f'▍ {title}')
+            th.setStyleSheet(
+                f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
+                f"color:{color}; font-family:{Fonts.BODY};"
+            )
+            tb = QLabel(text)
+            tb.setWordWrap(True)
+            tb.setStyleSheet(
+                f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; "
+                f"font-family:{Fonts.BODY}; line-height:1.5;"
+            )
+            sl.addWidget(th)
+            sl.addWidget(tb)
+            l.addWidget(sub)
+
+        # 标签
+        tags = yc.get('tags', [])
+        if tags:
+            tg = QWidget()
+            tg.setStyleSheet("background: transparent;")
+            tl = QHBoxLayout(tg)
+            tl.setContentsMargins(0, 4, 0, 0)
+            tl.setSpacing(6)
+            for t in tags[:8]:
+                chip = QLabel(t)
+                chip.setStyleSheet(
+                    f"background:{Colors.QINGHUA_GLOW}; color:{Colors.QINGHUA}; "
+                    f"border:1px solid {Colors.QINGHUA_LIGHT}; "
+                    f"border-radius:{Spacing.RADIUS_SM}; font-size:{Fonts.SZ_MICRO}; "
+                    f"font-family:{Fonts.BODY}; padding:3px 10px;"
+                )
+                tl.addWidget(chip)
+            tl.addStretch()
+            l.addWidget(tg)
+
+        return w
 
     def display_result(self, rd):
         """显示排盘结果 - 使用可折叠卡片"""
@@ -528,6 +727,13 @@ class ResultPanel(QWidget):
             ]))
             self.clay.addWidget(info_card)
 
+        # 命局类型卡片（默认展开）—— 八字「类型」分类的核心呈现
+        bt = rd.get('bazi_types', {})
+        if bt and (bt.get('strength') or bt.get('geju_type') or bt.get('wuxing_summary')):
+            type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=False)
+            type_card.set_content(self._bazi_types(bt))
+            self.clay.addWidget(type_card)
+
         # 四柱卡片（默认展开，高亮）
         bazi = rd.get('bazi', {})
         if bazi:
@@ -539,7 +745,7 @@ class ResultPanel(QWidget):
         wx = rd.get('wuxing', {})
         if wx:
             wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=False)
-            wx_card.set_content(self._wuxing(wx))
+            wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
             self.clay.addWidget(wx_card)
 
         # 吉凶批注卡片（默认展开）
@@ -548,6 +754,21 @@ class ResultPanel(QWidget):
             an_card = CollapsibleCard('吉凶批注', '⚖', accent_color=Colors.ZHUSHA, collapsed=False)
             an_card.set_content(self._annotations(an))
             self.clay.addWidget(an_card)
+
+        # 运程总结卡片（事业 / 财运 / 健康 / 感情）
+        yc = rd.get('yuncheng', {})
+        if yc and (yc.get('career') or yc.get('wealth') or yc.get('health') or yc.get('love')):
+            yc_card = CollapsibleCard('运程总结', '☯', accent_color=Colors.LIUJIN, collapsed=False)
+            yc_card.set_content(self._yuncheng(yc))
+            self.clay.addWidget(yc_card)
+
+        # 大运流年卡片（默认展开）
+        dayun = rd.get('dayun', {})
+        liunian = rd.get('liunian', {})
+        if dayun.get('periods') or liunian.get('years'):
+            yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=False)
+            yunshi_card.set_content(self._yunshi(dayun, liunian))
+            self.clay.addWidget(yunshi_card)
 
         self.clay.addStretch()
         self._fade_in_widgets()
@@ -588,6 +809,8 @@ class ResultPanel(QWidget):
 
     def _pulse_widget(self, widget):
         """脉冲动画效果"""
+        # 先停止旧的脉冲定时器，防止累积
+        self._stop_pulse()
         self._pulse_state = True
         self._pulse_widget_ref = widget
 
@@ -667,6 +890,8 @@ class ResultPanel(QWidget):
         self.clay.addStretch()
 
     def _ai_pulse_widget(self, widget):
+        # 先停止旧的脉冲定时器
+        self._stop_ai_pulse()
         self._ai_pulse_state = True
         self._ai_pulse_widget_ref = widget
 
@@ -695,6 +920,8 @@ class ResultPanel(QWidget):
     def display_ai_result(self, ai_data: dict):
         """显示AI分析结果 - 使用可折叠卡片"""
         self._stop_ai_pulse()
+        # 保存 AI 数据，供导出（PDF/Excel/CSV）合并使用
+        self._ai_data = ai_data
 
         rd = getattr(self, '_current_result', {}) or {}
 
@@ -722,6 +949,7 @@ class ResultPanel(QWidget):
 
         # 原始排盘结果（折叠状态）
         bi = rd.get('basic_info', {}) or {}
+        bt = rd.get('bazi_types', {}) or {}
         if bi:
             orig_card = CollapsibleCard('命盘信息', 'ℹ', accent_color=Colors.QINGHUA, collapsed=True)
             orig_card.set_content(self._info_row([
@@ -734,6 +962,12 @@ class ResultPanel(QWidget):
             ]))
             self.clay.addWidget(orig_card)
 
+        # 命局类型（折叠状态）
+        if bt and (bt.get('strength') or bt.get('geju_type') or bt.get('wuxing_summary')):
+            type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=True)
+            type_card.set_content(self._bazi_types(bt))
+            self.clay.addWidget(type_card)
+
         bazi = rd.get('bazi', {}) or {}
         if bazi:
             bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=True)
@@ -743,7 +977,7 @@ class ResultPanel(QWidget):
         wx = rd.get('wuxing', {}) or {}
         if wx:
             wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=True)
-            wx_card.set_content(self._wuxing(wx))
+            wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
             self.clay.addWidget(wx_card)
 
         an = rd.get('analysis', []) or []
@@ -752,8 +986,119 @@ class ResultPanel(QWidget):
             an_card.set_content(self._annotations(an))
             self.clay.addWidget(an_card)
 
+        # 大运流年卡片（折叠状态）
+        dayun = rd.get('dayun', {}) or {}
+        liunian = rd.get('liunian', {}) or {}
+        if dayun.get('periods') or liunian.get('years'):
+            yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=True)
+            yunshi_card.set_content(self._yunshi(dayun, liunian))
+            self.clay.addWidget(yunshi_card)
+
         # AI分隔标识
-        self._add_ai_section_header()
+        self._add_ai_section_header(ai_data)
+
+    def _on_export_click(self):
+        """导出按钮点击事件"""
+        from ui.components.export_dialog import ExportDialog
+        from ui.export import CsvExporter, ExcelExporter
+        from ui.export.base_exporter import filter_export_data
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        rd = getattr(self, '_current_result', {})
+        if not rd:
+            QMessageBox.warning(self, '导出失败', '没有可导出的数据')
+            return
+
+        # 合并 AI 分析数据，使其可随报告一并导出
+        export_data = dict(rd)
+        ai = getattr(self, '_ai_data', None)
+        if ai and isinstance(ai, dict):
+            export_data['ai_analysis'] = ai
+
+        # 显示导出对话框
+        dialog = ExportDialog(rd, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            format_type = dialog.get_selected_format()
+            # 按用户勾选的章节过滤导出数据
+            chapters = dialog.get_selected_chapters()
+            export_data = filter_export_data(export_data, chapters)
+
+            # 选择保存路径
+            filename = dialog.filename_edit.text().strip()
+            if not filename:
+                filename = "八字排盘结果"
+
+            if format_type == 'csv':
+                ext = '.csv'
+                file_filter = 'CSV Files (*.csv)'
+            elif format_type == 'excel':
+                ext = '.xlsx'
+                file_filter = 'Excel Files (*.xlsx)'
+            else:
+                ext = '.pdf'
+                file_filter = 'PDF Files (*.pdf)'
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                '导出文件',
+                filename + ext,
+                file_filter
+            )
+
+            if file_path:
+                try:
+                    if format_type == 'csv':
+                        exporter = CsvExporter()
+                    elif format_type == 'excel':
+                        exporter = ExcelExporter()
+                    else:
+                        try:
+                            from ui.export import PdfExporter
+                        except Exception:
+                            QMessageBox.warning(
+                                self, '导出失败',
+                                '未安装 reportlab，无法导出 PDF。\n请执行：pip install reportlab')
+                            return
+                        exporter = PdfExporter()
+
+                    if exporter.export(export_data, file_path):
+                        QMessageBox.information(self, '导出成功', f'文件已保存至：\n{file_path}')
+                    else:
+                        QMessageBox.warning(self, '导出失败', '导出过程中发生错误')
+                except Exception as e:
+                    QMessageBox.warning(self, '导出失败', f'导出失败：{e}')
+
+    # AI分隔标识
+    def _add_ai_section_header(self, ai_data):
+
+        # 分隔线
+        divider = QFrame()
+        divider.setFixedHeight(2)
+        divider.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 transparent, stop:0.5 {Colors.LIUJIN}, stop:1 transparent); "
+            f"margin: 18px 0 10px 0; border: none;"
+        )
+        self.clay.addWidget(divider)
+
+        title_widget = QWidget()
+        title_widget.setStyleSheet("background: transparent;")
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setContentsMargins(0, 0, 0, 4)
+        title_layout.setSpacing(8)
+
+        icon = QLabel('🤖')
+        icon.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN};")
+        title_layout.addWidget(icon)
+
+        title = QLabel('AI 智能深度分析')
+        title.setStyleSheet(
+            f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
+            f"color: {Colors.LIUJIN}; font-family: {Fonts.TITLE};"
+        )
+        title_layout.addWidget(title)
+        title_layout.addStretch()
+        self.clay.addWidget(title_widget)
 
         # AI分析卡片（默认展开）
         sections = [
@@ -800,43 +1145,6 @@ class ResultPanel(QWidget):
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
-
-    def _add_ai_section_header(self):
-        """AI分隔标题"""
-        divider = QFrame()
-        divider.setFixedHeight(2)
-        divider.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            f"stop:0 transparent, stop:0.5 {Colors.LIUJIN}, stop:1 transparent); "
-            f"margin: 18px 0 10px 0; border: none;"
-        )
-        self.clay.addWidget(divider)
-
-        title_widget = QWidget()
-        title_widget.setStyleSheet("background: transparent;")
-        title_layout = QHBoxLayout(title_widget)
-        title_layout.setContentsMargins(0, 0, 0, 4)
-        title_layout.setSpacing(8)
-
-        icon = QLabel('🤖')
-        icon.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN};")
-        title_layout.addWidget(icon)
-
-        title = QLabel('AI 智能深度分析')
-        title.setStyleSheet(
-            f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
-            f"color: {Colors.LIUJIN}; font-family: {Fonts.TITLE};"
-        )
-        title_layout.addWidget(title)
-        title_layout.addStretch()
-        self.clay.addWidget(title_widget)
-
-        sub = QLabel('基于 AI 大模型的专业命理深度解读')
-        sub.setStyleSheet(
-            f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; "
-            f"font-family: {Fonts.BODY}; margin-bottom: 6px;"
-        )
-        self.clay.addWidget(sub)
 
     def _safe_clear_graphics_effects(self):
         for i in range(self.clay.count()):
@@ -919,12 +1227,12 @@ class ResultPanel(QWidget):
 
     def get_chart_data_for_ai(self) -> dict:
         """获取用于AI分析的排盘数据"""
-        rd = getattr(self, '_current_result', {})
-        if not rd:
+        rd = getattr(self, '_current_result', None)
+        if not rd or not isinstance(rd, dict):
             return {}
 
-        bazi = rd.get('bazi', {})
-        wuxing = rd.get('wuxing', {})
+        bazi = rd.get('bazi') or {}
+        wuxing = rd.get('wuxing') or {}
 
         chart_data = {
             'bazi': {

@@ -59,9 +59,9 @@ class BaziCalculator:
         """获取十神分析"""
         return self.shishen_analyzer.analyze(bazi)
 
-    def get_dayun(self, bazhi, gender, birth_year):
+    def get_dayun(self, bazhi, gender, birth_year, birth_dt=None):
         """获取大运"""
-        return self.yunshi_calc.calculate_major_fortune(bazhi, gender, birth_year)
+        return self.yunshi_calc.calculate_major_fortune(bazhi, gender, birth_year, birth_dt=birth_dt)
 
     def get_liunian(self, bazhi, start_year=2024, years_count=10):
         """获取流年"""

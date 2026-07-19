@@ -73,14 +73,14 @@ class DatabaseManager:
                     f"CHARACTER SET {self.db_config['charset']}"
                 )
 
-        # 创建用户表
+        # 创建用户表（bcrypt 哈希需要 72 字符）
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id INT PRIMARY KEY AUTO_INCREMENT,
                         username VARCHAR(50) NOT NULL UNIQUE,
-                        password_hash VARCHAR(64) NOT NULL,
+                        password_hash VARCHAR(72) NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         INDEX idx_username (username)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -684,10 +684,9 @@ class DatabaseManager:
 
     # ==================== 用户管理 ====================
 
-    import hashlib
     def create_user(self, username: str, password: str) -> Optional[int]:
         """
-        创建新用户
+        创建新用户（使用 bcrypt 加密）
 
         Args:
             username: 用户名
@@ -696,13 +695,19 @@ class DatabaseManager:
         Returns:
             新用户ID，失败返回None
         """
+        try:
+            import bcrypt
+        except ModuleNotFoundError:
+            raise RuntimeError(
+                "需要 bcrypt 才能创建用户，请先安装：pip install bcrypt")
         if not username or not password:
             return None
         
         if len(password) < 6:
             raise ValueError("密码长度不能少于6位")
         
-        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        # 使用 bcrypt 加密密码（自动加盐）
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         try:
             with self._connect() as connection:
@@ -722,7 +727,7 @@ class DatabaseManager:
 
     def verify_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         """
-        验证用户登录
+        验证用户登录（使用 bcrypt 验证）
 
         Args:
             username: 用户名
@@ -731,19 +736,31 @@ class DatabaseManager:
         Returns:
             用户信息字典，验证失败返回None
         """
+        try:
+            import bcrypt
+        except ModuleNotFoundError:
+            raise RuntimeError(
+                "需要 bcrypt 才能验证登录，请先安装：pip install bcrypt")
         if not username or not password:
             return None
-        
-        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
         
         try:
             with self._connect() as connection:
                 with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     cursor.execute(
-                        "SELECT id, username, created_at FROM users WHERE username = %s AND password_hash = %s",
-                        (username, password_hash)
+                        "SELECT id, username, password_hash, created_at FROM users WHERE username = %s",
+                        (username,)
                     )
-                    return cursor.fetchone()
+                    user = cursor.fetchone()
+                    
+                    if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
+                        # 返回用户信息（不包含密码哈希）
+                        return {
+                            'id': user['id'],
+                            'username': user['username'],
+                            'created_at': user['created_at']
+                        }
+                    return None
         except Exception as e:
             logger.error(f"验证用户失败: {e}")
             return None
@@ -823,7 +840,7 @@ class DatabaseManager:
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
-                            user_id, name, gender, birth_date, birth_time,
+                            user_id or 1, name, gender, birth_date, birth_time,
                             city, pan_type, json.dumps(result, ensure_ascii=False)
                         )
                     )
@@ -870,6 +887,77 @@ class DatabaseManager:
                     return records
         except Exception as e:
             print(f"获取排盘记录失败: {e}")
+            return []
+
+    def search_records(self, user_id: int, pan_type: str = '', name: str = '',
+                        start_date: str = '', end_date: str = '',
+                        wuxing: str = '', geju_type: str = '', strength: str = '',
+                        limit: int = 200) -> List[Dict[str, Any]]:
+        """
+        按条件检索用户的排盘记录
+
+        Args:
+            user_id: 用户ID
+            pan_type: 排盘类型过滤（'' 表示不限制）
+            name: 姓名关键字（模糊匹配，'' 表示不限制）
+            start_date: 起始日期 'YYYY-MM-DD'（按保存时间，'' 表示不限制）
+            end_date: 结束日期 'YYYY-MM-DD'（'' 表示不限制）
+            wuxing: 五行属性关键字（按 bazi_types.wuxing_summary 模糊匹配，'' 不限制）
+            geju_type: 格局类型精确匹配（bazi_types.geju_type，'' 不限制）
+            strength: 日主强弱精确匹配（bazi_types.strength，'' 不限制）
+            limit: 返回数量上限
+
+        Returns:
+            排盘记录列表（已解析 result_json）
+        """
+        try:
+            with self._connect() as connection:
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    sql = (
+                        "SELECT id, name, gender, birth_date, birth_time, "
+                        "city, pan_type, result_json, created_at "
+                        "FROM pan_records WHERE user_id = %s"
+                    )
+                    params: list = [user_id]
+                    if pan_type:
+                        sql += " AND pan_type = %s"
+                        params.append(pan_type)
+                    if name:
+                        sql += " AND name LIKE %s"
+                        params.append(f"%{name}%")
+                    if start_date:
+                        sql += " AND DATE(created_at) >= %s"
+                        params.append(start_date)
+                    if end_date:
+                        sql += " AND DATE(created_at) <= %s"
+                        params.append(end_date)
+                    # 高级筛选：五行 / 格局 / 日主强弱（均从 result_json 提取）
+                    if wuxing:
+                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
+                                "'$.bazi_types.wuxing_summary')) LIKE %s")
+                        params.append(f"%{wuxing}%")
+                    if geju_type:
+                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
+                                "'$.bazi_types.geju_type')) = %s")
+                        params.append(geju_type)
+                    if strength:
+                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
+                                "'$.bazi_types.strength')) = %s")
+                        params.append(strength)
+                    sql += " ORDER BY created_at DESC LIMIT %s"
+                    params.append(limit)
+
+                    cursor.execute(sql, params)
+                    records = cursor.fetchall()
+                    for record in records:
+                        try:
+                            record['result'] = json.loads(record['result_json'])
+                        except (json.JSONDecodeError, KeyError):
+                            record['result'] = {}
+                        del record['result_json']
+                    return records
+        except Exception as e:
+            print(f"检索排盘记录失败: {e}")
             return []
 
     def get_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:

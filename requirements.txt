@@ -4,3 +4,8 @@ lunarcalendar==0.0.9
 PyMySQL==1.1.1
 # Pin redis-py to a 3.x release compatible with your Redis server 3.0.x
 redis==3.5.3
+# Password hashing
+bcrypt==4.2.1
+openpyxl==3.1.5
+# PDF 报告导出
+reportlab==4.2.5

@@ -1,8 +1,11 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QCheckBox, QPushButton,
                              QGroupBox, QLineEdit, QButtonGroup, QRadioButton,
-                             QFileDialog, QMessageBox)
+                             QFileDialog, QMessageBox, QGridLayout)
 from PySide6.QtCore import Signal, Qt
+
+from ui.export.base_exporter import CHAPTERS
+
 
 class ExportDialog(QDialog):
     export_signal = Signal(str)
@@ -14,7 +17,7 @@ class ExportDialog(QDialog):
 
     def init_ui(self):
         self.setWindowTitle('导出排盘结果')
-        self.setFixedSize(450, 400)
+        self.setFixedSize(470, 520)
         self.setStyleSheet("""
             QDialog {
                 background-color: #FFF8E7;
@@ -106,10 +109,22 @@ class ExportDialog(QDialog):
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #3D2A20, stop:1 #2D1F18);
             }
+            QPushButton#ghost {
+                background: transparent;
+                color: #5D4037;
+                border: 1px solid #D4AF37;
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 12px;
+                font-weight: normal;
+            }
+            QPushButton#ghost:hover {
+                background: #F3E9CF;
+            }
         """)
 
         layout = QVBoxLayout()
-        layout.setSpacing(15)
+        layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
 
         title_label = QLabel('导出排盘结果')
@@ -121,6 +136,7 @@ class ExportDialog(QDialog):
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
 
+        # ---------- 导出格式 ----------
         format_group = QGroupBox('导出格式')
         format_layout = QVBoxLayout()
 
@@ -138,93 +154,83 @@ class ExportDialog(QDialog):
         format_group.setLayout(format_layout)
         layout.addWidget(format_group)
 
-        content_group = QGroupBox('导出内容')
+        # ---------- 导出内容（可选章节） ----------
+        content_group = QGroupBox('导出内容（勾选章节）')
         content_layout = QVBoxLayout()
 
-        self.basic_check = QCheckBox('基本信息')
-        self.basic_check.setChecked(True)
-        self.basic_check.setEnabled(False)
+        quick_row = QHBoxLayout()
+        self.select_all_btn = QPushButton('全选')
+        self.select_all_btn.setObjectName('ghost')
+        self.select_all_btn.clicked.connect(lambda: self._set_all(True))
+        self.select_none_btn = QPushButton('全不选')
+        self.select_none_btn.setObjectName('ghost')
+        self.select_none_btn.clicked.connect(lambda: self._set_all(False))
+        quick_row.addStretch()
+        quick_row.addWidget(self.select_all_btn)
+        quick_row.addWidget(self.select_none_btn)
+        content_layout.addLayout(quick_row)
 
-        self.bazi_check = QCheckBox('四柱八字')
-        self.bazi_check.setChecked(True)
-        self.bazi_check.setEnabled(False)
-
-        self.wuxing_check = QCheckBox('五行分布')
-        self.wuxing_check.setChecked(True)
-        self.wuxing_check.setEnabled(False)
-
-        self.shishen_check = QCheckBox('十神分析')
-        self.shishen_check.setChecked(True)
-        self.shishen_check.setEnabled(False)
-
-        self.geju_check = QCheckBox('命局格局')
-        self.geju_check.setChecked(True)
-        self.geju_check.setEnabled(False)
-
-        content_layout.addWidget(self.basic_check)
-        content_layout.addWidget(self.bazi_check)
-        content_layout.addWidget(self.wuxing_check)
-        content_layout.addWidget(self.shishen_check)
-        content_layout.addWidget(self.geju_check)
+        # 章节勾选（2 列网格），与 ui.export.base_exporter.CHAPTERS 对应
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
+        self._checks = {}
+        for i, (key, label) in enumerate(CHAPTERS):
+            cb = QCheckBox(label)
+            cb.setChecked(True)
+            grid.addWidget(cb, i // 2, i % 2)
+            self._checks[key] = cb
+        content_layout.addLayout(grid)
 
         content_group.setLayout(content_layout)
         layout.addWidget(content_group)
 
+        # ---------- 文件名 ----------
         filename_group = QGroupBox('文件名')
         filename_layout = QHBoxLayout()
-
         filename_layout.addWidget(QLabel('前缀:'))
-
         self.filename_edit = QLineEdit()
-        self.filename_edit.setText(f"八字排盘_{self.data['input']['name']}")
+        _dft = self.data.get('basic_info', {}).get('solar_date') or '八字排盘'
+        self.filename_edit.setText(f"八字排盘_{_dft}")
         filename_layout.addWidget(self.filename_edit)
-
         filename_group.setLayout(filename_layout)
         layout.addWidget(filename_group)
 
+        # ---------- 按钮 ----------
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-
         self.export_btn = QPushButton('导出')
         self.export_btn.clicked.connect(self.on_export)
         button_layout.addWidget(self.export_btn)
-
         self.cancel_btn = QPushButton('取消')
         self.cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_btn)
-
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
+    def _set_all(self, checked: bool):
+        for cb in self._checks.values():
+            cb.setChecked(checked)
+
+    def get_selected_chapters(self):
+        """返回勾选的章节 key 列表"""
+        return [key for key, cb in self._checks.items() if cb.isChecked()]
+
     def on_export(self):
         if self.csv_radio.isChecked():
             format_type = 'csv'
-            file_filter = 'CSV Files (*.csv)'
-            default_ext = '.csv'
         elif self.excel_radio.isChecked():
             format_type = 'excel'
-            file_filter = 'Excel Files (*.xlsx)'
-            default_ext = '.xlsx'
         else:
             format_type = 'pdf'
-            file_filter = 'PDF Files (*.pdf)'
-            default_ext = '.pdf'
 
-        filename = self.filename_edit.text().strip()
-        if not filename:
-            filename = f"八字排盘_{self.data['input']['name']}"
+        if not self.get_selected_chapters():
+            QMessageBox.warning(self, '请选择章节', '至少勾选一个导出章节。')
+            return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            '导出文件',
-            filename + default_ext,
-            file_filter
-        )
-
-        if file_path:
-            self.export_signal.emit(format_type)
-            self.accept()
+        self.export_signal.emit(format_type)
+        self.accept()
 
     def get_selected_format(self):
         if self.csv_radio.isChecked():

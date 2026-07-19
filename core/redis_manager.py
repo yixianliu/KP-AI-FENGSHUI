@@ -9,8 +9,16 @@ import configparser
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-import redis
-from redis.exceptions import RedisError, ConnectionError
+# 惰性导入：未安装 redis 时仅将引用置为 None / 退化的 Exception，
+# 不影响本模块及其上层（analysis_pipeline / main_window）的导入与启动；
+# 只有在真正建立 Redis 连接（AI 异步分析队列）时才会报错提示安装。
+try:
+    import redis
+    from redis.exceptions import RedisError, ConnectionError
+except ImportError:
+    redis = None
+    RedisError = Exception
+    ConnectionError = Exception
 
 logger = logging.getLogger(__name__)
 
