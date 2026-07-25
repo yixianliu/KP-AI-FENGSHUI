@@ -16,3 +16,16 @@ core/__pycache__
 utils/__pycache__
 ui/components/__pycache__
 /.workbuddy/
+
+# ---- 构建产物（不入库） ----
+/dist/
+/build/
+
+# ---- 运行时错误日志 ----
+runtime_error.log
+
+# ---- 根级字节码 ----
+*.pyc
+
+# ---- 误建的 Windows 保留名文件（无法常规删除，需手动清理） ----
+/nul
