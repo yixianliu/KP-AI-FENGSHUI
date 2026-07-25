@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QStackedWidget, QSplitter, QScrollArea,
                                QMessageBox, QGraphicsDropShadowEffect)
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont, QColor, QIcon
+from pathlib import Path
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
@@ -22,14 +23,12 @@ from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
 from core.bazi_calculator import BaziCalculator
 from core.lunar_converter import LunarConverter
-from core.solar_time import SolarTimeCalculator
+from core.calendar_utils import SolarTimeCalculator
 from core.location_db import LocationDB
 from core.meihua import MeiHuaCalculator
 from core.hexagram_analyzer import HexagramAnalyzer
 from core.liuren import LiuRenCalculator
 from core.database_manager import DatabaseManager
-from core.redis_manager import get_redis_manager, RedisManager, RedisConnectionError, RedisOperationError
-from core.storage_backend import get_storage_manager, StorageBackendError
 from core.log_handler import setup_app_logging
 from datetime import datetime
 import traceback
@@ -52,7 +51,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 700)
         self.resize(1400, 900)
         self.setStyleSheet(Stylesheets.MAIN)
-
+        
+        # 设置窗口图标（统一使用项目根目录下的 favicon.ico）
+        icon_path = Path(__file__).resolve().parent.parent / 'favicon.ico'
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+        
         # 用户状态
         self.current_user_id = None
         self.current_username = None
@@ -70,14 +74,7 @@ class MainWindow(QMainWindow):
 
         self._init_fonts()
         self._init_core()
-        # 初始化存储管理器单例（从 config.ini [storage] 读取初始后端）
-        try:
-            get_storage_manager()
-            self._logger.info(f"存储管理器初始化完成，当前后端：{get_storage_manager().backend_type}")
-        except Exception as e:
-            self._logger.warning(f"存储管理器初始化失败：{e}")
         self._init_ui()
-        self._init_redis_polling()
         self._connect_signals()
         # 还原上次的界面配置（窗口几何 + 分栏比例 + 最近板块）
         self._restore_ui_settings()
@@ -104,16 +101,37 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"数据库初始化失败: {e}")
             self.db_manager = None
-        # 初始化Redis管理器
-        try:
-            self.redis_manager = get_redis_manager()
-            if self.redis_manager.test_connection():
-                print("Redis连接成功")
-            else:
-                print("Redis连接失败")
-        except Exception as e:
-            print(f"Redis初始化失败: {e}")
-            self.redis_manager = None
+        # 最近一次排盘记录 ID（供 AI 回调更新 ai_json）
+        self._last_bazi_record_id = None
+        self._last_meihua_record_id = None
+        self._last_liuren_record_id = None
+        # ===== R4: AI 降级检测 =====
+        self._ai_available = self._check_ai_availability()
+        self._update_ai_buttons_state()
+
+    def _check_ai_availability(self) -> bool:
+        """探测 config.ini 是否包含 [agnes] 配置段（AI 分析所需）。"""
+        import configparser
+        from pathlib import Path
+        cfg = configparser.ConfigParser()
+        project_root = Path(__file__).resolve().parent.parent
+        config_path = project_root / 'config.ini'
+        cfg.read(str(config_path), encoding='utf-8')
+        return cfg.has_section('agnes')
+
+    def _update_ai_buttons_state(self):
+        """根据 AI 可用性更新结果面板上的 AI 分析按钮状态"""
+        if not self._ai_available:
+            msg = 'AI 功能当前不可用，请检查 config.ini 中的 [agnes] 配置'
+            if hasattr(self, 'bazi_result'):
+                self.bazi_result.ai_analyze_btn.setVisible(False)
+                self.bazi_result.set_ai_status_message(msg)
+            if hasattr(self, 'meihua_result'):
+                self.meihua_result.ai_analyze_btn.setVisible(False)
+                self.meihua_result.set_ai_status_message(msg)
+            if hasattr(self, 'liuren_result'):
+                self.liuren_result.ai_analyze_btn.setVisible(False)
+                self.liuren_result.set_ai_status_message(msg)
 
     # ===== AI worker 线程生命周期管理 =====
 
@@ -162,13 +180,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """关闭窗口前停止轮询定时器并安全终止所有 AI 线程。"""
-        for timer_attr in ('_bazi_polling_timer', '_meihua_polling_timer', '_liuren_polling_timer'):
-            timer = getattr(self, timer_attr, None)
-            if timer is not None:
-                try:
-                    timer.stop()
-                except RuntimeError:
-                    pass
         self._shutdown_workers()
         # 退出前持久化界面配置到当前激活存储后端
         self._save_ui_settings()
@@ -185,7 +196,7 @@ class MainWindow(QMainWindow):
     def _save_ui_settings(self) -> bool:
         """把窗口几何、分栏比例、当前板块写入当前激活后端。"""
         try:
-            mgr = get_storage_manager()
+            mgr = self.db_manager
             if mgr is None:
                 return False
             geo = self.geometry()
@@ -212,7 +223,7 @@ class MainWindow(QMainWindow):
     def _restore_ui_settings(self):
         """启动时还原上次的界面配置。还原失败静默忽略。"""
         try:
-            mgr = get_storage_manager()
+            mgr = self.db_manager
             if mgr is None:
                 return
             s = mgr.load_ui_settings()
@@ -242,7 +253,7 @@ class MainWindow(QMainWindow):
     def _log_op(self, op_type: str, op_object: str = '', detail: str = None) -> bool:
         """记录一条操作记录到当前激活后端（失败静默降级，不阻断 UI）。"""
         try:
-            mgr = get_storage_manager()
+            mgr = self.db_manager
             if mgr is None:
                 return False
             ok = mgr.save_operation_log(
@@ -620,10 +631,10 @@ class MainWindow(QMainWindow):
             self._logger.error(f"[关于] 打开关于对话框失败：{e}")
             traceback.print_exc()
 
-    def _save_pan_record(self, data: dict, result: dict, pan_type: str):
-        """保存排盘记录到数据库"""
+    def _save_pan_record(self, data: dict, result: dict, pan_type: str, ai_result: dict = None):
+        """保存排盘记录到数据库。返回值: record_id 或 None"""
         if not self.db_manager or self.current_user_id is None:
-            return
+            return None
 
         try:
             birth_date = f"{data.get('year', '')}-{data.get('month', ''):02d}-{data.get('day', ''):02d}"
@@ -637,10 +648,18 @@ class MainWindow(QMainWindow):
                 birth_time=birth_time,
                 city=data.get('location') or data.get('city', ''),
                 pan_type=pan_type,
-                result=result
+                result=result,
+                ai_analysis=ai_result
             )
 
             if record_id:
+                # 记录当前模块的最后一条 record_id，供 AI 回调更新 ai_json
+                if pan_type == '八字排盘':
+                    self._last_bazi_record_id = record_id
+                elif pan_type == '梅花易数':
+                    self._last_meihua_record_id = record_id
+                elif pan_type == '大六壬':
+                    self._last_liuren_record_id = record_id
                 self.statusBar().showMessage(f'排盘完成 · 已保存到数据库 · 记录ID: {record_id}')
             else:
                 self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
@@ -648,30 +667,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._logger.error(f"[排盘] 保存排盘记录失败: {e}", exc_info=True)
             self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
+            return None
+
+        return record_id
 
     # ===== 八字 =====
     def _on_bazi(self):
         try:
             data = self.bazi_input.get_data()
             task_id = str(uuid.uuid4())
-            self._save_bazi_input_to_redis(task_id, data)
             self.bazi_result.show_loading()
             QTimer.singleShot(80, lambda: self._do_bazi(data, task_id))
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
-
-    def _save_bazi_input_to_redis(self, task_id: str, data: dict):
-        """将八字排盘输入数据保存到Redis"""
-        if not self.redis_manager:
-            return
-        try:
-            self.redis_manager.set_task_input('bazi', task_id, data)
-            self.redis_manager.set_task_status('bazi', task_id, 'pending')
-            print(f"八字排盘数据已存入Redis: bazi:input:{task_id}")
-        except (RedisConnectionError, RedisOperationError) as e:
-            print(f"Redis存储失败: {e}")
-            self.statusBar().showMessage(f'数据缓存失败: {e}')
 
     def _do_bazi(self, data, task_id=None):
         try:
@@ -698,7 +707,7 @@ class MainWindow(QMainWindow):
                 y, m, d = sol
 
             dt = datetime(y, m, d, hh, mm)
-            sdt = self.solar_calc.get_solar_time(dt, longitude)
+            sdt = self.solar_calc.get_true_solar_time(dt, longitude)
 
             bazi = self.bazi_calc.calculate(y, m, d, hh, mm, longitude, is_lunar=False)
             li = self.lunar_conv.solar_to_lunar(y, m, d)
@@ -782,11 +791,6 @@ class MainWindow(QMainWindow):
                 'bazi_types': bazi_types,
                 'yuncheng': yuncheng,
             }
-            self.bazi_result.display_result(result)
-            self.statusBar().showMessage(
-                f'排盘完成 · {data.get("location") or "出生地未填"} {y}年{m}月{d}日'
-            )
-
             self._save_pan_record(data, result, '八字排盘')
 
             # 操作记录（写入当前激活存储后端，算命内容本身不进统一层）
@@ -813,7 +817,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('排盘完成 · 正在自动进行AI深度分析…')
 
             task_id = str(uuid.uuid4())
-            self._save_bazi_input_to_redis(task_id, input_data)
 
             self._bazi_ai_worker = AiAnalysisWorker('bazi', input_data, chart_data, task_id)
             self._bazi_ai_worker.progress_updated.connect(self._on_bazi_ai_progress)
@@ -968,58 +971,74 @@ class MainWindow(QMainWindow):
         try:
             data = self.meihua_input.get_data()
             task_id = str(uuid.uuid4())
-            self._save_meihua_input_to_redis(task_id, data)
             self.meihua_result.show_loading()
             QTimer.singleShot(80, lambda: self._do_meihua(data, task_id))
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
 
-    def _save_meihua_input_to_redis(self, task_id: str, data: dict):
-        """将梅花易数起卦数据保存到Redis"""
-        if not self.redis_manager:
-            return
-        try:
-            self.redis_manager.set_task_input('meihua', task_id, data)
-            self.redis_manager.set_task_status('meihua', task_id, 'pending')
-            print(f"梅花易数数据已存入Redis: meihua:input:{task_id}")
-        except (RedisConnectionError, RedisOperationError) as e:
-            print(f"Redis存储失败: {e}")
-            self.statusBar().showMessage(f'数据缓存失败: {e}')
 
     def _do_meihua(self, data, task_id=None):
         try:
-            method, q = data['method'], data.get('question', '')
-            now = datetime.now()
+            method = data.get('method')
+            if not method:
+                raise ValueError("起卦方式未选择")
+
+            q = data.get('question', '')
+
+            # 按起卦方式分发到不同算法
             hr = None
-            
-            if method == 'time':
-                hr = self.meihua_calc.time_divination(
-                    data.get('year', now.year), data.get('month', now.month),
-                    data.get('day', now.day), data.get('hour', now.hour), q)
-            elif method == 'number':
-                nums = [data.get('num1', 3), data.get('num2', 5)]
-                if 'num3' in data: nums.append(data['num3'])
-                if 'numbers' in data: nums = data['numbers']
-                hr = self.meihua_calc.number_divination(nums, q)
-            elif method == 'direction':
-                hr = self.meihua_calc.direction_divination(data.get('direction', '正南方'), q)
-            elif method == 'text':
-                hr = self.meihua_calc.text_divination(data.get('text', '梅花易数'), q)
-            elif method == 'copper_coin':
-                hr = self.meihua_calc.copper_coin_divination(data.get('six_lines', ['少阳']*6), q)
-            elif method == 'stroke':
-                char = data.get('char', '梅')
-                if len(char) != 1 or not ('\u4e00' <= char <= '\u9fff'):
-                    char = '梅'
+            if method == 'stroke':
+                char = data.get('char', '')
+                if not char or len(char) != 1 or not ('\u4e00' <= char <= '\u9fff'):
+                    raise ValueError(f"笔画起卦需输入单个汉字，当前: {char!r}")
                 hr = self.meihua_calc.stroke_divination(char, q)
-            
-            if not hr: return
+            elif method == 'number':
+                numbers = data.get('numbers', [])
+                if not isinstance(numbers, list) or len(numbers) < 2:
+                    raw = data.get('num_input', '')
+                    if raw:
+                        try:
+                            numbers = [int(n.strip()) for n in raw.split(',') if n.strip()]
+                        except ValueError:
+                            pass
+                if not isinstance(numbers, list) or len(numbers) < 2:
+                    raise ValueError("数字起卦需提供至少两个数字")
+                hr = self.meihua_calc.number_divination(numbers, q)
+            elif method == 'direction':
+                direction = data.get('direction', '')
+                if not direction:
+                    raise ValueError("方位起卦需提供方位")
+                hr = self.meihua_calc.direction_divination(direction, q)
+            elif method == 'text':
+                text = data.get('text', '')
+                if not text:
+                    raise ValueError("文字起卦需提供文字内容")
+                hr = self.meihua_calc.text_divination(text, q)
+            elif method == 'copper_coin':
+                six_lines = data.get('six_lines', [])
+                if not six_lines or len(six_lines) != 6:
+                    raise ValueError("铜钱摇卦需提供完整的6爻")
+                hr = self.meihua_calc.copper_coin_divination(six_lines, q)
+            elif method == 'time':
+                year = data.get('year')
+                month = data.get('month')
+                day = data.get('day')
+                hour = data.get('hour')
+                if not all([year, month, day, hour]):
+                    raise ValueError("时间起卦需要完整的年月日时")
+                hr = self.meihua_calc.time_divination(year, month, day, hour, q)
+            else:
+                raise ValueError(f"未知起卦方式: {method}")
+
+            if not hr:
+                return
+
             all_hex = self.meihua_calc.generate_all_hexagrams(hr)
             analysis = self.hexagram_analyzer.analyze_divination(hr, all_hex)
             base = analysis.get('base', {})
             result = {
-                'basic_info': {'method': hr.get('method', ''), 'question': q, 'time': now.strftime('%Y年%m月%d日 %H:%M'), 'moving_yao': ''},
+                'basic_info': {'method': hr.get('method', ''), 'question': q, 'time': datetime.now().strftime('%Y年%m月%d日 %H:%M'), 'moving_yao': ''},
                 'overall': {'level': analysis.get('overall_judgment', '平'), 'overall': base.get('description', '')},
                 'ben_gua': base, 'hu_gua': analysis.get('hu', {}), 'bian_gua': analysis.get('bian', {}),
                 'cuo_gua': analysis.get('cuo', {}), 'zong_gua': analysis.get('zong', {}),
@@ -1030,7 +1049,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('梅花易数起卦完成')
 
             # 保存到数据库（梅花易数也支持保存）
-            self._save_pan_record(data, result, '梅花易数')
+            record_id = self._save_pan_record(data, result, '梅花易数')
+            if record_id:
+                self.statusBar().showMessage(f'梅花易数起卦完成 · 记录ID: {record_id}')
 
             # 操作记录
             self._log_op('meihua_divination', method,
@@ -1056,7 +1077,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('起卦完成 · 正在自动进行AI深度解读…')
 
             task_id = str(uuid.uuid4())
-            self._save_meihua_input_to_redis(task_id, input_data)
 
             self._meihua_ai_worker = AiAnalysisWorker('meihua', input_data, hexagram_data, task_id)
             self._meihua_ai_worker.progress_updated.connect(self._on_meihua_ai_progress)
@@ -1076,24 +1096,12 @@ class MainWindow(QMainWindow):
         try:
             data = self.liuren_input.get_data()
             task_id = str(uuid.uuid4())
-            self._save_liuren_input_to_redis(task_id, data)
             self.liuren_result.show_loading()
             QTimer.singleShot(80, lambda: self._do_liuren(data, task_id))
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
 
-    def _save_liuren_input_to_redis(self, task_id: str, data: dict):
-        """将大六壬起课数据保存到Redis"""
-        if not self.redis_manager:
-            return
-        try:
-            self.redis_manager.set_task_input('liuren', task_id, data)
-            self.redis_manager.set_task_status('liuren', task_id, 'pending')
-            print(f"大六壬数据已存入Redis: liuren:input:{task_id}")
-        except (RedisConnectionError, RedisOperationError) as e:
-            print(f"Redis存储失败: {e}")
-            self.statusBar().showMessage(f'数据缓存失败: {e}')
 
     def _do_liuren(self, data, task_id=None):
         try:
@@ -1112,7 +1120,9 @@ class MainWindow(QMainWindow):
                 return
             self.liuren_result.display_result(hr)
             self.statusBar().showMessage('大六壬起课完成')
-            self._save_pan_record(data, hr, '大六壬')
+            record_id = self._save_pan_record(data, hr, '大六壬')
+            if record_id:
+                self.statusBar().showMessage(f'大六壬起课完成 · 记录ID: {record_id}')
             self._log_op('liuren_divination', method, f"question={q}" if q else f"method={method}")
             QTimer.singleShot(300, self._trigger_liuren_auto_ai)
         except Exception as e:
@@ -1132,7 +1142,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('起课完成 · 正在自动进行AI深度解读…')
 
             task_id = str(uuid.uuid4())
-            self._save_liuren_input_to_redis(task_id, input_data)
 
             self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, liuren_data, task_id)
             self._liuren_ai_worker.progress_updated.connect(self._on_liuren_ai_progress)
@@ -1161,7 +1170,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('AI解读进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
-            self._save_liuren_input_to_redis(task_id, input_data)
 
             self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, liuren_data, task_id)
             self._liuren_ai_worker.progress_updated.connect(self._on_liuren_ai_progress)
@@ -1194,9 +1202,19 @@ class MainWindow(QMainWindow):
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
             elapsed = result.get('elapsed_seconds', 0)
+
+            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
+            if self.db_manager and self.current_user_id and hasattr(self, '_last_liuren_record_id'):
+                try:
+                    last_id = self._last_liuren_record_id
+                    if last_id:
+                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
+                except Exception as e:
+                    self._logger.warning(f"[AI] 更新六壬AI分析结果到数据库失败: {e}")
+
             self.statusBar().showMessage(
                 f'AI解读完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒 · 结果已同步至Redis'
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
             self.statusBar().showMessage(f'显示AI分析结果失败: {e}')
@@ -1240,7 +1258,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('AI分析进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
-            self._save_bazi_input_to_redis(task_id, input_data)
 
             self._bazi_ai_worker = AiAnalysisWorker('bazi', input_data, chart_data, task_id)
             self._bazi_ai_worker.progress_updated.connect(self._on_bazi_ai_progress)
@@ -1274,9 +1291,19 @@ class MainWindow(QMainWindow):
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
             elapsed = result.get('elapsed_seconds', 0)
+
+            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
+            if self.db_manager and self.current_user_id and hasattr(self, '_last_bazi_record_id'):
+                try:
+                    last_id = self._last_bazi_record_id
+                    if last_id:
+                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
+                except Exception as e:
+                    self._logger.warning(f"[AI] 更新八字AI分析结果到数据库失败: {e}")
+
             self.statusBar().showMessage(
                 f'AI分析完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒 · 结果已同步至Redis'
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
             self.statusBar().showMessage(f'显示AI分析结果失败: {e}')
@@ -1318,7 +1345,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('AI解读进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
-            self._save_meihua_input_to_redis(task_id, input_data)
 
             self._meihua_ai_worker = AiAnalysisWorker('meihua', input_data, hexagram_data, task_id)
             self._meihua_ai_worker.progress_updated.connect(self._on_meihua_ai_progress)
@@ -1352,9 +1378,19 @@ class MainWindow(QMainWindow):
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
             elapsed = result.get('elapsed_seconds', 0)
+
+            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
+            if self.db_manager and self.current_user_id and hasattr(self, '_last_meihua_record_id'):
+                try:
+                    last_id = self._last_meihua_record_id
+                    if last_id:
+                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
+                except Exception as e:
+                    self._logger.warning(f"[AI] 更新梅花AI分析结果到数据库失败: {e}")
+
             self.statusBar().showMessage(
                 f'AI解读完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒 · 结果已同步至Redis'
+                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
             self.statusBar().showMessage(f'显示AI解读结果失败: {e}')
@@ -1382,210 +1418,3 @@ class MainWindow(QMainWindow):
 
         QMessageBox.warning(self, title, short_msg)
 
-    # ===== Redis轮询机制 =====
-
-    def _init_redis_polling(self):
-        """初始化Redis轮询定时器"""
-        self._bazi_polling_timer = QTimer(self)
-        self._bazi_polling_timer.setInterval(1000)
-        self._bazi_polling_timer.timeout.connect(self._poll_bazi_result)
-        self._bazi_polling_task_id = None
-        self._bazi_polling_retry_count = 0
-        self._bazi_polling_max_retries = 30
-
-        self._meihua_polling_timer = QTimer(self)
-        self._meihua_polling_timer.setInterval(1000)
-        self._meihua_polling_timer.timeout.connect(self._poll_meihua_result)
-        self._meihua_polling_task_id = None
-        self._meihua_polling_retry_count = 0
-        self._meihua_polling_max_retries = 30
-
-    def _start_bazi_polling(self, task_id: str):
-        """开始八字分析结果轮询"""
-        self._bazi_polling_task_id = task_id
-        self._bazi_polling_retry_count = 0
-        self._bazi_polling_timer.start()
-        print(f"开始轮询八字分析结果: {task_id}")
-
-    def _start_meihua_polling(self, task_id: str):
-        """开始梅花易数分析结果轮询"""
-        self._meihua_polling_task_id = task_id
-        self._meihua_polling_retry_count = 0
-        self._meihua_polling_timer.start()
-        print(f"开始轮询梅花易数分析结果: {task_id}")
-
-    def _stop_bazi_polling(self):
-        """停止八字分析结果轮询"""
-        self._bazi_polling_timer.stop()
-        self._bazi_polling_task_id = None
-        self._bazi_polling_retry_count = 0
-
-    def _stop_meihua_polling(self):
-        """停止梅花易数分析结果轮询"""
-        self._meihua_polling_timer.stop()
-        self._meihua_polling_task_id = None
-        self._meihua_polling_retry_count = 0
-
-    def _poll_bazi_result(self):
-        """轮询八字分析结果"""
-        if not self._bazi_polling_task_id or not self.redis_manager:
-            self._stop_bazi_polling()
-            return
-
-        self._bazi_polling_retry_count += 1
-
-        try:
-            status = self.redis_manager.get_task_status('bazi', self._bazi_polling_task_id)
-            result = self.redis_manager.get_task_result('bazi', self._bazi_polling_task_id)
-
-            if status == 'completed' and result:
-                self._stop_bazi_polling()
-                self._handle_bazi_redis_result(result)
-                return
-
-            if status == 'failed' and result:
-                self._stop_bazi_polling()
-                self._handle_bazi_redis_error(result)
-                return
-
-            if self._bazi_polling_retry_count >= self._bazi_polling_max_retries:
-                self._stop_bazi_polling()
-                self.statusBar().showMessage('八字分析超时，请重试')
-                QMessageBox.warning(self, '超时', 'AI分析超时，请重试')
-                return
-
-            self.statusBar().showMessage(
-                f'AI分析进行中... ({self._bazi_polling_retry_count}/{self._bazi_polling_max_retries})'
-            )
-
-        except (RedisConnectionError, RedisOperationError) as e:
-            self._stop_bazi_polling()
-            self.statusBar().showMessage(f'Redis连接错误: {e}')
-        except Exception as e:
-            self._stop_bazi_polling()
-            self.statusBar().showMessage(f'轮询错误: {e}')
-
-    def _poll_meihua_result(self):
-        """轮询梅花易数分析结果"""
-        if not self._meihua_polling_task_id or not self.redis_manager:
-            self._stop_meihua_polling()
-            return
-
-        self._meihua_polling_retry_count += 1
-
-        try:
-            status = self.redis_manager.get_task_status('meihua', self._meihua_polling_task_id)
-            result = self.redis_manager.get_task_result('meihua', self._meihua_polling_task_id)
-
-            if status == 'completed' and result:
-                self._stop_meihua_polling()
-                self._handle_meihua_redis_result(result)
-                return
-
-            if status == 'failed' and result:
-                self._stop_meihua_polling()
-                self._handle_meihua_redis_error(result)
-                return
-
-            if self._meihua_polling_retry_count >= self._meihua_polling_max_retries:
-                self._stop_meihua_polling()
-                self.statusBar().showMessage('梅花易数解读超时，请重试')
-                QMessageBox.warning(self, '超时', 'AI解读超时，请重试')
-                return
-
-            self.statusBar().showMessage(
-                f'AI解读进行中... ({self._meihua_polling_retry_count}/{self._meihua_polling_max_retries})'
-            )
-
-        except (RedisConnectionError, RedisOperationError) as e:
-            self._stop_meihua_polling()
-            self.statusBar().showMessage(f'Redis连接错误: {e}')
-        except Exception as e:
-            self._stop_meihua_polling()
-            self.statusBar().showMessage(f'轮询错误: {e}')
-
-    def _handle_bazi_redis_result(self, result: dict):
-        """处理从Redis获取的八字分析结果"""
-        try:
-            ai_analysis = result.get('ai_analysis', {})
-            self.bazi_result.display_ai_result(ai_analysis)
-
-            token_usage = result.get('token_usage', 0)
-            report_id = result.get('report_id', 0)
-            self.statusBar().showMessage(
-                f'AI分析完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage}'
-            )
-        except Exception as e:
-            self.statusBar().showMessage(f'显示AI分析结果失败: {e}')
-            traceback.print_exc()
-
-    def _handle_bazi_redis_error(self, result: dict):
-        """处理从Redis获取的八字分析错误"""
-        error_type = result.get('error_type', 'unknown')
-        error_message = result.get('error_message', '未知错误')
-
-        self.bazi_result.display_result(getattr(self.bazi_result, '_current_result', {}))
-        self.bazi_result.ai_analyze_btn.setVisible(True)
-        self.bazi_result.ai_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'AI分析失败: {error_type}')
-
-        error_titles = {
-            'validation_error': '数据验证失败',
-            'ai_timeout': 'AI请求超时',
-            'ai_request_error': 'AI请求失败',
-            'ai_response_error': 'AI响应解析失败',
-            'db_connection_error': '数据库连接异常',
-            'db_query_error': '数据库操作异常',
-            'redis_error': 'Redis连接错误',
-            'timeout': '分析超时',
-        }
-        title = error_titles.get(error_type, '分析失败')
-
-        msg_lines = error_message.split('\n')
-        short_msg = msg_lines[0] if msg_lines else error_message
-
-        QMessageBox.warning(self, title, short_msg)
-
-    def _handle_meihua_redis_result(self, result: dict):
-        """处理从Redis获取的梅花易数分析结果"""
-        try:
-            ai_analysis = result.get('ai_analysis', {})
-            self.meihua_result.display_ai_analysis_result(ai_analysis)
-
-            token_usage = result.get('token_usage', 0)
-            report_id = result.get('report_id', 0)
-            self.statusBar().showMessage(
-                f'AI解读完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage}'
-            )
-        except Exception as e:
-            self.statusBar().showMessage(f'显示AI解读结果失败: {e}')
-            traceback.print_exc()
-
-    def _handle_meihua_redis_error(self, result: dict):
-        """处理从Redis获取的梅花易数分析错误"""
-        error_type = result.get('error_type', 'unknown')
-        error_message = result.get('error_message', '未知错误')
-
-        self.meihua_result.display_result(getattr(self.meihua_result, '_current_result', {}))
-        self.meihua_result.ai_analyze_btn.setVisible(True)
-        self.meihua_result.ai_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'AI解读失败: {error_type}')
-
-        error_titles = {
-            'validation_error': '数据验证失败',
-            'ai_timeout': 'AI请求超时',
-            'ai_request_error': 'AI请求失败',
-            'ai_response_error': 'AI响应解析失败',
-            'db_connection_error': '数据库连接异常',
-            'db_query_error': '数据库操作异常',
-            'redis_error': 'Redis连接错误',
-            'timeout': '解读超时',
-        }
-        title = error_titles.get(error_type, '解读失败')
-
-        msg_lines = error_message.split('\n')
-        short_msg = msg_lines[0] if msg_lines else error_message
-
-        QMessageBox.warning(self, title, short_msg)

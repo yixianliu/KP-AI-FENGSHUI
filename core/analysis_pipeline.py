@@ -26,7 +26,6 @@ from core.analysis_storage import (
 )
 from core.data_integration import DataIntegrator
 from core.knowledge_base import KnowledgeBase
-from core.redis_manager import get_redis_manager, RedisManager, RedisConnectionError, RedisOperationError
 
 
 def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
@@ -103,20 +102,43 @@ class AnalysisPipeline:
         logger.info("[分析流程] 初始化数据分析流程")
         logger.info("=" * 60)
 
+        # ===== AI 降级探测 =====
+        self.ai_enabled = True
+        self._ai_disabled_reasons = []
+
+        # 探测 config.ini 关键配置段
+        if config_path is None:
+            config_path = str(Path(__file__).resolve().parent.parent / 'config.ini')
+        else:
+            config_path = str(Path(config_path))
+
+        import configparser
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path, encoding='utf-8')
+
+        # 注：本地 SQLite 存储（AnalysisStorage）始终可用，无需外部服务。
+        # AI 是否启用仅取决于 [agnes] 配置段。
+        if not cfg.has_section('agnes'):
+            self.ai_enabled = False
+            self._ai_disabled_reasons.append('[agnes]')
+
+        if self._ai_disabled_reasons:
+            logger.warning(f"[分析流程] AI 已禁用，缺失配置段: {', '.join(self._ai_disabled_reasons)}")
+        else:
+            logger.info("[分析流程] 配置完整性检测通过")
+
         try:
             self.validator = DataValidator()
-            self.storage = AnalysisStorage(config_path)
-            self.agnes_client = AgnesClient(verify_ssl=False)
-            self.redis_manager = get_redis_manager(config_path)
-            if self.redis_manager.test_connection():
-                logger.info("[分析流程] Redis连接成功")
-            else:
-                logger.warning("[分析流程] Redis连接失败，将使用MySQL作为存储")
-            logger.info("[分析流程] 所有模块初始化成功")
+            self.storage = AnalysisStorage(config_path) if self.ai_enabled else None
+            self.agnes_client = AgnesClient(verify_ssl=False) if self.ai_enabled else None
+            logger.info("[分析流程] 所有模块初始化完成")
         except Exception as e:
             logger.error(f"[分析流程] 初始化失败: {e}")
             logger.error(traceback.format_exc())
-            raise AnalysisPipelineError(f"分析流程初始化失败: {e}") from e
+            if not self.ai_enabled:
+                logger.warning("[分析流程] 已处于降级模式，不抛出异常")
+            else:
+                raise AnalysisPipelineError(f"分析流程初始化失败: {e}") from e
 
     # ==================== 八字分析流程 ====================
 
@@ -132,7 +154,7 @@ class AnalysisPipeline:
         Args:
             input_data: 输入数据字典
             chart_data: 预计算的排盘数据（可选）
-            task_id: 任务ID，用于Redis数据关联
+            task_id: 任务ID（用于日志关联，可选）
 
         Returns:
             分析结果字典，包含 report_id, ai_analysis 等
@@ -164,8 +186,6 @@ class AnalysisPipeline:
             else:
                 self.storage.add_log(report_id, 'INFO', '排盘数据已准备')
 
-            self._update_redis_status('bazi', task_id, 'analyzing')
-
             ai_result = self._call_agnes_for_bazi(input_data, chart_data)
 
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
@@ -191,15 +211,6 @@ class AnalysisPipeline:
                 ai_model=self.agnes_client.model,
                 token_usage=token_usage
             )
-
-            self._save_redis_result('bazi', task_id, {
-                'success': True,
-                'report_id': report_id,
-                'ai_analysis': ai_analysis,
-                'chart_data': chart_data,
-                'token_usage': token_usage
-            })
-            self._update_redis_status('bazi', task_id, 'completed')
 
             elapsed = (datetime.now() - start_time).total_seconds()
             logger.info(f"[八字分析] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
@@ -272,12 +283,6 @@ class AnalysisPipeline:
                     })
                 except Exception:
                     pass
-            self._update_redis_status('bazi', task_id, 'failed')
-            self._save_redis_result('bazi', task_id, {
-                'success': False,
-                'error_type': 'unknown_error',
-                'error_message': error_msg
-            })
             return self._build_error_result(report_id, 'unknown_error', error_msg, start_time)
 
     def _call_agnes_for_bazi(
@@ -516,7 +521,7 @@ class AnalysisPipeline:
         Args:
             input_data: 输入数据字典
             hexagram_data: 预计算的卦象数据（可选）
-            task_id: 任务ID，用于Redis数据关联
+            task_id: 任务ID（用于日志关联，可选）
 
         Returns:
             分析结果字典
@@ -545,8 +550,6 @@ class AnalysisPipeline:
             if hexagram_data is None:
                 hexagram_data = {}
 
-            self._update_redis_status('meihua', task_id, 'analyzing')
-
             ai_result = self._call_agnes_for_meihua(input_data, hexagram_data)
 
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
@@ -572,15 +575,6 @@ class AnalysisPipeline:
                 ai_model=self.agnes_client.model,
                 token_usage=token_usage
             )
-
-            self._save_redis_result('meihua', task_id, {
-                'success': True,
-                'report_id': report_id,
-                'ai_analysis': ai_analysis,
-                'hexagram_data': hexagram_data,
-                'token_usage': token_usage
-            })
-            self._update_redis_status('meihua', task_id, 'completed')
 
             elapsed = (datetime.now() - start_time).total_seconds()
             logger.info(f"[梅花易数] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
@@ -608,12 +602,6 @@ class AnalysisPipeline:
                     })
                 except Exception:
                     pass
-            self._update_redis_status('meihua', task_id, 'failed')
-            self._save_redis_result('meihua', task_id, {
-                'success': False,
-                'error_type': type(e).__name__,
-                'error_message': error_msg
-            })
             return self._build_error_result(report_id, type(e).__name__, error_msg, start_time)
 
     def _call_agnes_for_meihua(
@@ -786,8 +774,6 @@ class AnalysisPipeline:
             if liuren_data is None:
                 liuren_data = {}
 
-            self._update_redis_status('liuren', task_id, 'analyzing')
-
             ai_result = self._call_agnes_for_liuren(input_data, liuren_data)
 
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
@@ -813,15 +799,6 @@ class AnalysisPipeline:
                 ai_model=self.agnes_client.model,
                 token_usage=token_usage
             )
-
-            self._save_redis_result('liuren', task_id, {
-                'success': True,
-                'report_id': report_id,
-                'ai_analysis': ai_analysis,
-                'liuren_data': liuren_data,
-                'token_usage': token_usage
-            })
-            self._update_redis_status('liuren', task_id, 'completed')
 
             elapsed = (datetime.now() - start_time).total_seconds()
             logger.info(f"[大六壬] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
@@ -849,12 +826,6 @@ class AnalysisPipeline:
                     })
                 except Exception:
                     pass
-            self._update_redis_status('liuren', task_id, 'failed')
-            self._save_redis_result('liuren', task_id, {
-                'success': False,
-                'error_type': type(e).__name__,
-                'error_message': error_msg
-            })
             return self._build_error_result(report_id, type(e).__name__, error_msg, start_time)
 
     def _call_agnes_for_liuren(
@@ -1142,95 +1113,15 @@ class AnalysisPipeline:
             bazi_count = self.storage.get_report_count('bazi')
             meihua_count = self.storage.get_report_count('meihua')
 
-            redis_ok = False
-            if self.redis_manager:
-                try:
-                    redis_ok = self.redis_manager.test_connection()
-                except Exception:
-                    redis_ok = False
-
             return {
                 'total_reports': total,
                 'bazi_reports': bazi_count,
                 'meihua_reports': meihua_count,
-                'database_ok': self.storage.test_connection(),
-                'redis_ok': redis_ok
+                'database_ok': self.storage.test_connection()
             }
         except Exception as e:
             logger.error(f"[分析流程] 获取统计信息失败: {e}")
             return {'error': str(e)}
-
-    def _update_redis_status(self, task_type: str, task_id: str, status: str):
-        """
-        更新Redis中的任务状态
-
-        Args:
-            task_type: 任务类型（bazi/meihua）
-            task_id: 任务ID
-            status: 任务状态（pending/analyzing/completed/failed）
-        """
-        if not self.redis_manager or not task_id:
-            return
-        try:
-            self.redis_manager.set_task_status(task_type, task_id, status)
-            logger.info(f"[分析流程] Redis状态更新: {task_type}:{task_id} -> {status}")
-        except (RedisConnectionError, RedisOperationError) as e:
-            logger.warning(f"[分析流程] Redis状态更新失败: {e}")
-
-    def _save_redis_result(self, task_type: str, task_id: str, result: Dict[str, Any]):
-        """
-        将分析结果保存到Redis
-
-        Args:
-            task_type: 任务类型（bazi/meihua）
-            task_id: 任务ID
-            result: 分析结果数据
-        """
-        if not self.redis_manager or not task_id:
-            return
-        try:
-            self.redis_manager.set_task_result(task_type, task_id, result)
-            logger.info(f"[分析流程] Redis结果保存成功: {task_type}:{task_id}")
-        except (RedisConnectionError, RedisOperationError) as e:
-            logger.warning(f"[分析流程] Redis结果保存失败: {e}")
-
-    def get_task_result_from_redis(self, task_type: str, task_id: str) -> Optional[Dict[str, Any]]:
-        """
-        从Redis获取任务结果
-
-        Args:
-            task_type: 任务类型（bazi/meihua）
-            task_id: 任务ID
-
-        Returns:
-            任务结果字典，如果不存在或获取失败返回None
-        """
-        if not self.redis_manager or not task_id:
-            return None
-        try:
-            return self.redis_manager.get_task_result(task_type, task_id)
-        except (RedisConnectionError, RedisOperationError) as e:
-            logger.warning(f"[分析流程] Redis读取结果失败: {e}")
-            return None
-
-    def get_task_status_from_redis(self, task_type: str, task_id: str) -> Optional[str]:
-        """
-        从Redis获取任务状态
-
-        Args:
-            task_type: 任务类型（bazi/meihua）
-            task_id: 任务ID
-
-        Returns:
-            任务状态字符串，如果不存在或获取失败返回None
-        """
-        if not self.redis_manager or not task_id:
-            return None
-        try:
-            return self.redis_manager.get_task_status(task_type, task_id)
-        except (RedisConnectionError, RedisOperationError) as e:
-            logger.warning(f"[分析流程] Redis读取状态失败: {e}")
-            return None
 
 
 _pipeline_instance = None

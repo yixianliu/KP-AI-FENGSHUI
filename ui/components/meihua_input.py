@@ -367,64 +367,82 @@ class MeihuaInputPanel(QWidget):
                     break
 
     def get_data(self):
+        """获取梅花易数输入数据。若必要数据缺失则抛 ValueError，不调用方做静默兜底。"""
         d = {'method': self.selected_method, 'question': self.question.text().strip()}
-        
+
         # 通用占问分类
         cat_idx = self.question_category.currentIndex()
-        if cat_idx > 0:  # 选择了预设分类
+        if cat_idx > 0:
             d['question_category'] = self.question_category.itemText(cat_idx)
-        
-        if self.selected_method == 'number':
+
+        method = self.selected_method
+
+        if method == 'number':
             d['num1'] = self.num1.value()
             d['num2'] = self.num2.value()
             d['upper_num'] = self.num1.value()
             d['lower_num'] = self.num2.value()
-            # 新增：数字起卦支持3个数字
             if hasattr(self, 'num3'):
                 d['num3'] = self.num3.value()
                 d['numbers'] = [self.num1.value(), self.num2.value(), self.num3.value()]
             else:
                 d['numbers'] = [self.num1.value(), self.num2.value()]
-        elif self.selected_method == 'direction':
+
+        elif method == 'direction':
             d['direction'] = self.dir_combo.currentText()
-        elif self.selected_method == 'text':
-            d['text'] = self.text_edit.text().strip()
+
+        elif method == 'text':
+            text_val = self.text_edit.text().strip()
+            if not text_val:
+                raise ValueError("文字起卦需输入文字内容")
+            d['text'] = text_val
             d['character_mode'] = 'multi' if self.char_mode_combo.currentText() == '多字' else 'single'
-        elif self.selected_method == 'copper_coin':
-            # 铜钱摇卦：收集6爻的结果
+
+        elif method == 'copper_coin':
             six_lines = []
+            coin_btns = getattr(self, 'coin_radio_buttons', [])
             for i in range(6):
-                rb = self.coin_radio_buttons[i]
-                for rbtn in rb:
-                    if rbtn.isChecked():
-                        six_lines.append(rbtn.text())
-                        break
+                if i < len(coin_btns):
+                    rb = coin_btns[i]
+                    for rbtn in rb:
+                        if rbtn.isChecked():
+                            six_lines.append(rbtn.text())
+                            break
             if len(six_lines) == 6:
                 d['six_lines'] = six_lines
             else:
-                d['six_lines'] = ['少阴'] * 6  # 默认全部少阴
-        elif self.selected_method == 'stroke':
-            d['char'] = self.stroke_char_edit.text().strip()
+                filled = len(six_lines)
+                raise ValueError(f"铜钱摇卦需完成6爻，当前仅填{filled}爻")
+
+        elif method == 'stroke':
+            char_val = self.stroke_char_edit.text().strip()
+            if not char_val:
+                raise ValueError("笔画起卦需输入汉字")
+            d['char'] = char_val
             d['stroke_count'] = self.stroke_spin.value()
-        elif self.selected_method == 'time':
+
+        elif method == 'time':
             time_str = self.time_edit.text().strip()
             d['time_str'] = time_str
-            try:
+            if not time_str:
+                # 时间留空则用当前时间（这是合理行为，非兜底）
                 from datetime import datetime as dt
-                parsed = dt.strptime(time_str, '%Y-%m-%d %H:%M')
-                d['year'] = parsed.year
-                d['month'] = parsed.month
-                d['day'] = parsed.day
-                d['hour'] = parsed.hour
-            except (ValueError, TypeError):
                 now = dt.now()
                 d['year'] = now.year
                 d['month'] = now.month
                 d['day'] = now.day
                 d['hour'] = now.hour
-            # 农历/公历选择
+            else:
+                try:
+                    parsed = dt.strptime(time_str, '%Y-%m-%d %H:%M')
+                    d['year'] = parsed.year
+                    d['month'] = parsed.month
+                    d['day'] = parsed.day
+                    d['hour'] = parsed.hour
+                except (ValueError, TypeError):
+                    raise ValueError(f"时间格式错误: {time_str}（需 YYYY-MM-DD HH:MM）")
             d['calendar_type'] = '公历' if self.cal_lunar.isChecked() else '农历'
-        
+
         return d
 
     def clear(self):

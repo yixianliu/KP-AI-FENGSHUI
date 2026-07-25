@@ -1,7 +1,7 @@
 """
 农历转换器 - 适配新UI的简化接口
 """
-from .baazi import BaZiCalculator
+from ._baazi_compat import BaZiCalculator
 
 
 class LunarConverter:

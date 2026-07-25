@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 主背景渐变：黑金古典风 (八字主色调) -->
+    <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1610"/>
+      <stop offset="50%" stop-color="#0e0b08"/>
+      <stop offset="100%" stop-color="#050403"/>
+    </radialGradient>
+    
+    <!-- 金色渐变：用于八卦、太极、装饰线条 -->
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f3d99c"/>
+      <stop offset="30%" stop-color="#d4af6e"/>
+      <stop offset="60%" stop-color="#c49a4a"/>
+      <stop offset="100%" stop-color="#a87d2e"/>
+    </linearGradient>
+    
+    <!-- 金色亮边 -->
+    <linearGradient id="goldBright" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff5d6"/>
+      <stop offset="50%" stop-color="#f3d99c"/>
+      <stop offset="100%" stop-color="#d4af6e"/>
+    </linearGradient>
+    
+    <!-- 阴阳鱼：阳鱼(白/金) -->
+    <radialGradient id="yangFish" cx="35%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#fff5d6"/>
+      <stop offset="100%" stop-color="#f3d99c"/>
+    </radialGradient>
+    
+    <!-- 阴阳鱼：阴鱼(黑/深金) -->
+    <radialGradient id="yinFish" cx="65%" cy="65%" r="60%">
+      <stop offset="0%" stop-color="#2a2518"/>
+      <stop offset="100%" stop-color="#1a1610"/>
+    </radialGradient>
+    
+    <!-- 阳鱼眼 -->
+    <radialGradient id="yangEye" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1610"/>
+      <stop offset="100%" stop-color="#0e0b08"/>
+    </radialGradient>
+    
+    <!-- 阴鱼眼 -->
+    <radialGradient id="yinEye" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f3d99c"/>
+      <stop offset="100%" stop-color="#d4af6e"/>
+    </radialGradient>
+    
+    <!-- 八卦符号金色描边发光 -->
+    <filter id="goldGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 外环发光 -->
+    <filter id="outerGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feFlood flood-color="#d4af6e" flood-opacity="0.6"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 内阴影 -->
+    <filter id="innerShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feOffset dx="2" dy="2"/>
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.5"/>
+      <feComposite in2="blur" operator="in"/>
+      <feComposite in="SourceGraphic" operator="over"/>
+    </filter>
+  </defs>
+  
+  <!-- 背景圆 -->
+  <circle cx="256" cy="256" r="250" fill="url(#bgGradient)" stroke="url(#goldGradient)" stroke-width="4" filter="url(#outerGlow)"/>
+  
+  <!-- 装饰外环：24个山方位标记（中国风罗盘细节） -->
+  <g stroke="url(#goldGradient)" stroke-width="1.5" opacity="0.4">
+    <g transform="translate(256, 256)">
+      <!-- 24山环：每15度一条短线 -->
+      <g id="mountainMarks">
+        <line x1="0" y1="-220" x2="0" y2="-235" stroke-width="2"/>
+        <line x1="0" y1="-210" x2="0" y2="-220" stroke-width="1" opacity="0.3"/>
+      </g>
+      <use href="#mountainMarks" transform="rotate(15)"/>
+      <use href="#mountainMarks" transform="rotate(30)"/>
+      <use href="#mountainMarks" transform="rotate(45)"/>
+      <use href="#mountainMarks" transform="rotate(60)"/>
+      <use href="#mountainMarks" transform="rotate(75)"/>
+      <use href="#mountainMarks" transform="rotate(90)"/>
+      <use href="#mountainMarks" transform="rotate(105)"/>
+      <use href="#mountainMarks" transform="rotate(120)"/>
+      <use href="#mountainMarks" transform="rotate(135)"/>
+      <use href="#mountainMarks" transform="rotate(150)"/>
+      <use href="#mountainMarks" transform="rotate(165)"/>
+      <use href="#mountainMarks" transform="rotate(180)"/>
+      <use href="#mountainMarks" transform="rotate(195)"/>
+      <use href="#mountainMarks" transform="rotate(210)"/>
+      <use href="#mountainMarks" transform="rotate(225)"/>
+      <use href="#mountainMarks" transform="rotate(240)"/>
+      <use href="#mountainMarks" transform="rotate(255)"/>
+      <use href="#mountainMarks" transform="rotate(270)"/>
+      <use href="#mountainMarks" transform="rotate(285)"/>
+      <use href="#mountainMarks" transform="rotate(300)"/>
+      <use href="#mountainMarks" transform="rotate(315)"/>
+      <use href="#mountainMarks" transform="rotate(330)"/>
+      <use href="#mountainMarks" transform="rotate(345)"/>
+      <use href="#mountainMarks" transform="rotate(360)"/>
+    </g>
+  
+  <!-- 内环：先天八卦位置标记（八个方位） -->
+  <g stroke="url(#goldGradient)" stroke-width="2" opacity="0.6" filter="url(#goldGlow)">
+    <g transform="translate(256, 256)">
+      <!-- 乾(南) ☰ - 三阳 -->
+      <g transform="rotate(-90) translate(0, -165)">
+        <line x1="-12" y1="0" x2="12" y2="0"/>
+        <line x1="-12" y1="-6" x2="12" y2="-6"/>
+        <line x1="-12" y1="6" x2="12" y2="6"/>
+      </g>
+      <!-- 坤(北) ☷ - 三阴 -->
+      <g transform="rotate(90) translate(0, -165)">
+        <line x1="-12" y1="0" x2="12" y2="0"/>
+        <line x1="-12" y1="-6" x2="4" y2="-6"/>
+        <line x1="4" y1="-6" x2="12" y2="-6" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="6" x2="4" y2="6"/>
+        <line x1="4" y1="6" x2="12" y2="6" stroke-dasharray="2,2"/>
+      </g>
+      <!-- 震(东) ☳ - 阳爻在下 -->
+      <g transform="rotate(0) translate(0, -165)">
+        <line x1="-12" y1="6" x2="12" y2="6"/>
+        <line x1="-12" y1="-6" x2="4" y2="-6"/>
+        <line x1="4" y1="-6" x2="12" y2="-6" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="0" x2="4" y2="0"/>
+        <line x1="4" y1="0" x2="12" y2="0" stroke-dasharray="2,2"/>
+      </g>
+      <!-- 兑(西) ☱ - 阳爻在上 -->
+      <g transform="rotate(180) translate(0, -165)">
+        <line x1="-12" y1="-6" x2="12" y2="-6"/>
+        <line x1="-12" y1="0" x2="4" y2="0"/>
+        <line x1="4" y1="0" x2="12" y2="0" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="6" x2="4" y2="6"/>
+        <line x1="4" y1="6" x2="12" y2="6" stroke-dasharray="2,2"/>
+      </g>
+      <!-- 坎(西北) ☵ - 阳中阴 -->
+      <g transform="rotate(135) translate(0, -165)">
+        <line x1="-12" y1="-6" x2="12" y2="-6"/>
+        <line x1="-12" y1="0" x2="4" y2="0"/>
+        <line x1="4" y1="0" x2="12" y2="0" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="6" x2="12" y2="6"/>
+      </g>
+      <!-- 离(东南) ☲ - 阴中阳 -->
+      <g transform="rotate(-45) translate(0, -165)">
+        <line x1="-12" y1="-6" x2="4" y2="-6"/>
+        <line x1="4" y1="-6" x2="12" y2="-6" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="0" x2="12" y2="0"/>
+        <line x1="-12" y1="6" x2="4" y2="6"/>
+        <line x1="4" y1="6" x2="12" y2="6" stroke-dasharray="2,2"/>
+      </g>
+      <!-- 艮(东北) ☶ - 阳上阴下 -->
+      <g transform="rotate(45) translate(0, -165)">
+        <line x1="-12" y1="-6" x2="12" y2="-6"/>
+        <line x1="-12" y1="0" x2="4" y2="0"/>
+        <line x1="4" y1="0" x2="12" y2="0" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="6" x2="4" y2="6"/>
+        <line x1="4" y1="6" x2="12" y2="6" stroke-dasharray="2,2"/>
+      </g>
+      <!-- 巽(西南) ☴ - 阴上阳下 -->
+      <g transform="rotate(-135) translate(0, -165)">
+        <line x1="-12" y1="-6" x2="4" y2="-6"/>
+        <line x1="4" y1="-6" x2="12" y2="-6" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="0" x2="4" y2="0"/>
+        <line x1="4" y1="0" x2="12" y2="0" stroke-dasharray="2,2"/>
+        <line x1="-12" y1="6" x2="12" y2="6"/>
+      </g>
+    </g>
+  </g>
+  
+  <!-- 中环：十二地支/生肖简标 -->
+  <g font-family="'STKaiti', 'KaiTi', 'SimSun', serif" font-size="16" fill="url(#goldGradient)" opacity="0.7" text-anchor="middle" dominant-baseline="middle">
+    <g transform="translate(256, 256)">
+      <text x="0" y="-140" transform="rotate(-90)">子</text>
+      <text x="0" y="-140" transform="rotate(-60)">丑</text>
+      <text x="0" y="-140" transform="rotate(-30)">寅</text>
+      <text x="0" y="-140" transform="rotate(0)">卯</text>
+      <text x="0" y="-140" transform="rotate(30)">辰</text>
+      <text x="0" y="-140" transform="rotate(60)">巳</text>
+      <text x="0" y="-140" transform="rotate(90)">午</text>
+      <text x="0" y="-140" transform="rotate(120)">未</text>
+      <text x="0" y="-140" transform="rotate(150)">申</text>
+      <text x="0" y="-140" transform="rotate(180)">酉</text>
+      <text x="0" y="-140" transform="rotate(210)">戌</text>
+      <text x="0" y="-140" transform="rotate(240)">亥</text>
+    </g>
+  </g>
+  
+  <!-- 核心区域：太极八卦图 -->
+  <g transform="translate(256, 256)">
+    <!-- 太极外圈 -->
+    <circle r="110" fill="none" stroke="url(#goldGradient)" stroke-width="3" filter="url(#goldGlow)"/>
+    
+    <!-- 阳鱼（上半部，白/金） -->
+    <path d="M 0 -110 
+             A 110 110 0 0 1 0 110 
+             A 55 55 0 0 0 0 -110 Z" 
+          fill="url(#yangFish)" filter="url(#innerShadow)"/>
+    
+    <!-- 阴鱼（下半部，黑） -->
+    <path d="M 0 110 
+             A 110 110 0 0 1 0 -110 
+             A 55 55 0 0 1 0 110 Z" 
+          fill="url(#yinFish)" filter="url(#innerShadow)"/>
+    
+    <!-- 阳鱼眼（黑点） -->
+    <circle cx="0" cy="-55" r="14" fill="url(#yangEye)"/>
+    
+    <!-- 阴鱼眼（金点） -->
+    <circle cx="0" cy="55" r="14" fill="url(#yinEye)"/>
+    
+    <!-- 八卦符号：内八卦（紧贴太极鱼外） -->
+    <g stroke="url(#goldGradient)" stroke-width="2.5" fill="none" filter="url(#goldGlow)">
+      <!-- 乾 ☰ - 正南 (上) -->
+      <g transform="rotate(-90) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8"/>
+        <line x1="-18" y1="0" x2="18" y2="0"/>
+        <line x1="-18" y1="8" x2="18" y2="8"/>
+      </g>
+      <!-- 坤 ☷ - 正北 (下) -->
+      <g transform="rotate(90) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8" stroke-dasharray="4,3"/>
+      </g>
+      <!-- 震 ☳ - 正东 (右) -->
+      <g transform="rotate(0) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8" stroke-dasharray="4,3"/>
+      </g>
+      <!-- 兑 ☱ - 正西 (左) -->
+      <g transform="rotate(180) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8"/>
+      </g>
+      <!-- 坎 ☵ - 西北 -->
+      <g transform="rotate(135) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8"/>
+      </g>
+      <!-- 离 ☲ - 东南 -->
+      <g transform="rotate(-45) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="0" x2="18" y2="0"/>
+        <line x1="-18" y1="8" x2="18" y2="8" stroke-dasharray="4,3"/>
+      </g>
+      <!-- 艮 ☶ - 东北 -->
+      <g transform="rotate(45) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8" stroke-dasharray="4,3"/>
+      </g>
+      <!-- 巽 ☴ - 西南 -->
+      <g transform="rotate(-135) translate(0, -80)">
+        <line x1="-18" y1="-8" x2="18" y2="-8" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="0" x2="18" y2="0" stroke-dasharray="4,3"/>
+        <line x1="-18" y1="8" x2="18" y2="8"/>
+      </g>
+    </g>
+    
+    <!-- 中心点：金色圆点代表"太极生两仪" -->
+    <circle r="4" fill="url(#goldBright)" filter="url(#outerGlow)"/>
+  </g>
+  
+  <!-- 顶部装饰：应用名称简写（可选，小尺寸不可见） -->
+  <text x="256" y="460" text-anchor="middle" 
+        font-family="'Microsoft YaHei', 'PingFang SC', 'STKaiti', sans-serif" 
+        font-size="14" font-weight="600" fill="url(#goldGradient)" opacity="0.5" letter-spacing="4px">
+    八卦运势
+  </text>
+  
+</svg>

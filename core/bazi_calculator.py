@@ -1,7 +1,7 @@
 """
 八字计算器 - 专业细盘系统，整合所有命理分析功能
 """
-from .baazi import BaZiCalculator as CoreBaZiCalculator
+from ._baazi_compat import BaZiCalculator as CoreBaZiCalculator
 from .wuxing import WuXingAnalyzer
 from .shishen import ShiShenAnalyzer
 from .yunshi import YunShiCalculator

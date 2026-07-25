@@ -1,15 +1,12 @@
 """
 AI分析Worker线程模块
-实现在后台线程中执行AI分析，避免UI阻塞
-支持Redis轮询机制读取分析结果
+实现在后台线程中执行AI分析，避免UI阻塞（同步执行，结果经信号回传 UI）
 """
-import time
 from PySide6.QtCore import QThread, Signal, QObject
 
 # NOTE: sys.path 已在 main.py 入口统一注入，此处不再重复 inject
 
 from core.analysis_pipeline import AnalysisPipeline
-from core.redis_manager import get_redis_manager, RedisConnectionError, RedisOperationError
 
 
 class AiAnalysisWorker(QThread):
@@ -30,7 +27,7 @@ class AiAnalysisWorker(QThread):
             analysis_type: 分析类型 ('bazi' 或 'meihua')
             input_data: 输入数据
             chart_data: 排盘/卦象数据
-            task_id: 任务ID，用于Redis数据关联
+            task_id: 任务ID（用于日志关联，可选）
         """
         super().__init__()
         self.analysis_type = analysis_type
@@ -77,48 +74,6 @@ class AiAnalysisWorker(QThread):
         """停止分析任务"""
         self._is_running = False
 
-    def _poll_redis_result(self, max_retries: int = 30, interval: float = 1.0) -> dict:
-        """
-        从Redis轮询分析结果
-
-        Args:
-            max_retries: 最大重试次数
-            interval: 轮询间隔（秒）
-
-        Returns:
-            分析结果字典，如果超时或失败返回空字典
-        """
-        if not self.task_id:
-            return {}
-
-        try:
-            redis_manager = get_redis_manager()
-            if not redis_manager:
-                return {}
-
-            for i in range(max_retries):
-                if not self._is_running:
-                    break
-
-                result = redis_manager.get_task_result(self.analysis_type, self.task_id)
-                if result:
-                    return result
-
-                status = redis_manager.get_task_status(self.analysis_type, self.task_id)
-                if status == 'failed':
-                    result = redis_manager.get_task_result(self.analysis_type, self.task_id)
-                    return result or {'success': False, 'error_type': 'analysis_failed', 'error_message': '分析失败'}
-
-                time.sleep(interval)
-                self.progress_updated.emit('polling', f'等待分析结果 ({i + 1}/{max_retries})')
-
-            return {'success': False, 'error_type': 'timeout', 'error_message': '分析超时'}
-
-        except (RedisConnectionError, RedisOperationError) as e:
-            return {'success': False, 'error_type': 'redis_error', 'error_message': f'Redis连接错误: {e}'}
-        except Exception as e:
-            return {'success': False, 'error_type': 'polling_error', 'error_message': f'轮询错误: {e}'}
-
 
 class AiAnalysisManager(QObject):
     """
@@ -139,7 +94,7 @@ class AiAnalysisManager(QObject):
             analysis_type: 分析类型
             input_data: 输入数据
             chart_data: 排盘数据
-            task_id: 任务ID，用于Redis数据关联
+            task_id: 任务ID（用于日志关联，可选）
 
         Returns:
             Worker线程对象

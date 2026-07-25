@@ -17,7 +17,6 @@ a = Analysis(
     ],
     hiddenimports=[
         'lunarcalendar',
-        'pymysql',
         'redis',
         'bcrypt',
         'openpyxl',
@@ -50,7 +49,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='favicon.ico',
+    icon=r'D:\PythonProject\KP-AI-FENGSHUI\favicon.ico',
 )
 
 coll = COLLECT(

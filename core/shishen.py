@@ -8,7 +8,7 @@
 """
 
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_HIDDEN_GAN_DETAIL
-import core.baazi as _baazi_module
+from core.calendar_utils import _lazy_init, TIAN_GAN, DI_ZHI
 from core.database_manager import DatabaseManager
 
 
@@ -52,9 +52,7 @@ class ShiShenAnalyzer:
     
     def __init__(self):
         _lazy_init()
-        # 确保 baazi 模块的 TIAN_GAN 也已加载
-        _baazi_module._lazy_init()
-        self.tian_gan_map = {tg: i for i, tg in enumerate(_baazi_module.TIAN_GAN)}
+        self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
     
     def get_shishen_type(self, rizhu, other):
         """获取十神类型（生我/我生/克我/我克/同我）"""

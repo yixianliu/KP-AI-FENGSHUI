@@ -1,4 +1,4 @@
-import core.baazi as _baazi_module
+from core.calendar_utils import TIAN_GAN, DI_ZHI
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING, DI_ZHI_HIDDEN_GAN
 from core.database_manager import DatabaseManager
 
@@ -174,8 +174,10 @@ def _compute_kong_wang_table(db) -> dict:
 class MingLiAnalyzer:
     def __init__(self):
         _lazy_init()
-        self.tian_gan_map = {tg: i for i, tg in enumerate(_baazi_module.TIAN_GAN)}
-        self.di_zhi_map = {dz: i for i, dz in enumerate(_baazi_module.DI_ZHI)}
+        tg = TIAN_GAN
+        dz = DI_ZHI
+        self.tian_gan_map = {t: i for i, t in enumerate(tg)}
+        self.di_zhi_map = {d: i for i, d in enumerate(dz)}
 
     def analyze_hidden_stems(self, bazhi):
         result = []

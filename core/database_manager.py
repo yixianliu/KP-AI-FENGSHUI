@@ -1,131 +1,103 @@
 """
 数据库管理模块 - 封装所有数据库操作
-支持MySQL配置读取、用户管理、排盘记录管理
+基于本地嵌入式 SQLite（data/fengshui.db），提供用户管理、排盘记录管理、
+命理知识库查询、UI 设置与操作日志的统一入口。
+
+数据库连接与首次建库统一委托 core.sqlite_db；本模块只负责补建少量运行期表
+（ui_settings / operation_logs / system_logs）——这些表不在 base.sql 导出内。
 """
-import configparser
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, Dict, List, Any
 
-import pymysql
+import sqlite3
+import logging
+
+from core import sqlite_db
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """数据库管理器 - 封装所有数据库操作"""
+    """数据库管理器 - 封装所有基于本地 SQLite 的数据库操作"""
 
     def __init__(self, config_path: str = None):
         """
-        初始化数据库管理器
+        初始化数据库管理器。
 
         Args:
-            config_path: 配置文件路径，默认使用项目根目录的config.ini
+            config_path: 兼容旧签名保留，当前实现忽略（DB 路径由 core.sqlite_db 统一解析）。
         """
-        if config_path is None:
-            project_root = Path(__file__).resolve().parent.parent
-            config_path = project_root / 'config.ini'
-        else:
-            config_path = Path(config_path)
-
         self.config_path = config_path
-        self.db_config = self._load_db_config()
-        self._init_database()
+        # 首次运行时由 schema_sqlite.sql 建库；随后补建运行期表
+        sqlite_db.ensure_initialized()
+        self._init_runtime_tables()
 
-    def _load_db_config(self) -> Dict[str, str]:
-        """从config.ini读取MySQL配置"""
-        parser = configparser.ConfigParser()
-        if not self.config_path.exists():
-            raise FileNotFoundError(f"未找到数据库配置文件: {self.config_path}")
+    def _connect(self):
+        """获取一个本地 SQLite 连接（row_factory=Row，调用方负责 close）。"""
+        return sqlite_db.get_connection()
 
-        parser.read(self.config_path, encoding='utf-8')
-        if 'database' not in parser:
-            raise ValueError("config.ini 缺少 [database] 配置段")
-
-        section = parser['database']
-        return {
-            'host': section.get('host', '127.0.0.1'),
-            'user': section.get('user', 'root'),
-            'password': section.get('password', ''),
-            'database': section.get('database', 'ai_fengshui'),
-            'charset': section.get('charset', 'utf8mb4')
-        }
-
-    def _connect(self, include_database: bool = True, autocommit: bool = False):
-        """建立数据库连接"""
-        connect_args = {
-            'host': self.db_config['host'],
-            'user': self.db_config['user'],
-            'password': self.db_config['password'],
-            'charset': self.db_config['charset'],
-            'autocommit': autocommit
-        }
-        if include_database:
-            connect_args['database'] = self.db_config['database']
-        return pymysql.connect(**connect_args)
-
-    def _init_database(self):
-        """初始化数据库和表结构"""
-        # 创建数据库（如果不存在）
-        with self._connect(include_database=False, autocommit=True) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"CREATE DATABASE IF NOT EXISTS `{self.db_config['database']}` "
-                    f"CHARACTER SET {self.db_config['charset']}"
+    def _init_runtime_tables(self):
+        """补建 base.sql 未包含的运行期表：ui_settings / operation_logs / system_logs。"""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            # 保障用户名唯一（schema 中 users 无 UNIQUE 约束）
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
+                "ON users (username)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ui_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    settings_json TEXT
                 )
-
-        # 创建用户表（bcrypt 哈希需要 72 字符）
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INT PRIMARY KEY AUTO_INCREMENT,
-                        username VARCHAR(50) NOT NULL UNIQUE,
-                        password_hash VARCHAR(72) NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        INDEX idx_username (username)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                """)
-
-            # 创建排盘记录表
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS pan_records (
-                        id INT PRIMARY KEY AUTO_INCREMENT,
-                        user_id INT NOT NULL,
-                        name VARCHAR(100) NOT NULL,
-                        gender VARCHAR(10),
-                        birth_date VARCHAR(20),
-                        birth_time VARCHAR(20),
-                        city VARCHAR(100),
-                        pan_type VARCHAR(50),
-                        result_json LONGTEXT NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                        INDEX idx_user_id (user_id),
-                        INDEX idx_created_at (created_at)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                """)
-            connection.commit()
-
-    # ==================== 文本数据表初始化 ====================
-    # 数据表已通过 init_db.py 脚本初始化完成，数据已存入数据库
-    # init_data_tables() 方法已废弃
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS operation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    op_type TEXT,
+                    op_object TEXT DEFAULT '',
+                    user_id INTEGER,
+                    session TEXT,
+                    detail TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS system_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    level TEXT,
+                    message TEXT,
+                    module TEXT,
+                    data_json TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
 
     # ==================== 文本数据查询接口 ====================
 
     def _query_all(self, sql: str, params=None) -> list:
         """执行查询并返回所有结果"""
-        with self._connect() as conn:
-            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-                cursor.execute(sql, params)
-                return cursor.fetchall()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(sql, params or ())
+            return cursor.fetchall()
+        finally:
+            conn.close()
 
     def _query_one(self, sql: str, params=None) -> dict:
         """执行查询并返回单条结果"""
-        with self._connect() as conn:
-            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-                cursor.execute(sql, params)
-                return cursor.fetchone()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(sql, params or ())
+            return cursor.fetchone()
+        finally:
+            conn.close()
 
     # -- 天干 --
     def get_tian_gan_all(self) -> list:
@@ -149,7 +121,7 @@ class DatabaseManager:
 
     def get_tian_gan_detail(self, gan: str) -> dict:
         """获取单个天干详细信息"""
-        return self._query_one("SELECT * FROM tian_gan WHERE gan = %s", (gan,))
+        return self._query_one("SELECT * FROM tian_gan WHERE gan = ?", (gan,))
 
     # -- 地支 --
     def get_di_zhi_all(self) -> list:
@@ -262,7 +234,7 @@ class DatabaseManager:
 
     def get_ba_gua_by_num(self, num: int) -> dict:
         """按先天数获取八卦信息"""
-        return self._query_one("SELECT * FROM ba_gua WHERE num = %s", (num,))
+        return self._query_one("SELECT * FROM ba_gua WHERE num = ?", (num,))
 
     # -- 64卦 --
     def get_hexagram_64(self) -> dict:
@@ -273,13 +245,13 @@ class DatabaseManager:
     def get_hexagram_by_id(self, hexagram_id: int) -> dict:
         """按卦序获取卦信息"""
         return self._query_one(
-            "SELECT * FROM hexagram_64 WHERE hexagram_id = %s", (hexagram_id,)
+            "SELECT * FROM hexagram_64 WHERE hexagram_id = ?", (hexagram_id,)
         )
 
     def get_hexagram_by_upper_lower(self, upper: int, lower: int) -> dict:
         """按上下卦数获取卦信息"""
         return self._query_one(
-            "SELECT * FROM hexagram_64 WHERE upper_num = %s AND lower_num = %s",
+            "SELECT * FROM hexagram_64 WHERE upper_num = ? AND lower_num = ?",
             (upper, lower)
         )
 
@@ -287,7 +259,7 @@ class DatabaseManager:
     def get_hexagram_yao_ci(self, hexagram_id: int) -> list:
         """获取某卦的所有爻辞"""
         return self._query_all(
-            "SELECT * FROM hexagram_yao_ci WHERE hexagram_id = %s ORDER BY yao_order",
+            "SELECT * FROM hexagram_yao_ci WHERE hexagram_id = ? ORDER BY yao_order",
             (hexagram_id,)
         )
 
@@ -401,11 +373,11 @@ class DatabaseManager:
                 data.append((gan, zhi, stage))
         
         with self._connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.executemany(
-                    "INSERT IGNORE INTO changsheng_lookup (gan, zhi, stage_name) VALUES (%s, %s, %s)",
-                    data
-                )
+            cursor = conn.cursor()
+            cursor.executemany(
+                "INSERT OR IGNORE INTO changsheng_lookup (gan, zhi, stage_name) VALUES (?, ?, ?)",
+                data
+            )
             conn.commit()
 
     def get_changsheng_lookup(self) -> dict:
@@ -466,11 +438,11 @@ class DatabaseManager:
             ('壬戌', '大海水', '水'), ('癸亥', '大海水', '水')
         ]
         with self._connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.executemany(
-                    "INSERT IGNORE INTO nayin_wuxing (ganzhi_pair, nayin_name, wuxing) VALUES (%s, %s, %s)",
-                    nayin_data
-                )
+            cursor = conn.cursor()
+            cursor.executemany(
+                "INSERT OR IGNORE INTO nayin_wuxing (ganzhi_pair, nayin_name, wuxing) VALUES (?, ?, ?)",
+                nayin_data
+            )
             conn.commit()
 
     def get_nayin_wuxing(self) -> dict:
@@ -569,13 +541,13 @@ class DatabaseManager:
              '["纠缠", "束缚", "困扰"]', '["勾绞"]')
         ]
         with self._connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.executemany(
-                    """INSERT IGNORE INTO shensha_terms 
-                    (name, category, term_type, brief, description, check_method, influences, related_terms) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    shensha_data
-                )
+            cursor = conn.cursor()
+            cursor.executemany(
+                """INSERT OR IGNORE INTO shensha_terms
+                (name, category, term_type, brief, description, check_method, influences, related_terms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                shensha_data
+            )
             conn.commit()
 
     def get_shensha_terms(self) -> dict:
@@ -711,15 +683,15 @@ class DatabaseManager:
         
         try:
             with self._connect() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
-                        (username, password_hash)
-                    )
-                    user_id = cursor.lastrowid
+                cursor = connection.cursor()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (username, password_hash)
+                )
+                user_id = cursor.lastrowid
                 connection.commit()
                 return user_id
-        except pymysql.IntegrityError:
+        except sqlite3.IntegrityError:
             return None
         except Exception as e:
             logger.error(f"创建用户失败: {e}")
@@ -746,21 +718,21 @@ class DatabaseManager:
         
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    cursor.execute(
-                        "SELECT id, username, password_hash, created_at FROM users WHERE username = %s",
-                        (username,)
-                    )
-                    user = cursor.fetchone()
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT id, username, password_hash, created_at FROM users WHERE username = ?",
+                    (username,)
+                )
+                user = cursor.fetchone()
                     
-                    if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                        # 返回用户信息（不包含密码哈希）
-                        return {
-                            'id': user['id'],
-                            'username': user['username'],
-                            'created_at': user['created_at']
-                        }
-                    return None
+                if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
+                    # 返回用户信息（不包含密码哈希）
+                    return {
+                        'id': user['id'],
+                        'username': user['username'],
+                        'created_at': user['created_at']
+                    }
+                return None
         except Exception as e:
             logger.error(f"验证用户失败: {e}")
             return None
@@ -777,12 +749,12 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    cursor.execute(
-                        "SELECT id, username, created_at FROM users WHERE username = %s",
-                        (username,)
-                    )
-                    return cursor.fetchone()
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT id, username, created_at FROM users WHERE username = ?",
+                    (username,)
+                )
+                return cursor.fetchone()
         except Exception as e:
             print(f"查询用户失败: {e}")
             return None
@@ -799,12 +771,12 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    cursor.execute(
-                        "SELECT id, username, created_at FROM users WHERE id = %s",
-                        (user_id,)
-                    )
-                    return cursor.fetchone()
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT id, username, created_at FROM users WHERE id = ?",
+                    (user_id,)
+                )
+                return cursor.fetchone()
         except Exception as e:
             print(f"查询用户失败: {e}")
             return None
@@ -813,7 +785,8 @@ class DatabaseManager:
 
     def save_pan_record(self, user_id: int, name: str, gender: str,
                         birth_date: str, birth_time: str, city: str,
-                        pan_type: str, result: Dict[str, Any]) -> Optional[int]:
+                        pan_type: str, result: Dict[str, Any],
+                        ai_analysis: Optional[Dict] = None) -> Optional[int]:
         """
         保存排盘记录
 
@@ -826,30 +799,56 @@ class DatabaseManager:
             city: 城市
             pan_type: 排盘类型
             result: 排盘结果字典
+            ai_analysis: AI 深度分析结果（可选，落库 ai_json 列）
 
         Returns:
             记录ID，失败返回None
         """
         try:
             with self._connect() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        INSERT INTO pan_records
-                        (user_id, name, gender, birth_date, birth_time, city, pan_type, result_json)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            user_id or 1, name, gender, birth_date, birth_time,
-                            city, pan_type, json.dumps(result, ensure_ascii=False)
-                        )
+                cursor = connection.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO pan_records
+                    (user_id, name, gender, birth_date, birth_time, city, pan_type, result_json, ai_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user_id or 1, name, gender, birth_date, birth_time,
+                        city, pan_type, json.dumps(result, ensure_ascii=False),
+                        json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis else None
                     )
-                    record_id = cursor.lastrowid
+                )
+                record_id = cursor.lastrowid
                 connection.commit()
                 return record_id
         except Exception as e:
             print(f"保存排盘记录失败: {e}")
             return None
+
+    def update_pan_ai_result(self, record_id: int, ai_analysis: Dict[str, Any]) -> bool:
+        """
+        更新排盘记录的 AI 分析结果到 ai_json 列。
+
+        Args:
+            record_id: 排盘记录 ID
+            ai_analysis: AI 分析结果字典
+
+        Returns:
+            成功返回 True，失败返回 False
+        """
+        try:
+            with self._connect() as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "UPDATE pan_records SET ai_json = ? WHERE id = ?",
+                    (json.dumps(ai_analysis, ensure_ascii=False), record_id)
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"更新排盘AI分析结果失败: {e}")
+            return False
 
     def get_user_records(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """
@@ -864,27 +863,29 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    cursor.execute(
-                        """
-                        SELECT id, name, gender, birth_date, birth_time,
-                               city, pan_type, result_json, created_at
-                        FROM pan_records
-                        WHERE user_id = %s
-                        ORDER BY created_at DESC
-                        LIMIT %s
-                        """,
-                        (user_id, limit)
-                    )
-                    records = cursor.fetchall()
-                    # 解析JSON字段
-                    for record in records:
-                        try:
-                            record['result'] = json.loads(record['result_json'])
-                        except (json.JSONDecodeError, KeyError):
-                            record['result'] = {}
-                        del record['result_json']
-                    return records
+                cursor = connection.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, name, gender, birth_date, birth_time,
+                           city, pan_type, result_json, created_at
+                    FROM pan_records
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, limit)
+                )
+                rows = cursor.fetchall()
+                records = []
+                for r in rows:
+                    rec = dict(r)
+                    try:
+                        rec['result'] = json.loads(rec['result_json'])
+                    except (json.JSONDecodeError, KeyError):
+                        rec['result'] = {}
+                    del rec['result_json']
+                    records.append(rec)
+                return records
         except Exception as e:
             print(f"获取排盘记录失败: {e}")
             return []
@@ -912,50 +913,50 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    sql = (
-                        "SELECT id, name, gender, birth_date, birth_time, "
-                        "city, pan_type, result_json, created_at "
-                        "FROM pan_records WHERE user_id = %s"
-                    )
-                    params: list = [user_id]
-                    if pan_type:
-                        sql += " AND pan_type = %s"
-                        params.append(pan_type)
-                    if name:
-                        sql += " AND name LIKE %s"
-                        params.append(f"%{name}%")
-                    if start_date:
-                        sql += " AND DATE(created_at) >= %s"
-                        params.append(start_date)
-                    if end_date:
-                        sql += " AND DATE(created_at) <= %s"
-                        params.append(end_date)
-                    # 高级筛选：五行 / 格局 / 日主强弱（均从 result_json 提取）
-                    if wuxing:
-                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
-                                "'$.bazi_types.wuxing_summary')) LIKE %s")
-                        params.append(f"%{wuxing}%")
-                    if geju_type:
-                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
-                                "'$.bazi_types.geju_type')) = %s")
-                        params.append(geju_type)
-                    if strength:
-                        sql += (" AND JSON_UNQUOTE(JSON_EXTRACT(result_json, "
-                                "'$.bazi_types.strength')) = %s")
-                        params.append(strength)
-                    sql += " ORDER BY created_at DESC LIMIT %s"
-                    params.append(limit)
+                cursor = connection.cursor()
+                sql = (
+                    "SELECT id, name, gender, birth_date, birth_time, "
+                    "city, pan_type, result_json, created_at "
+                    "FROM pan_records WHERE user_id = ?"
+                )
+                params: list = [user_id]
+                if pan_type:
+                    sql += " AND pan_type = ?"
+                    params.append(pan_type)
+                if name:
+                    sql += " AND name LIKE ?"
+                    params.append(f"%{name}%")
+                if start_date:
+                    sql += " AND DATE(created_at) >= ?"
+                    params.append(start_date)
+                if end_date:
+                    sql += " AND DATE(created_at) <= ?"
+                    params.append(end_date)
+                # 高级筛选（五行/格局/日主强弱）均从 result_json 提取，
+                # 为避免依赖 SQLite 的 JSON1 扩展，在 Python 侧完成过滤。
+                sql += " ORDER BY created_at DESC LIMIT ?"
+                params.append(limit)
 
-                    cursor.execute(sql, params)
-                    records = cursor.fetchall()
-                    for record in records:
-                        try:
-                            record['result'] = json.loads(record['result_json'])
-                        except (json.JSONDecodeError, KeyError):
-                            record['result'] = {}
-                        del record['result_json']
-                    return records
+                cursor.execute(sql, params)
+                records = cursor.fetchall()
+                result = []
+                for record in records:
+                    try:
+                        parsed = json.loads(record['result_json'])
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        parsed = {}
+                    bt = parsed.get('bazi_types', {}) or {}
+                    if wuxing and wuxing not in str(bt.get('wuxing_summary', '')):
+                        continue
+                    if geju_type and bt.get('geju_type') != geju_type:
+                        continue
+                    if strength and bt.get('strength') != strength:
+                        continue
+                    rec = dict(record)
+                    rec['result'] = parsed
+                    del rec['result_json']
+                    result.append(rec)
+                return result
         except Exception as e:
             print(f"检索排盘记录失败: {e}")
             return []
@@ -972,23 +973,24 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                    cursor.execute(
-                        """
-                        SELECT id, user_id, name, gender, birth_date, birth_time,
-                               city, pan_type, result_json, created_at
-                        FROM pan_records
-                        WHERE id = %s
-                        """,
-                        (record_id,)
-                    )
-                    record = cursor.fetchone()
-                    if record:
-                        try:
-                            record['result'] = json.loads(record['result_json'])
-                        except (json.JSONDecodeError, KeyError):
-                            record['result'] = {}
-                        del record['result_json']
+                cursor = connection.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, user_id, name, gender, birth_date, birth_time,
+                           city, pan_type, result_json, created_at
+                    FROM pan_records
+                    WHERE id = ?
+                    """,
+                    (record_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    record = dict(row)
+                    try:
+                        record['result'] = json.loads(record['result_json'])
+                    except (json.JSONDecodeError, KeyError):
+                        record['result'] = {}
+                    del record['result_json']
                     return record
         except Exception as e:
             print(f"获取排盘记录失败: {e}")
@@ -1007,12 +1009,12 @@ class DatabaseManager:
         """
         try:
             with self._connect() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "DELETE FROM pan_records WHERE id = %s AND user_id = %s",
-                        (record_id, user_id)
-                    )
-                    affected = cursor.rowcount
+                cursor = connection.cursor()
+                cursor.execute(
+                    "DELETE FROM pan_records WHERE id = ? AND user_id = ?",
+                    (record_id, user_id)
+                )
+                affected = cursor.rowcount
                 connection.commit()
                 return affected > 0
         except Exception as e:
@@ -1025,3 +1027,81 @@ class DatabaseManager:
         用于外部调用确保数据库和表已创建
         """
         self._init_database()
+
+    # ==================== 本地存储（界面配置 / 操作记录 / 系统日志，统一落地本地 SQLite） ====================
+
+    def save_ui_settings(self, settings: dict) -> bool:
+        """保存界面配置（单例行，id=1）。"""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO ui_settings (id, settings_json) VALUES (1, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json",
+                    (json.dumps(settings, ensure_ascii=False),)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning(f"[界面配置] 保存失败：{e}")
+            return False
+
+    def load_ui_settings(self) -> dict:
+        """读取界面配置，无记录返回 None。"""
+        try:
+            row = self._query_one("SELECT settings_json FROM ui_settings WHERE id = 1")
+            if row and row['settings_json']:
+                return json.loads(row['settings_json'])
+        except Exception as e:
+            logger.warning(f"[界面配置] 读取失败：{e}")
+        return None
+
+    def save_operation_log(self, op_type: str, op_object: str = '', user_id=None,
+                            session: str = None, detail: str = None) -> bool:
+        """记录一条操作日志。"""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO operation_logs (op_type, op_object, user_id, session, detail) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (op_type, op_object or '', user_id, session, detail)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning(f"[操作记录] 写入失败：{e}")
+            return False
+
+    def load_operation_logs(self, limit: int = 100) -> list:
+        """读取最近的操作日志。"""
+        try:
+            rows = self._query_all(
+                "SELECT * FROM operation_logs ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"[操作记录] 读取失败：{e}")
+            return []
+
+    def save_system_log(self, level: str, message: str, module: str, data: dict = None) -> bool:
+        """写入一条系统日志。"""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO system_logs (level, message, module, data_json) "
+                    "VALUES (?, ?, ?, ?)",
+                    (level, message, module, json.dumps(data, ensure_ascii=False) if data else None)
+                )
+                conn.commit()
+                return True
+        except Exception:
+            return False
+
+
+_db_manager_singleton = None
+
+
+def get_db_manager(config_path: str = None) -> "DatabaseManager":
+    """DatabaseManager 进程内单例。"""
+    global _db_manager_singleton
+    if _db_manager_singleton is None:
+        _db_manager_singleton = DatabaseManager(config_path)
+    return _db_manager_singleton

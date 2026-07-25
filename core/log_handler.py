@@ -1,13 +1,12 @@
 """
 统一日志 Handler
 ================
-把「系统日志」接入当前激活的存储后端（StorageManager）。所有模块的
-logger.info/warning/error 在写本地文件的同时，也会结构化写入后端的
-system_logs（MySQL 落 system_logs 表，Redis 入列表，CSV/文本追加）。
+把「系统日志」接入本地 SQLite 数据库的 system_logs 表。所有模块的
+logger.info/warning/error 在写本地文件的同时，也会结构化写入 system_logs。
 
 用法（在 main_window / 各业务模块启动处）：
     from core.log_handler import setup_app_logging
-    setup_app_logging()   # 接入 StorageManager 单例
+    setup_app_logging()   # 接入 DatabaseManager 本地库单例
 
 之后任意模块：
     import logging
@@ -23,7 +22,7 @@ from datetime import datetime
 
 
 class StorageLogHandler(logging.Handler):
-    """将日志记录写入当前激活存储后端的 system_logs。"""
+    """将日志记录写入本地 SQLite 数据库的 system_logs 表。"""
 
     def __init__(self, level=logging.WARNING):
         super().__init__(level)
@@ -33,8 +32,8 @@ class StorageLogHandler(logging.Handler):
         if self._failed:
             return
         try:
-            from core.storage_backend import get_storage_manager
-            mgr = get_storage_manager()
+            from core.database_manager import get_db_manager
+            mgr = get_db_manager()
             if mgr is None:
                 return
             # 避免把本 handler 自己的错误再写回后端造成递归

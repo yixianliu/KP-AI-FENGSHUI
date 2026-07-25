@@ -271,19 +271,28 @@ class InputPanel(QWidget):
             self.submit_btn.setEnabled(False)
 
     def get_data(self):
-        try: hh, mm = map(int, self.time_edit.text().split(':'))
-        except: hh, mm = 12, 0
+        """获取输入数据。若时间格式非法则直接抛出 ValueError，不调用方做阻断。"""
+        t = self.time_edit.text().strip()
+        try:
+            hh, mm = map(int, t.split(':'))
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                raise ValueError(f"时间格式或范围错误: {t}")
+        except ValueError as e:
+            raise ValueError(f"时间格式错误（需 HH:MM，00:00~23:59）: {e}") from e
+
         d = self.date_edit.date()
+        year, month, day = d.year(), d.month(), d.day()
+        if year < 1900 or year > 2100:
+            raise ValueError(f"年份范围错误: {year}（需 1900~2100）")
+
         return {
             'name': self.name_edit.text().strip(),
             'gender': '男' if self.male_btn.isChecked() else '女',
             'is_lunar': self.lunar_btn.isChecked(),
-            'year': d.year(), 'month': d.month(), 'day': d.day(),
+            'year': year, 'month': month, 'day': day,
             'hour': hh, 'minute': mm, 'hour_index': self.selected_hour,
             'is_early_zi': False,
             'location': self.location_edit.text().strip(),
-            # 经纬度默认 120°E/30°N；若填写出生地，将由主流程经
-            # 本地库 / AI 三级解析后覆盖（见 main_window._resolve_location）
             'latitude': 30.0, 'longitude': 120.0,
             'solar_time_mode': '自动', 'age_type': '虚岁', 'leap_rule': '归前',
             'pan_type': self.selected_pan_type, 'notes': self.notes_edit.toPlainText(),
