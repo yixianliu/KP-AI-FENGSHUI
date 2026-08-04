@@ -1,14 +1,14 @@
 """
 AGNES AI 模型客户端模块
-基于 agnes-2.0-flash API（apihub.agnes-ai.com）封装 AI 分析调用接口
+基于 agnes-2.5-flash API（api.agnes-ai.cn）封装 AI 分析调用接口
 接口调试脚本见 scripts/agnes_test_client.py：
-    POST https://apihub.agnes-ai.com/v1/chat/completions
+    POST https://api.agnes-ai.cn/v1/chat/completions
     Headers:
         Content-Type: application/json
         Authorization: Bearer <api_key>
     Body:
         {
-            "model": "agnes-2.0-flash",
+            "model": "agnes-2.5-flash",
             "messages": [ {"role": "system", "content": ...}, {"role": "user", "content": ...} ]
         }
 返回值为 OpenAI 兼容的 chat/completions 结构：
@@ -82,7 +82,8 @@ def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         dict，包含 api_url / api_key / model / max_retries / retry_delay / timeout
     """
     if config_path is None:
-        config_path = Path(__file__).resolve().parent.parent / 'config.ini'
+        from core.path_utils import get_config_path
+        config_path = get_config_path()
     else:
         config_path = Path(config_path)
 
@@ -97,9 +98,9 @@ def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         return default
 
     return {
-        'api_url': _get('api_url', 'https://apihub.agnes-ai.com/v1/chat/completions'),
+        'api_url': _get('api_url', 'https://api.agnes-ai.cn/v1/chat/completions'),
         'api_key': _get('api_key', ''),
-        'model': _get('model', 'agnes-2.0-flash'),
+        'model': _get('model', 'agnes-2.5-flash'),
         'max_retries': int(_get('max_retries', '3')),
         'retry_delay': int(_get('retry_delay', '3')),
         'timeout': int(_get('timeout', '120')),
@@ -112,7 +113,7 @@ def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 class AgnesClient:
     """
     AGNES AI 模型客户端
-    封装对 apihub.agnes-ai.com 的 chat/completions 调用，
+    封装对 api.agnes-ai.cn 的 chat/completions 调用，
     对外提供稳定的 chat/completions 调用契约，便于上层直接消费。
     """
 
@@ -184,6 +185,7 @@ class AgnesClient:
             'messages': messages,
             'temperature': temperature,
             'max_tokens': max_tokens,
+            'chat_template_kwargs': {'enable_thinking': False},
         }
 
         last_err: Optional[Exception] = None
@@ -303,14 +305,38 @@ class AgnesClient:
     @staticmethod
     def _validate_json_result(analysis: Any, required_fields: List[str]) -> Dict[str, Any]:
         """
-        校验并补全 AI 返回的 JSON 结果，保证 required_fields 均存在，
-        缺失字段以空列表（或 final_verdict 以空字符串）兜底。
+        校验并补全 AI 返回的 JSON 结果，保证 required_fields 均存在且类型正确：
+        - 数组类字段（非 final_verdict）必须为「字符串列表」；
+          缺失/None -> 空列表；字符串 -> 包成单元素列表；字典 -> 取值列表；其他 -> 字符串化后包列表。
+        - final_verdict 必须为字符串；列表 -> 换行拼接；其他 -> 字符串化。
+        这样可兜住模型偶发返回字符串/字典而非数组的情况，避免下游校验与渲染失败。
         """
         if not isinstance(analysis, dict):
             analysis = {}
+        # 字符串类字段（结论句）：必须为「字符串」。
+        # 八字/梅花/六壬的 final_verdict，以及综合建议的 disclaimer 均属此类。
+        string_fields = {'final_verdict', 'disclaimer'}
         for field in required_fields:
-            if field not in analysis or analysis[field] is None:
-                analysis[field] = '' if field == 'final_verdict' else []
+            value = analysis.get(field)
+            if field in string_fields:
+                if value is None or value == '':
+                    analysis[field] = ''
+                elif isinstance(value, list):
+                    analysis[field] = '\n'.join(str(x) for x in value if x)
+                elif not isinstance(value, str):
+                    analysis[field] = str(value)
+                # 已是字符串则保持
+            else:
+                if value is None:
+                    analysis[field] = []
+                elif isinstance(value, list):
+                    analysis[field] = [str(x) for x in value if x is not None]
+                elif isinstance(value, str):
+                    analysis[field] = [value] if value.strip() else []
+                elif isinstance(value, dict):
+                    analysis[field] = [str(v) for v in value.values() if v is not None]
+                else:
+                    analysis[field] = [str(value)]
         return analysis
 
 

@@ -5,6 +5,19 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 大六壬引擎测试（稳定部分 + 九宗门三传表征），整体并入主套件
+try:
+    from tests.test_liuren import TestLiuRenStable, TestLiuRenSanChuanSpec
+    from tests.test_comprehensive_export import (
+        TestComprehensivePipeline, TestExportBase, TestExportRenderers)
+    from tests.test_meihua_knowledge_seed import TestMeihuaKnowledgeSeed
+    from tests.test_ai_cache import TestAiCacheCore, TestAiCachePipelineIntegration
+except Exception:  # pragma: no cover
+    TestLiuRenStable = TestLiuRenSanChuanSpec = None
+    TestComprehensivePipeline = TestExportBase = TestExportRenderers = None
+    TestMeihuaKnowledgeSeed = None
+    TestAiCacheCore = TestAiCachePipelineIntegration = None
+
 
 class TestBaziCalculator(unittest.TestCase):
     """八字计算器测试"""
@@ -24,10 +37,21 @@ class TestBaziCalculator(unittest.TestCase):
         self.assertEqual(len(result['四柱']), 4)
     
     def test_get_shier_shen(self):
-        """测试十二长生查询（当前 API：接收八字字典，返回 dict）"""
+        """测试十二长生：返回 dict 含 shier_shen 列表，四项各含 pillar/ganzhi/shier_shen/description"""
         bz = self.calculator.calculate(2000, 1, 1, 12)
         result = self.calculator.get_shier_shen(bz)
         self.assertIsInstance(result, dict)
+        self.assertIn('shier_shen', result)
+        self.assertEqual(len(result['shier_shen']), 4)
+        for item in result['shier_shen']:
+            self.assertIn('pillar', item)
+            self.assertIn('ganzhi', item)
+            self.assertIn('shier_shen', item)
+            self.assertIn('description', item)
+            self.assertIn(item['pillar'], ('年柱', '月柱', '日柱', '时柱'))
+            self.assertIn(item['shier_shen'],
+                ('长生', '沐浴', '冠带', '临官', '帝旺', '衰',
+                 '病', '死', '墓', '绝', '胎', '养'))
 
     def test_get_year_ganzhi(self):
         """测试年干支计算（calendar_utils.GanZhiCalculator）"""
@@ -75,6 +99,34 @@ class TestMeihuaCalculator(unittest.TestCase):
         """测试数字起卦（无效类型）"""
         with self.assertRaises(ValueError):
             self.calculator.number_divination("abc")
+
+
+class TestLiuRenCalculator(unittest.TestCase):
+    """大六壬排盘引擎测试（稳定部分 + 九宗门三传表征）"""
+
+    def setUp(self):
+        from core.liuren import LiuRenCalculator
+        self.calculator = LiuRenCalculator()
+
+    def test_ganzhi_day_anchor(self):
+        """1900-01-01 为甲戌日"""
+        self.assertEqual(self.calculator.ganzhi_day(1900, 1, 1), ('甲', '戌'))
+
+    def test_tian_pan(self):
+        """月将加占时：亥将加卯时，天盘[卯]=亥"""
+        from core.liuren import ZHI
+        tp = self.calculator._build_tian_pan(list(ZHI), '亥', '卯')
+        self.assertEqual(tp['卯'], '亥')
+
+    def test_sanchuan_zeike(self):
+        """贼克法：四课含申金克甲木 → 初传申"""
+        from core.liuren import ZHI
+        tp = self.calculator._build_tian_pan(list(ZHI), '亥', '卯')
+        sike = {'gan_shang': {'tianpan': '申'}, 'gan_yin': {'tianpan': '酉'},
+                'zhi_shang': {'tianpan': '子'}, 'zhi_yin': {'tianpan': '亥'}}
+        sc, gate = self.calculator._build_sanchuan('zeike', '甲', '子', sike, tp, list(ZHI))
+        self.assertEqual(gate, 'zeike')
+        self.assertEqual(sc['chu'], '申')
 
 
 class TestDataValidator(unittest.TestCase):
@@ -178,9 +230,22 @@ if __name__ == '__main__':
     
     suite.addTests(loader.loadTestsFromTestCase(TestBaziCalculator))
     suite.addTests(loader.loadTestsFromTestCase(TestMeihuaCalculator))
+    suite.addTests(loader.loadTestsFromTestCase(TestLiuRenCalculator))
     suite.addTests(loader.loadTestsFromTestCase(TestDataValidator))
     suite.addTests(loader.loadTestsFromTestCase(TestPerformance))
     suite.addTests(loader.loadTestsFromTestCase(TestSecurity))
+    if TestLiuRenStable is not None:
+        suite.addTests(loader.loadTestsFromTestCase(TestLiuRenStable))
+        suite.addTests(loader.loadTestsFromTestCase(TestLiuRenSanChuanSpec))
+    if TestComprehensivePipeline is not None:
+        suite.addTests(loader.loadTestsFromTestCase(TestComprehensivePipeline))
+        suite.addTests(loader.loadTestsFromTestCase(TestExportBase))
+        suite.addTests(loader.loadTestsFromTestCase(TestExportRenderers))
+    if TestMeihuaKnowledgeSeed is not None:
+        suite.addTests(loader.loadTestsFromTestCase(TestMeihuaKnowledgeSeed))
+    if TestAiCacheCore is not None:
+        suite.addTests(loader.loadTestsFromTestCase(TestAiCacheCore))
+        suite.addTests(loader.loadTestsFromTestCase(TestAiCachePipelineIntegration))
     
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

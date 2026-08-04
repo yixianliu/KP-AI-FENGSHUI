@@ -11,23 +11,22 @@ _project_str = str(_project_root)
 if _project_str not in sys.path:
     sys.path.insert(0, _project_str)
 
+# 统一路径工具（必须在 import core.* 之前注入 sys.path）
+from core.path_utils import get_app_dir, get_config_path, get_resource_path, get_logs_dir
+
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
 # ================================================================
 # 全局异常钩子：把未处理的崩溃写入 runtime_error.log
 # ================================================================
-# 打包环境（PyInstaller）下写入 exe 同级目录，方便用户排查；
-# 开发环境下写入源码目录。
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    _app_base = os.path.dirname(sys.executable)
-else:
-    _app_base = os.path.dirname(os.path.abspath(__file__))
-_log_path = os.path.join(_app_base, 'runtime_error.log')
+_log_dir = get_logs_dir()
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_path = _log_dir / 'runtime_error.log'
 
 
 def excepthook(exc_type, exc_value, exc_tb):
-    with open(_log_path, 'w', encoding='utf-8') as f:
+    with open(str(_log_path), 'w', encoding='utf-8') as f:
         f.write(f"Unhandled exception: {exc_type.__name__}\n")
         f.write(f"Message: {exc_value}\n")
         f.write("Traceback:\n")
@@ -41,7 +40,7 @@ sys.excepthook = excepthook
 try:
     from ui.main_window import MainWindow
 except Exception as e:
-    with open(_log_path, 'w', encoding='utf-8') as f:
+    with open(str(_log_path), 'w', encoding='utf-8') as f:
         f.write(f"Import FAILED: {e}\n")
         f.write("Traceback:\n")
         f.write(''.join(traceback.format_exception(type(e), e, e.__traceback__)))
@@ -53,12 +52,12 @@ if __name__ == '__main__':
     try:
         app = QApplication(sys.argv)
         app.setStyle('Fusion')
-        
-        # 设置应用程序图标（统一使用项目根目录下的 favicon.ico）
-        icon_path = _project_root / 'favicon.ico'
+
+        # 设置应用程序图标（统一使用资源目录下的 favicon.ico）
+        icon_path = get_resource_path('favicon.ico')
         if icon_path.exists():
             app.setWindowIcon(QIcon(str(icon_path)))
-        
+
         window = MainWindow()
         window.show()
         sys.exit(app.exec())

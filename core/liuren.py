@@ -26,6 +26,8 @@ ZHI_WX = {'子': '水', '亥': '水', '寅': '木', '卯': '木', '巳': '火', 
            '辰': '土', '戌': '土', '丑': '土', '未': '土', '申': '金', '酉': '金'}
 WX_KE = {'木': '土', '火': '金', '土': '水', '金': '木', '水': '火'}  # 「我」克者
 WX_KE_BY = {'木': '金', '火': '水', '土': '木', '金': '火', '水': '土'}  # 克「我」者
+WX_SHENG = {'木': '火', '火': '土', '土': '金', '金': '水', '水': '木'}  # 我生者（相）
+WX_SHENG_BY = {'木': '水', '火': '木', '土': '火', '金': '土', '水': '金'}  # 生我者（休）
 
 # 天干寄宫（六壬专用）
 GAN_JIGONG = {'甲': '寅', '乙': '辰', '丙': '巳', '丁': '未', '戊': '巳',
@@ -59,6 +61,37 @@ GATE_NAMES = {
 
 # 三合局 → 驿马
 YIMA = {'申子辰': '寅', '寅午戌': '申', '巳酉丑': '亥', '亥卯未': '巳'}
+
+# 地支三刑（伏吟中末传取变用）
+_XING = {'子': '卯', '卯': '子',
+         '寅': '巳', '巳': '申', '申': '寅',
+         '丑': '戌', '戌': '未', '未': '丑',
+         '辰': '辰', '午': '午', '酉': '酉', '亥': '亥'}
+# 地支六冲（返吟/别责中末传取变用）
+_CHONG = {'子': '午', '午': '子', '丑': '未', '未': '丑',
+          '寅': '申', '申': '寅', '卯': '酉', '酉': '卯',
+          '辰': '戌', '戌': '辰', '巳': '亥', '亥': '巳'}
+
+# 旬空（空亡）：六甲旬首地支 → 所空二支
+_KONGWANG = {'子': ('戌', '亥'), '戌': ('申', '酉'), '申': ('午', '未'),
+              '午': ('辰', '巳'), '辰': ('寅', '卯'), '寅': ('子', '丑')}
+# 天干五合 → 合干（用于"日干六合支"：合干所寄之宫）
+_GAN_HE = {'甲': '己', '乙': '庚', '丙': '辛', '丁': '壬', '戊': '癸',
+            '己': '甲', '庚': '乙', '辛': '丙', '壬': '丁', '癸': '戊'}
+# 地支六害
+_DI_ZHI_LIUHAI = {'子': '未', '未': '子', '丑': '午', '午': '丑',
+                   '寅': '巳', '巳': '寅', '卯': '辰', '辰': '卯',
+                   '申': '亥', '亥': '申', '酉': '戌', '戌': '酉'}
+# 天马（依月将三合局）
+_TIANMA = {'寅': '戌', '午': '戌', '戌': '戌', '申': '子', '子': '子',
+           '辰': '子', '亥': '寅', '卯': '寅', '未': '寅', '巳': '申',
+           '酉': '申', '丑': '申'}
+# 太阳黄经 → 月将（按中气切换；单位度）
+_LAMBDA_TO_YUEJIANG = [
+    (0, '戌'), (30, '酉'), (60, '申'), (90, '未'), (120, '午'),
+    (150, '巳'), (180, '辰'), (210, '卯'), (240, '寅'), (270, '丑'),
+    (300, '子'), (330, '亥'),
+]
 
 
 def _wuxing_ke(a, b):
@@ -101,9 +134,45 @@ class LiuRenCalculator:
             return '子'
         return ZHI[((hour + 1) // 2) % 12]
 
-    def yue_jiang(self, month):
-        """公历月份 → 月将地支。"""
+    def yue_jiang(self, year=None, month=None, day=None):
+        """月将：按太阳过中气（太阳黄经）映射，而非公历月近似。
+
+        当 year/month/day 三者齐备时，依据占问日期的太阳黄经确定月将
+        （中气切换点：冬至→丑、大寒→子、雨水→亥、春分→戌……）；
+        仅给 month（兼容旧调用）时回退到公历月近似表。
+        """
+        if year is not None and month is not None and day is not None:
+            lam = self._solar_longitude(year, month, day)
+            return self._yue_jiang_from_longitude(lam)
         return YUE_JIANG.get(month, '亥')
+
+    @staticmethod
+    def _solar_longitude(y, m, d):
+        """计算太阳黄经（度，[0,360)），Meeus 低精度公式。"""
+        import math
+        if m <= 2:
+            y -= 1
+            m += 12
+        a = y // 100
+        b = 2 - a + a // 4
+        jd = (int(365.25 * (y + 4716)) + int(30.6001 * (m + 1))
+              + d + b - 1524.5)
+        n = jd - 2451545.0  # J2000 起算天数
+        L = (280.46646 + 0.98564736 * n) % 360.0
+        g = (357.52911 + 0.98560028 * n) % 360.0
+        gr = math.radians(g)
+        lam = (L + 1.914602 * math.sin(gr) + 0.019993 * math.sin(2 * gr)
+               + 0.000289 * math.sin(3 * gr)) % 360.0
+        return lam
+
+    @staticmethod
+    def _yue_jiang_from_longitude(lam):
+        """太阳黄经 → 月将地支（按中气区间）。"""
+        lam = lam % 360.0
+        for thr, zhi in reversed(_LAMBDA_TO_YUEJIANG):
+            if lam >= thr:
+                return zhi
+        return _LAMBDA_TO_YUEJIANG[0][1]  # lam<0 不可达，兜底戌
 
     # ---------- 排盘主入口 ----------
     def calc(self, method='auto', year=None, month=None, day=None, hour=None,
@@ -130,7 +199,7 @@ class LiuRenCalculator:
         if zhan_shi is None:
             zhan_shi = self.hour_to_zhi(h)
 
-        yj = self.yue_jiang(m)
+        yj = self.yue_jiang(y, m, d)
         is_day = 5 <= h < 19  # 卯时至酉时前为昼
 
         di_pan = list(ZHI)  # 地盘（固定顺序 = 罗盘位）
@@ -148,7 +217,7 @@ class LiuRenCalculator:
         tian_jiang = self._build_tianjiang(ri_gan, tian_pan, is_day)
 
         # 神煞
-        shen_sha = self._build_shensha(ri_zhi, san_chuan)
+        shen_sha = self._build_shensha(ri_gan, ri_zhi, san_chuan, yj)
 
         return {
             'method': method,
@@ -214,11 +283,12 @@ class LiuRenCalculator:
 
         gate = None
         chu = None
+        gan_yang = GAN.index(ri_gan) % 2 == 0
 
         if method in ('auto', 'zeike', 'biyong', 'shehai'):
             if zei:
-                # 比用：取与日干五行相同（比）者
-                bi = [k for k in zei if ZHI_WX.get(k, '') == ri_wx]
+                # 比用：取与日干阴阳奇偶相同（比和）者，而非五行相等
+                bi = [k for k in zei if (ZHI.index(k) % 2 == 0) == gan_yang]
                 chu = (bi[0] if bi else zei[0])
                 gate = 'zeike'
                 if method == 'shehai' and len(zei) >= 2:
@@ -241,11 +311,60 @@ class LiuRenCalculator:
             chu = k1
             gate = gate or 'zeike'
 
-        # 中传 / 末传：以初传地支取天盘所乘，再取天盘所乘（遁法）
-        zhong = tian_pan.get(chu, chu)
-        mo = tian_pan.get(zhong, zhong)
+        # 中传 / 末传：按门法取变（九宗门各自规则）
+        zhong, mo = self._build_zhong_mo(gate, chu, ri_gan, ri_zhi,
+                                          si_ke, tian_pan)
         return ({'chu': chu, 'zhong': zhong, 'mo': mo, 'gate': gate},
                 gate)
+
+    # ---------- 中末传（按门法取变） ----------
+    def _build_zhong_mo(self, gate, chu, ri_gan, ri_zhi, si_ke, tian_pan):
+        """依据九宗门门法，给定初传 chu 推导中传/末传。
+
+        贼克/比用/涉害：连茹（天盘遁）。其余门法按《六壬大全》取变规则。
+        """
+        k1 = si_ke['gan_shang']['tianpan']   # 干上神
+        k3 = si_ke['zhi_shang']['tianpan']   # 支上神
+        gan_yang = GAN.index(ri_gan) % 2 == 0
+
+        if gate in ('zeike', 'biyong', 'shehai'):
+            # 连茹：中传取初传天盘所乘，末传取中传天盘所乘
+            zhong = tian_pan.get(chu, chu)
+            mo = tian_pan.get(zhong, zhong)
+        elif gate == 'maoxing':
+            # 昴星：阳日 初=支上、中=干上、末=支上；阴日 初=干上、中=支上、末=干上
+            zhong = k1 if gan_yang else k3
+            mo = chu
+        elif gate == 'fuyin':
+            # 伏吟：初=日支，中末传按三刑连传
+            zhong = self._di_zhi_xing(ri_zhi)
+            mo = self._di_zhi_xing(zhong)
+        elif gate == 'fanyin':
+            # 返吟：初=支上，中=日支，末=日支所冲
+            zhong = ri_zhi
+            mo = self._di_zhi_chong(ri_zhi)
+        elif gate == 'bieze':
+            # 别责：初=干上，中=日支所冲，末=日干
+            zhong = self._di_zhi_chong(ri_zhi)
+            mo = ri_gan
+        elif gate == 'bazhuan':
+            # 八专：初=干上，中=日干，末=日支
+            zhong = ri_gan
+            mo = ri_zhi
+        else:
+            zhong = tian_pan.get(chu, chu)
+            mo = tian_pan.get(zhong, zhong)
+        return zhong, mo
+
+    @staticmethod
+    def _di_zhi_xing(z):
+        """地支三刑：子↔卯；寅→巳→申→寅；丑→戌→未→丑；辰午酉亥自刑。"""
+        return _XING.get(z, z)
+
+    @staticmethod
+    def _di_zhi_chong(z):
+        """地支六冲：子↔午、丑↔未、寅↔申、卯↔酉、辰↔戌、巳↔亥。"""
+        return _CHONG.get(z, z)
 
     def _no_zei_ke(self, method, ri_gan, ri_zhi, si_ke, k1, k3):
         """无贼无克时的昴星 / 伏吟 / 返吟 / 别责 / 八专 兜底。"""
@@ -255,12 +374,12 @@ class LiuRenCalculator:
         zy = si_ke['zhi_yin']['tianpan']
         gan_yang = GAN.index(ri_gan) % 2 == 0
 
-        # 伏吟：天地同（干上==支上 且 干阴==支阴）
+        # 伏吟：天地同（干上==支上 且 干阴==支阴）；初传取日支，中末传按三刑
         if gs == zs and gy == zy:
-            return gs, 'fuyin'
-        # 返吟：干上==支阴 且 干阴==支上（天地冲）
+            return ri_zhi, 'fuyin'
+        # 返吟：干上==支阴 且 干阴==支上（天地冲）；初传取支上，中传日支，末传日支冲
         if gs == zy and gy == zs:
-            return gs, 'fanyin'
+            return zs, 'fanyin'
         # 八专：干支同位（如 甲寅、丁未）且四课只有两课
         if ri_zhi == GAN_JIGONG.get(ri_gan, '') and gs == zs:
             return (k3 if gan_yang else k1), 'bazhuan'
@@ -274,12 +393,13 @@ class LiuRenCalculator:
         gs = si_ke['gan_shang']['tianpan']
         zs = si_ke['zhi_shang']['tianpan']
         gan_yang = GAN.index(ri_gan) % 2 == 0
+        # 返回 (初传, 门法) 元组，避免解包崩溃
         forced = {
-            'fuyin': (gs if gs == zs else k1),
-            'fanyin': (gs if gs == zs else k1),
-            'bazhuan': (k3 if gan_yang else k1),
-            'bieze': k1,
-            'maoxing': (k3 if gan_yang else k1),
+            'fuyin': (ri_zhi, 'fuyin'),
+            'fanyin': (zs, 'fanyin'),
+            'bazhuan': ((k3 if gan_yang else k1), 'bazhuan'),
+            'bieze': (k1, 'bieze'),
+            'maoxing': ((k3 if gan_yang else k1), 'maoxing'),
         }
         return forced.get(method, (k1, 'zeike'))
 
@@ -308,19 +428,60 @@ class LiuRenCalculator:
         return seq
 
     # ---------- 神煞 ----------
-    def _build_shensha(self, ri_zhi, san_chuan):
+    def _build_shensha(self, ri_gan, ri_zhi, san_chuan, yue_jiang):
         sha = {}
         # 驿马：依日支三合局
         for trio, ma in YIMA.items():
             if ri_zhi in trio:
                 sha['驿马'] = ma
                 break
-        # 三传初支
-        chu = san_chuan['chu']
-        zhong = san_chuan['zhong']
-        mo = san_chuan['mo']
+        # 三传
+        chu = san_chuan.get('chu', '')
+        zhong = san_chuan.get('zhong', '')
+        mo = san_chuan.get('mo', '')
         sha['三传'] = f'{chu} → {zhong} → {mo}'
+        # 空亡（旬空）
+        kw = self._kongwang(ri_gan, ri_zhi)
+        if kw:
+            sha['空亡'] = '、'.join(kw)
+        # 日干六合支（天干五合之寄宫）
+        he_gan = _GAN_HE.get(ri_gan)
+        if he_gan:
+            sha['六合'] = GAN_JIGONG.get(he_gan, '')
+        # 六害（日支所害之支）
+        sha['六害'] = _DI_ZHI_LIUHAI.get(ri_zhi, '')
+        # 天马（依月将三合局）
+        sha['天马'] = _TIANMA.get(yue_jiang, '')
+        # 旺相休囚死（日干在月令）
+        sha['旺相休囚死'] = self._wang_xiu(ri_gan, yue_jiang)
         return sha
+
+    def _kongwang(self, ri_gan, ri_zhi):
+        """返回日柱所在旬的空亡二支（旬空）。"""
+        g = GAN.index(ri_gan)
+        z = ZHI.index(ri_zhi)
+        k = ((g - z) // 2) % 6
+        seq = (g + 10 * k) % 60
+        xun_shou_zhi = ZHI[(seq // 10 * 10) % 12]
+        return _KONGWANG.get(xun_shou_zhi)
+
+    def _wang_xiu(self, ri_gan, yue_jiang):
+        """日干在月令（月将）的旺相休囚死。"""
+        r = GAN_WX.get(ri_gan, '')
+        m = ZHI_WX.get(yue_jiang, '')
+        if not r or not m:
+            return ''
+        if r == m:
+            return '旺'
+        if WX_SHENG.get(r) == m:
+            return '相'
+        if WX_SHENG.get(m) == r:
+            return '休'
+        if WX_KE.get(m) == r:
+            return '囚'
+        if WX_KE.get(r) == m:
+            return '死'
+        return ''
 
 
 # 便捷模块级函数（供 main_window 直接调用，镜像 meihua.time_divination 习惯）

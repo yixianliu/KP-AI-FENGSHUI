@@ -367,37 +367,92 @@ class KnowledgeBase:
         
         return '\n'.join(context_parts)
     
+    # 内置梅花易数解卦原则：当 meihua_knowledge 知识库为空时作为兜底，
+    # 确保 AI 解读始终有章可循（绝不因知识库缺失而缺省原则）。
+    _BUILTIN_MEIHUA_RULES = [
+        "体用之分：上卦为体（主我方/问事主体），下卦为用（主所问之事/对方）；静卦为体之象，动爻所在之卦为用。",
+        "生克定吉凶：用生体、体克用则吉；用克体、体生用则凶；体用比和则事平顺。",
+        "动静之机：动爻之卦主事之变动与趋向，动则变、静则守，观动处可知事之转机。",
+        "互卦察中节：互卦揭示事情发展的中段过程，承上启下，定事态演变之关键。",
+        "变卦观终局：变卦为事之结局与归宿，据以定最终成败、进退可否。",
+        "卦气旺衰：当令者旺、失令者衰；体卦得令而旺则事易成，体衰受克则多阻。",
+        "辨卦名之义：熟参卦名、卦辞本义（如乾健、坤顺、屯难、既济成），以定事之大象。",
+        "审慎断语：凶信易见、吉信须审，言克不言生、言咎不言祥，下结论宜留余地。",
+    ]
+
+
     def build_meihua_knowledge_context(self, hexagram_data):
         """
         构建梅花易数分析的知识上下文
-        为AI分析提供结构化的卦象知识背景
+        为AI分析提供结构化的卦象知识背景。
+        注意：本卦/变卦的卦辞爻辞来自程序起卦结果（hexagram_data），
+        解卦原则来自 meihua_knowledge 知识库（可能为空）；两者均做防御性读取，
+        任何缺失都不应导致上下文构建失败。
         """
         context_parts = []
         context_parts.append("=== 梅花易数知识库 ===")
-        
-        base_info = hexagram_data.get('base', {})
-        base_name = base_info.get('name', '')
+
+        base_info = (hexagram_data.get('base') or hexagram_data.get('hexagram') or {}) if isinstance(hexagram_data, dict) else {}
+        base_name = base_info.get('name', base_info.get('gua_name', '')) if isinstance(base_info, dict) else ''
         if base_name:
             context_parts.append(f"\n【本卦：{base_name}】")
             context_parts.append(f"卦辞：{base_info.get('gua_ci', '')}")
             context_parts.append(f"释义：{base_info.get('description', '')}")
-            
             changing_yao = base_info.get('changing_yao', 0)
             if changing_yao:
                 context_parts.append(f"动爻：第{changing_yao}爻 - {base_info.get('changing_yao_name', '')}")
                 context_parts.append(f"爻辞：{base_info.get('changing_yao_text', '')}")
                 context_parts.append(f"释义：{base_info.get('changing_yao_meaning', '')}")
-        
-        bian_info = hexagram_data.get('bian', {})
-        bian_name = bian_info.get('name', '')
+
+        bian_info = hexagram_data.get('bian', {}) if isinstance(hexagram_data, dict) else {}
+        bian_name = bian_info.get('name', bian_info.get('gua_name', '')) if isinstance(bian_info, dict) else ''
         if bian_name:
             context_parts.append(f"\n【变卦：{bian_name}】")
             context_parts.append(f"释义：{bian_info.get('description', '')}")
-        
-        context_parts.append(f"\n【解卦原则】")
-        for rule in MEIHUA_KNOWLEDGE['interpretation']['basic_rules']:
-            context_parts.append(f"- {rule}")
-        
+
+        # 互卦（若有）
+        hu_info = hexagram_data.get('hu', {}) if isinstance(hexagram_data, dict) else {}
+        hu_name = hu_info.get('name', hu_info.get('gua_name', '')) if isinstance(hu_info, dict) else ''
+        if hu_name:
+            context_parts.append(f"\n【互卦：{hu_name}】")
+            context_parts.append(f"释义：{hu_info.get('description', '')}")
+
+        # 解卦原则：兼容知识库结构（可能为空或键名不同），绝不因缺失键而崩溃。
+        # 知识库结构为 {section: {content_key: rules}}，rules 可为列表或字符串；
+        # 遍历所有 section 的所有 content_key，收集全部原则并去重。
+        context_parts.append("\n【解卦原则】")
+        rules_injected = False
+        seen_rules = set()
+        try:
+            for section_name, section_data in MEIHUA_KNOWLEDGE.items():
+                rule_sources = []
+                if isinstance(section_data, dict):
+                    for _content_key, val in section_data.items():
+                        if isinstance(val, list):
+                            rule_sources.extend(val)
+                        elif isinstance(val, str):
+                            rule_sources.append(val)
+                elif isinstance(section_data, list):
+                    rule_sources.extend(section_data)
+                elif isinstance(section_data, str):
+                    rule_sources.append(section_data)
+
+                if rule_sources:
+                    if section_name and section_name != 'interpretation':
+                        context_parts.append(f"（{section_name}）")
+                    for rule in rule_sources:
+                        if rule and rule not in seen_rules:
+                            seen_rules.add(rule)
+                            context_parts.append(f"- {rule}")
+                            rules_injected = True
+        except Exception:
+            # 知识库结构异常时静默降级，使用内置原则
+            rules_injected = False
+
+        if not rules_injected:
+            for rule in self._BUILTIN_MEIHUA_RULES:
+                context_parts.append(f"- {rule}")
+
         return '\n'.join(context_parts)
     
     def get_all_categories(self):

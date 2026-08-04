@@ -2,7 +2,7 @@
 
 > 中国传统命理学 x 现代 AI 大模型 · 桌面端专业命理分析工具
 
-基于 Python + PySide6 开发的桌面端风水命理分析软件，将八字排盘、梅花易数等传统命理学与现代 AI 大模型（Agnes AI / agnes-2.0-flash）深度结合，提供从命理计算、数据分析到 AI 智能解读的一站式解决方案。
+基于 Python + PySide6 开发的桌面端风水命理分析软件，将八字排盘、梅花易数等传统命理学与现代 AI 大模型（Agnes AI / agnes-2.5-flash）深度结合，提供从命理计算、数据分析到 AI 智能解读的一站式解决方案。
 
 ---
 
@@ -97,7 +97,7 @@
 | GUI 框架 | PySide6 (Qt for Python) | 6.6+ |
 | 数据库 | MySQL | 8.0+ |
 | 缓存/消息队列 | Redis | 3.0+ |
-| AI 模型 | Agnes AI | agnes-2.0-flash |
+| AI 模型 | Agnes AI | agnes-2.5-flash |
 | 农历转换 | lunarcalendar | 0.0.9 |
 
 ---
@@ -155,9 +155,9 @@ db = 0
 
 ```ini
 [agnes]
-api_url = https://apihub.agnes-ai.com/v1/chat/completions
+api_url = https://api.agnes-ai.cn/v1/chat/completions
 api_key = Bearer your_api_key
-model = agnes-2.0-flash
+model = agnes-2.5-flash
 max_retries = 2
 retry_delay = 2
 timeout = 60
@@ -398,9 +398,9 @@ password =
 db = 0
 
 [agnes]
-api_url = https://apihub.agnes-ai.com/v1/chat/completions
+api_url = https://api.agnes-ai.cn/v1/chat/completions
 api_key = Bearer your_api_key
-model = agnes-2.0-flash
+model = agnes-2.5-flash
 max_retries = 2
 retry_delay = 2
 timeout = 60

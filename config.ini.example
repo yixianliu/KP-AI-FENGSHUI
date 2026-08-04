@@ -20,8 +20,8 @@
 
 [agnes]
 ; AI模型API地址
-; 默认值：https://apihub.agnes-ai.com/v1/chat/completions（Agnes AI 平台）
-api_url = https://apihub.agnes-ai.com/v1/chat/completions
+; 默认值：https://api.agnes-ai.cn/v1/chat/completions（Agnes AI 平台）
+api_url = https://api.agnes-ai.cn/v1/chat/completions
 
 ; API密钥
 ; 格式：Bearer <your_access_token>
@@ -30,8 +30,9 @@ api_url = https://apihub.agnes-ai.com/v1/chat/completions
 api_key = Bearer your_api_key_here
 
 ; AI模型名称
-; 默认值：agnes-2.0-flash
-model = agnes-2.0-flash
+; 推荐：agnes-2.5-flash（响应快）或 agnes-2.0-flash（兼容模式）
+; 默认值：agnes-2.5-flash
+model = agnes-2.5-flash
 
 ; API请求重试次数
 ; 默认值：2

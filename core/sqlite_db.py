@@ -19,6 +19,8 @@ import sqlite3
 import logging
 import threading
 
+from core.path_utils import get_app_dir, get_resource_path, get_data_dir
+
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.Lock()
@@ -27,16 +29,11 @@ _SCHEMA_PATH = None
 _INITIALIZED = False
 
 
-def _project_root():
-    """源码运行时的项目根目录（core/ 的上一级）。"""
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
 def _resource_root():
     """只读资源根目录：打包后为解包临时目录，源码为项目根目录。"""
     if getattr(sys, 'frozen', False):
         return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-    return _project_root()
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _is_writable(path: str) -> bool:
@@ -52,20 +49,8 @@ def _is_writable(path: str) -> bool:
 
 
 def _data_dir() -> str:
-    """可写数据目录，优先 data/ 子目录。"""
-    if getattr(sys, 'frozen', False):
-        exe_dir = os.path.dirname(sys.executable)
-        candidate = os.path.join(exe_dir, 'data')
-        if _is_writable(candidate):
-            return candidate
-        # 回退到用户目录
-        fallback = os.path.join(os.path.expanduser('~'), '.kp-fengshui', 'data')
-        os.makedirs(fallback, exist_ok=True)
-        return fallback
-    # 源码运行：项目根 data/
-    candidate = os.path.join(_project_root(), 'data')
-    os.makedirs(candidate, exist_ok=True)
-    return candidate
+    """可写数据目录，与 core.path_utils.get_data_dir() 保持一致。"""
+    return str(get_data_dir())
 
 
 def get_db_path() -> str:
@@ -78,7 +63,9 @@ def get_db_path() -> str:
 def get_schema_path() -> str:
     global _SCHEMA_PATH
     if _SCHEMA_PATH is None:
-        _SCHEMA_PATH = os.path.join(_resource_root(), 'database', 'schema_sqlite.sql')
+        # 优先使用可写目录下的 schema（若有），否则从资源目录读取
+        resource_schema = get_resource_path('database/schema_sqlite.sql')
+        _SCHEMA_PATH = str(resource_schema)
     return _SCHEMA_PATH
 
 

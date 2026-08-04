@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+from core.path_utils import get_logs_dir
+
 # NOTE: sys.path 统一在 main.py 入口处注入，此处不再重复 inject
 
 
@@ -59,14 +61,8 @@ class StorageLogHandler(logging.Handler):
 
 
 def _resolve_default_log_dir() -> Path:
-    """解析默认日志目录。
-
-    - 打包环境（PyInstaller）：写到 exe 同级 logs/，用户易找到
-    - 开发环境：写到项目根 logs/（core/ 的上一级）
-    """
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        return Path(sys.executable).resolve().parent / 'logs'
-    return Path(__file__).resolve().parent.parent / 'logs'
+    """解析默认日志目录（统一使用 path_utils 工具）。"""
+    return get_logs_dir()
 
 
 def setup_app_logging(log_dir=None, console_level=logging.WARNING,
@@ -75,14 +71,12 @@ def setup_app_logging(log_dir=None, console_level=logging.WARNING,
     """配置全局日志：本地文件 + 存储后端（system_logs）。
 
     Args:
-        log_dir: 本地日志目录，默认 logs/
+        log_dir: 本地日志目录（忽略，统一使用 path_utils.get_logs_dir()）
         console_level: 控制台输出级别
         storage_level: 写入存储后端的级别
         file_level: 本地文件级别
     """
-    if log_dir is None:
-        log_dir = _resolve_default_log_dir()
-    log_dir = Path(log_dir)
+    log_dir = get_logs_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
 
     root = logging.getLogger()
@@ -96,10 +90,9 @@ def setup_app_logging(log_dir=None, console_level=logging.WARNING,
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # 1) 本地文件（按模块/日期分文件在各自模块 setup_logger 中处理；
-    #    此处统一给一个全局文件兜底，避免无 handler 时丢失
+    # 1) 本地文件
     global_file = log_dir / f'app_{datetime.now().strftime("%Y%m%d")}.log'
-    file_handler = logging.FileHandler(global_file, encoding='utf-8')
+    file_handler = logging.FileHandler(str(global_file), encoding='utf-8')
     file_handler.setLevel(file_level)
     file_handler.setFormatter(fmt)
     root.addHandler(file_handler)

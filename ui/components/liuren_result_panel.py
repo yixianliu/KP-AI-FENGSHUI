@@ -50,6 +50,7 @@ class LiurenResultPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_result = {}
+        self._current_ai = {}  # 最近一次 AI 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
@@ -86,6 +87,13 @@ class LiurenResultPanel(QWidget):
         self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
         self.ai_analyze_btn.setVisible(False)
         header_layout.addWidget(self.ai_analyze_btn)
+
+        self.export_btn = QPushButton('📤 导出')
+        self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.setVisible(False)
+        self.export_btn.clicked.connect(self._on_export_click)
+        header_layout.addWidget(self.export_btn)
         main_layout.addLayout(header_layout)
 
         # 状态栏
@@ -362,7 +370,7 @@ class LiurenResultPanel(QWidget):
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        layout.addWidget(self._muted('AI 智能解读将在起课后自动生成，或点击右上角「重新解读」。'))
+        layout.addWidget(self._muted('龙虎山大师兄智能解读将在起课后自动生成，或点击右上角「重新解读」。'))
         return w
 
     # ---------- 对外入口 ----------
@@ -376,6 +384,8 @@ class LiurenResultPanel(QWidget):
         self.title_label.setText('大六壬起课结果')
         self._safe_set_visible(self.empty_state, False)
         self.ai_analyze_btn.setVisible(False)
+        if hasattr(self, 'export_btn'):
+            self.export_btn.setVisible(False)
         # 加载动画
         self.taiji = RotatingLabel('☯')
         self.taiji.setStyleSheet(f"font-size: 80px; color: {Colors.PRIMARY};")
@@ -389,7 +399,7 @@ class LiurenResultPanel(QWidget):
         self.taiji_animation.start()
         self.content_layout.addWidget(self.taiji)
 
-    def show_ai_loading(self, text='AI 正在解读六壬玄机…'):
+    def show_ai_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
         self.status_label.setText('⏳ ' + text)
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
@@ -409,6 +419,8 @@ class LiurenResultPanel(QWidget):
                     w.deleteLater()
             self._current_result = result_data
             self._safe_set_visible(self.empty_state, False)
+            if hasattr(self, 'export_btn'):
+                self.export_btn.setVisible(True)
 
             self.status_label.setText('✓ 起课完成，天地盘已生成')
             self.status_label.setStyleSheet(f"""
@@ -430,7 +442,7 @@ class LiurenResultPanel(QWidget):
                 self._create_result_card('神煞', '✨', self._shensha_card(result_data)))
             # AI 占位
             self.content_layout.addWidget(
-                self._create_result_card('AI 智能解读', '🤖', self._ai_placeholder(), highlight=True))
+                self._create_result_card('龙虎山大师兄智能解读', '🧙', self._ai_placeholder(), highlight=True))
 
             self.ai_analyze_btn.setVisible(True)
             self.ai_analyze_btn.setEnabled(True)
@@ -442,7 +454,7 @@ class LiurenResultPanel(QWidget):
         """将 AI 结构化解读渲染到「AI 智能解读」卡片。"""
         try:
             if not ai_analysis:
-                self.status_label.setText('⚠ AI 解读为空')
+                self.status_label.setText('⚠ 龙虎山大师兄解读为空')
                 return
             # 用 AI 内容替换最后一个 AI 卡片
             if hasattr(self, 'taiji_animation'):
@@ -461,11 +473,11 @@ class LiurenResultPanel(QWidget):
             cv = QVBoxLayout(container)
             cv.setContentsMargins(0, 0, 0, 0)
             cv.setSpacing(12)
-            cv.addWidget(ai_section_header('AI 智能深度解读'))
+            cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
             for c in cards:
                 cv.addWidget(c)
             self.content_layout.addWidget(container)
-            self.status_label.setText('✓ AI 解读完成')
+            self.status_label.setText('✓ 龙虎山大师兄解读完成')
             self.status_label.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY}; color: {Colors.SUCCESS};
                 font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD};
@@ -556,3 +568,65 @@ class LiurenResultPanel(QWidget):
             'tian_jiang': [f"{t['pos']}{t['tianpan']}{t['jiang']}" for t in r.get('tian_jiang', [])],
             'shen_sha': r.get('shen_sha', {}),
         }
+
+    def _on_export_click(self):
+        """导出大六壬起课结果（复用 ExportDialog 与三导出器）。"""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog
+        from ui.components.export_dialog import ExportDialog
+        from ui.export import CsvExporter, ExcelExporter
+        from ui.export.base_exporter import filter_export_data
+
+        rd = getattr(self, '_current_result', None)
+        if not rd:
+            QMessageBox.warning(self, '导出失败', '暂无可导出的起课结果')
+            return
+
+        # 组装导出数据：liuren_data = 起课结果, liuren_ai = 龙虎山大师兄解读
+        export_data = {
+            'liuren_data': dict(rd),
+            'basic_info': {'pan_type': '大六壬'},
+        }
+        ai = getattr(self, '_current_ai', None)
+        if ai and isinstance(ai, dict):
+            export_data['liuren_ai'] = ai
+
+        dialog = ExportDialog(export_data, parent=self)
+        dialog.filename_edit.setText('大六壬')
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            format_type = dialog.get_selected_format()
+            chapters = dialog.get_selected_chapters()
+            export_data = filter_export_data(export_data, chapters)
+
+            filename = dialog.filename_edit.text().strip() or '大六壬'
+            if format_type == 'csv':
+                ext, file_filter = '.csv', 'CSV Files (*.csv)'
+            elif format_type == 'excel':
+                ext, file_filter = '.xlsx', 'Excel Files (*.xlsx)'
+            else:
+                ext, file_filter = '.pdf', 'PDF Files (*.pdf)'
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, '导出大六壬起课结果', filename + ext, file_filter)
+            if not file_path:
+                return
+            try:
+                if format_type == 'csv':
+                    exporter = CsvExporter()
+                elif format_type == 'excel':
+                    exporter = ExcelExporter()
+                else:
+                    try:
+                        from ui.export import PdfExporter
+                    except Exception:
+                        QMessageBox.warning(
+                            self, '导出失败',
+                            '未安装 reportlab，无法导出 PDF。\n请执行：pip install reportlab')
+                        return
+                    exporter = PdfExporter()
+
+                if exporter.export(export_data, file_path):
+                    QMessageBox.information(self, '导出成功', f'文件已保存至：\n{file_path}')
+                else:
+                    QMessageBox.warning(self, '导出失败', '导出过程中发生错误')
+            except Exception as e:
+                QMessageBox.warning(self, '导出失败', f'导出失败：{e}')

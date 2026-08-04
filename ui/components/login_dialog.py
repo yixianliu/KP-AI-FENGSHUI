@@ -214,9 +214,13 @@ class LoginDialog(QDialog):
             else:
                 QMessageBox.warning(self, '登录失败', '用户名或密码错误')
         else:
-            # 无数据库时模拟登录
-            self.user_logged_in.emit(1, username)
-            self.accept()
+            # DB 不可用时明确报错，禁止"模拟登录"绕过（P2-2 用户体系加固）
+            QMessageBox.critical(
+                self, '登录不可用',
+                '数据库未就绪，无法完成登录。\n\n'
+                '排盘数据仍可正常使用，但保存历史记录需要先登录。\n'
+                '请检查程序是否被授予 data/ 目录的写入权限。'
+            )
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
@@ -467,10 +471,13 @@ class RegisterDialog(QDialog):
             else:
                 QMessageBox.warning(self, '注册失败', '注册失败，请稍后重试')
         else:
-            # 无数据库时模拟注册
-            self.user_registered.emit(1, username)
-            QMessageBox.information(self, '注册成功', '账号注册成功，即将自动登录')
-            self.accept()
+            # DB 不可用时明确报错，禁止"模拟注册"绕过（P2-2 用户体系加固）
+            QMessageBox.critical(
+                self, '注册不可用',
+                '数据库未就绪，无法完成注册。\n\n'
+                '排盘数据仍可正常使用，但保存历史记录需要先注册。\n'
+                '请检查程序是否被授予 data/ 目录的写入权限。'
+            )
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:

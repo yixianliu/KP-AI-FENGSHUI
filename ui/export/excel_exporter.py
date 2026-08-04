@@ -117,6 +117,20 @@ class ExcelExporter(BaseExporter):
             if has_chapter(data, 'ai_analysis'):
                 self._add_ai_section(ws, row, data.get('ai_analysis', {}))
 
+            # 梅花易数
+            if has_chapter(data, 'meihua'):
+                self._add_meihua_section(ws, row, data.get('meihua_data', {}) or {},
+                                          data.get('meihua_ai', {}) or {})
+
+            # 大六壬
+            if has_chapter(data, 'liuren'):
+                self._add_liuren_section(ws, row, data.get('liuren_data', {}) or {},
+                                          data.get('liuren_ai', {}) or {})
+
+            # 综合建议（融合三方结论）
+            if has_chapter(data, 'zonghe'):
+                self._add_zonghe_section(ws, row, data.get('zonghe', {}))
+
             ws.column_dimensions['A'].width = 22
             ws.column_dimensions['B'].width = 60
 
@@ -288,7 +302,7 @@ class ExcelExporter(BaseExporter):
 
     def _add_ai_section(self, ws, start_row, ai: dict):
         ws.merge_cells(f'A{start_row}:B{start_row}')
-        title_cell = ws.cell(row=start_row, column=1, value='AI 智能深度分析')
+        title_cell = ws.cell(row=start_row, column=1, value='龙虎山大师兄智能深度分析')
         title_cell.font = self.styles['header']
         title_cell.alignment = self.styles['center']
         title_cell.fill = self.styles['fill_gold']
@@ -315,5 +329,129 @@ class ExcelExporter(BaseExporter):
         if fill:
             cell.fill = PatternFill(start_color=fill, end_color=fill, fill_type='solid')
 
+    def _add_zonghe_section(self, ws, start_row, z: dict):
+        ws.merge_cells(f'A{start_row}:B{start_row}')
+        title_cell = ws.cell(row=start_row, column=1, value='综合建议（龙虎山大师兄融合）')
+        title_cell.font = self.styles['header']
+        title_cell.alignment = self.styles['center']
+        title_cell.fill = self.styles['fill_gold']
+        title_cell.border = self.styles['border']
+
+        row = start_row + 1
+        sections = [
+            ('tri_method_overview', '三方概览'),
+            ('consistency_check', '矛盾与印证'),
+            ('synthesis', '综合定论'),
+            ('unified_plan', '统一趋吉避凶方案'),
+            ('key_timing', '关键时机与禁忌'),
+        ]
+        for key, title in sections:
+            items = z.get(key) or []
+            if not items:
+                continue
+            self._cell(ws, row, 1, title, align='left')
+            self._cell(ws, row, 2, '', align='left')
+            row += 1
+            for it in items:
+                self._cell(ws, row, 1, '•', align='center')
+                self._cell(ws, row, 2, str(it), align='left')
+                row += 1
+        if z.get('disclaimer'):
+            self._cell(ws, row, 1, '免责说明', align='left')
+            self._cell(ws, row, 2, str(z.get('disclaimer')), align='left')
+            row += 1
+
     def get_file_extension(self) -> str:
         return '.xlsx'
+
+    def _add_meihua_section(self, ws, start_row, mh: dict, mh_ai: dict):
+        ws.merge_cells(f'A{start_row}:B{start_row}')
+        title_cell = ws.cell(row=start_row, column=1, value='梅花易数卦象')
+        title_cell.font = self.styles['header']
+        title_cell.alignment = self.styles['center']
+        title_cell.fill = self.styles['fill_gold']
+        title_cell.border = self.styles['border']
+
+        row = start_row + 1
+        for key, label in (
+            ('method', '起卦方法'), ('base_hex', '本卦'), ('changed_hex', '变卦'),
+            ('hu_hex', '互卦'), ('ti_gong', '体卦'), ('yong_gong', '用卦'),
+            ('ti_zhi', '体卦五行'), ('yong_zhi', '用卦五行'),
+            ('hu_gong', '互卦五行'), ('bian_gong', '变卦五行'),
+            ('hex_relation', '体用关系'),
+        ):
+            val = mh.get(key)
+            if val:
+                self._cell(ws, row, 1, label, align='left')
+                self._cell(ws, row, 2, str(val), align='left')
+                row += 1
+
+        if mh_ai:
+            row += 1
+            ws.merge_cells(f'A{row}:B{row}')
+            sub = ws.cell(row=row, column=1, value='— 龙虎山大师兄梅花解读 —')
+            sub.font = self.styles['header']
+            sub.alignment = self.styles['center']
+            sub.fill = self.styles['fill_gold']
+            sub.border = self.styles['border']
+            row += 1
+            for key, title in _AI_SECTIONS:
+                items = mh_ai.get(key, []) or []
+                if not items:
+                    continue
+                self._cell(ws, row, 1, title, align='left')
+                self._cell(ws, row, 2, '', align='left')
+                row += 1
+                for it in items:
+                    self._cell(ws, row, 1, '•', align='center')
+                    self._cell(ws, row, 2, str(it), align='left')
+                    row += 1
+            if mh_ai.get('final_verdict'):
+                self._cell(ws, row, 1, '结论', align='left')
+                self._cell(ws, row, 2, str(mh_ai.get('final_verdict')), align='left')
+                row += 1
+
+    def _add_liuren_section(self, ws, start_row, lr: dict, lr_ai: dict):
+        ws.merge_cells(f'A{start_row}:B{start_row}')
+        title_cell = ws.cell(row=start_row, column=1, value='大六壬起课')
+        title_cell.font = self.styles['header']
+        title_cell.alignment = self.styles['center']
+        title_cell.fill = self.styles['fill_gold']
+        title_cell.border = self.styles['border']
+
+        row = start_row + 1
+        for key, label in (
+            ('pan_date', '公历日期'), ('si_ke', '四课'), ('san_chuan', '三传'),
+            ('gate', '三传门法'), ('yue_jiang', '月将'),
+            ('tian_jiang', '天将'), ('shen_sha', '神煞'),
+        ):
+            val = lr.get(key)
+            if val:
+                self._cell(ws, row, 1, label, align='left')
+                self._cell(ws, row, 2, str(val), align='left')
+                row += 1
+
+        if lr_ai:
+            row += 1
+            ws.merge_cells(f'A{row}:B{row}')
+            sub = ws.cell(row=row, column=1, value='— 龙虎山大师兄六壬解读 —')
+            sub.font = self.styles['header']
+            sub.alignment = self.styles['center']
+            sub.fill = self.styles['fill_gold']
+            sub.border = self.styles['border']
+            row += 1
+            for key, title in _AI_SECTIONS:
+                items = lr_ai.get(key, []) or []
+                if not items:
+                    continue
+                self._cell(ws, row, 1, title, align='left')
+                self._cell(ws, row, 2, '', align='left')
+                row += 1
+                for it in items:
+                    self._cell(ws, row, 1, '•', align='center')
+                    self._cell(ws, row, 2, str(it), align='left')
+                    row += 1
+            if lr_ai.get('final_verdict'):
+                self._cell(ws, row, 1, '结论', align='left')
+                self._cell(ws, row, 2, str(lr_ai.get('final_verdict')), align='left')
+                row += 1

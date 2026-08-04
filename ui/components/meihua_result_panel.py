@@ -43,6 +43,7 @@ class MeihuaResultPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._current_ai = {}   # 最近一次 AI 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
@@ -81,6 +82,13 @@ class MeihuaResultPanel(QWidget):
         self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
         self.ai_analyze_btn.setVisible(False)
         header_layout.addWidget(self.ai_analyze_btn)
+
+        self.export_btn = QPushButton('📤 导出')
+        self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.setVisible(False)
+        self.export_btn.clicked.connect(self._on_export_click)
+        header_layout.addWidget(self.export_btn)
 
         main_layout.addLayout(header_layout)
 
@@ -601,6 +609,9 @@ class MeihuaResultPanel(QWidget):
                 item.widget().deleteLater()
 
         self.ai_analyze_btn.setVisible(True)
+        # 起卦结果出来后即可导出（即使暂无 AI 解读）
+        if hasattr(self, 'export_btn'):
+            self.export_btn.setVisible(True)
 
         # 更新顶部状态栏（注意：直接更新 init_ui 中已创建的 status_bar / status_label，
         # 切勿在此处重新 new 一个 status_bar 并塞进 content_layout，否则顶栏会一直显示加载文案）
@@ -770,6 +781,8 @@ class MeihuaResultPanel(QWidget):
         """)
 
         self.ai_analyze_btn.setVisible(False)
+        if hasattr(self, 'export_btn'):
+            self.export_btn.setVisible(False)
 
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -828,7 +841,7 @@ class MeihuaResultPanel(QWidget):
         cv = QVBoxLayout(container)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(12)
-        cv.addWidget(ai_section_header('AI 智能深度解读'))
+        cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
 
         sections = [
             ('overview', '📋', '卦象概览', Colors.QINGHUA),
@@ -868,7 +881,7 @@ class MeihuaResultPanel(QWidget):
             placeholder.setParent(None)
             placeholder.deleteLater()
 
-    def show_ai_loading(self, message: str = 'AI正在解读卦象玄机…'):
+    def show_ai_loading(self, message: str = '龙虎山大师兄正在解读卦象玄机…'):
         """显示AI分析加载状态"""
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -886,7 +899,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText('🤖 AI解读中…')
+        self.status_label.setText('🧙 龙虎山大师兄解读中…')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.HIGHLIGHT};
@@ -917,7 +930,7 @@ class MeihuaResultPanel(QWidget):
         """)
         text_label.setAlignment(Qt.AlignCenter)
 
-        sub_label = QLabel('请稍候，AI正在结合卦辞爻辞进行深度解读')
+        sub_label = QLabel('请稍候，龙虎山大师兄正在结合卦辞爻辞进行深度解读')
         sub_label.setStyleSheet(f"""
             font-size: 12px;
             color: {Colors.TEXT_TERTIARY};
@@ -944,8 +957,11 @@ class MeihuaResultPanel(QWidget):
         """
         # 0) 防御性检查
         if not ai_data or not isinstance(ai_data, dict):
-            self._show_ai_error('AI 未返回有效内容，请重试')
+            self._show_ai_error('龙虎山大师兄未返回有效内容，请重试')
             return
+
+        # 缓存 AI 解读，供导出按钮复用
+        self._current_ai = ai_data
 
         rd = getattr(self, '_current_result', {}) or {}
 
@@ -965,7 +981,7 @@ class MeihuaResultPanel(QWidget):
         cv = QVBoxLayout(container)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(12)
-        cv.addWidget(ai_section_header('AI 智能深度解读'))
+        cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
 
         has_ai_content = False
         for key, title, icon, color in sections:
@@ -1065,7 +1081,7 @@ class MeihuaResultPanel(QWidget):
 
         # 没有任何 AI 内容的兜底提示
         if not has_ai_content:
-            tip = QLabel('AI 未返回有效条目，请点击「重新解读」重试')
+            tip = QLabel('龙虎山大师兄未返回有效条目，请点击「重新解读」重试')
             tip.setStyleSheet(
                 f"color:{Colors.TEXT3}; font-size:{Fonts.SIZE_BODY}; "
                 f"font-family:{Fonts.FAMILY_CN}; padding:30px 20px;"
@@ -1114,7 +1130,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText('✓ AI解读完成')
+        self.status_label.setText('✓ 龙虎山大师兄解读完成')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.SUCCESS};
@@ -1148,7 +1164,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText('⚠ AI 异常')
+        self.status_label.setText('⚠ 龙虎山大师兄异常')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.DANGER};
@@ -1278,3 +1294,67 @@ class MeihuaResultPanel(QWidget):
         """)
 
         self.ai_analyze_btn.setVisible(False)
+        if hasattr(self, 'export_btn'):
+            self.export_btn.setVisible(False)
+        self._current_ai = {}
+
+    def _on_export_click(self):
+        """导出梅花起卦结果（复用 ExportDialog 与三导出器）。"""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog
+        from ui.components.export_dialog import ExportDialog
+        from ui.export import CsvExporter, ExcelExporter
+        from ui.export.base_exporter import filter_export_data
+
+        rd = getattr(self, '_current_result', None)
+        if not rd:
+            QMessageBox.warning(self, '导出失败', '暂无可导出的起卦结果')
+            return
+
+        export_data = {
+            'meihua_data': dict(rd),
+            'basic_info': {'pan_type': '梅花易数'},
+        }
+        ai = getattr(self, '_current_ai', None)
+        if ai and isinstance(ai, dict):
+            export_data['meihua_ai'] = ai
+
+        dialog = ExportDialog(export_data, parent=self)
+        dialog.filename_edit.setText('梅花易数')
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            format_type = dialog.get_selected_format()
+            chapters = dialog.get_selected_chapters()
+            export_data = filter_export_data(export_data, chapters)
+
+            filename = dialog.filename_edit.text().strip() or '梅花易数'
+            if format_type == 'csv':
+                ext, file_filter = '.csv', 'CSV Files (*.csv)'
+            elif format_type == 'excel':
+                ext, file_filter = '.xlsx', 'Excel Files (*.xlsx)'
+            else:
+                ext, file_filter = '.pdf', 'PDF Files (*.pdf)'
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, '导出梅花起卦结果', filename + ext, file_filter)
+            if not file_path:
+                return
+            try:
+                if format_type == 'csv':
+                    exporter = CsvExporter()
+                elif format_type == 'excel':
+                    exporter = ExcelExporter()
+                else:
+                    try:
+                        from ui.export import PdfExporter
+                    except Exception:
+                        QMessageBox.warning(
+                            self, '导出失败',
+                            '未安装 reportlab，无法导出 PDF。\n请执行：pip install reportlab')
+                        return
+                    exporter = PdfExporter()
+
+                if exporter.export(export_data, file_path):
+                    QMessageBox.information(self, '导出成功', f'文件已保存至：\n{file_path}')
+                else:
+                    QMessageBox.warning(self, '导出失败', '导出过程中发生错误')
+            except Exception as e:
+                QMessageBox.warning(self, '导出失败', f'导出失败：{e}')

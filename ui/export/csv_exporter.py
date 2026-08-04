@@ -159,11 +159,91 @@ class CsvExporter(BaseExporter):
                 # AI 智能分析
                 if has_chapter(data, 'ai_analysis'):
                     ai = data.get('ai_analysis', {}) or {}
-                    writer.writerow(['AI 智能深度分析'])
+                    writer.writerow(['龙虎山大师兄智能深度分析'])
                     for key, title in _AI_SECTIONS:
                         items = ai.get(key, []) or []
                         for it in items:
                             writer.writerow([title, _to_str(it)])
+                    writer.writerow([])
+
+                # 梅花易数卦象
+                if has_chapter(data, 'meihua'):
+                    mh = data.get('meihua_data', {}) or {}
+                    writer.writerow(['梅花易数'])
+                    for key, label in (
+                        ('method', '起卦方法'),
+                        ('base_hex', '本卦'),
+                        ('changed_hex', '变卦'),
+                        ('hu_hex', '互卦'),
+                        ('ti_gong', '体卦'),
+                        ('yong_gong', '用卦'),
+                        ('ti_zhi', '体卦五行'),
+                        ('yong_zhi', '用卦五行'),
+                        ('hu_gong', '互卦五行'),
+                        ('bian_gong', '变卦五行'),
+                        ('hex_relation', '体用关系'),
+                    ):
+                        val = mh.get(key)
+                        if val:
+                            writer.writerow([label, _to_str(val)])
+                    # 嵌入式 AI 解读（独立键）
+                    mh_ai = data.get('meihua_ai') or {}
+                    if mh_ai:
+                        writer.writerow([])
+                        writer.writerow(['— 龙虎山大师兄梅花解读 —'])
+                        for key, title in _AI_SECTIONS:
+                            items = mh_ai.get(key, []) or []
+                            for it in items:
+                                writer.writerow([title, _to_str(it)])
+                        if mh_ai.get('final_verdict'):
+                            writer.writerow(['结论', _to_str(mh_ai.get('final_verdict'))])
+                    writer.writerow([])
+
+                # 大六壬起课
+                if has_chapter(data, 'liuren'):
+                    lr = data.get('liuren_data', {}) or {}
+                    writer.writerow(['大六壬起课'])
+                    for key, label in (
+                        ('pan_date', '公历日期'),
+                        ('si_ke', '四课'),
+                        ('san_chuan', '三传'),
+                        ('gate', '三传门法'),
+                        ('yue_jiang', '月将'),
+                        ('tian_jiang', '天将'),
+                        ('shen_sha', '神煞'),
+                    ):
+                        val = lr.get(key)
+                        if val:
+                            writer.writerow([label, _to_str(val)])
+                    # 嵌入式 AI 解读
+                    lr_ai = data.get('liuren_ai') or {}
+                    if lr_ai:
+                        writer.writerow([])
+                        writer.writerow(['— 龙虎山大师兄六壬解读 —'])
+                        for key, title in _AI_SECTIONS:
+                            items = lr_ai.get(key, []) or []
+                            for it in items:
+                                writer.writerow([title, _to_str(it)])
+                        if lr_ai.get('final_verdict'):
+                            writer.writerow(['结论', _to_str(lr_ai.get('final_verdict'))])
+                    writer.writerow([])
+
+                # 综合建议（融合三方结论）
+                if has_chapter(data, 'zonghe'):
+                    z = data.get('zonghe', {}) or {}
+                    writer.writerow(['综合建议（龙虎山大师兄融合）'])
+                    _ZONGHE_SECTIONS = [
+                        ('tri_method_overview', '三方概览'),
+                        ('consistency_check', '矛盾与印证'),
+                        ('synthesis', '综合定论'),
+                        ('unified_plan', '统一趋吉避凶方案'),
+                        ('key_timing', '关键时机与禁忌'),
+                    ]
+                    for key, title in _ZONGHE_SECTIONS:
+                        for it in (z.get(key) or []):
+                            writer.writerow([title, _to_str(it)])
+                    if z.get('disclaimer'):
+                        writer.writerow(['免责说明', _to_str(z.get('disclaimer'))])
                     writer.writerow([])
 
             return True

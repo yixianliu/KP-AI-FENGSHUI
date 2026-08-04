@@ -33,6 +33,9 @@ class ResultPanel(QWidget):
     def __init__(self, parent=None, stacked_widget=None):
         super().__init__(parent)
         self._current_result = None
+        # AI 功能可用性标记（由 MainWindow 在初始化后注入）
+        self._ai_available = True
+        self._fade_anims = []
         self.init_ui()
 
     def init_ui(self):
@@ -128,7 +131,7 @@ class ResultPanel(QWidget):
         s = QLabel('填写左侧参数，点击开始排盘')
         s.setStyleSheet(f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         s.setAlignment(Qt.AlignCenter)
-        sub = QLabel('支持八字排盘 · 五行分析 · AI智能解读')
+        sub = QLabel('支持八字排盘 · 五行分析 · 龙虎山大师兄解读')
         sub.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT4}; font-family: {Fonts.BODY};")
         sub.setAlignment(Qt.AlignCenter)
         l.addStretch(); l.addWidget(t); l.addWidget(s); l.addWidget(sub); l.addStretch()
@@ -604,7 +607,23 @@ class ResultPanel(QWidget):
         return w
 
     def _rebuild_header(self):
-        """重建头部"""
+        """重建头部：先移除已有的第一个 header layout，再添加新的"""
+        # 移除 init_ui 或上次重建留下的 header layout
+        while self.clay.count() > 0:
+            first = self.clay.itemAt(0)
+            if first is not None and first.layout():
+                # 移除但不删除（属顶层布局，不销毁）
+                self.clay.removeLayout(first.layout())
+                break
+            # 如果第一个是 widget（如空状态），也移除
+            elif first is not None:
+                w = first.widget()
+                if w is not None:
+                    w.deleteLater()
+                self.clay.removeWidget(w) if w else None
+                break
+            else:
+                break
         self.clay.addLayout(self._header())
 
     def _fade_in_widgets(self):
@@ -612,18 +631,22 @@ class ResultPanel(QWidget):
         self._fade_anims = []
         for i in range(self.clay.count()):
             item = self.clay.itemAt(i)
-            if item and item.widget():
-                widget = item.widget()
-                effect = QGraphicsOpacityEffect(widget)
-                effect.setOpacity(0.0)
-                widget.setGraphicsEffect(effect)
-                anim = QPropertyAnimation(effect, b"opacity")
-                anim.setDuration(400)
-                anim.setStartValue(0.0)
-                anim.setEndValue(1.0)
-                anim.setEasingCurve(QEasingCurve.OutCubic)
-                self._fade_anims.append(anim)
-                QTimer.singleShot(i * 60, anim.start)
+            if not item:
+                continue
+            widget = item.widget()
+            if widget is None or not widget.isVisible():
+                continue
+            effect = QGraphicsOpacityEffect(widget)
+            effect.setOpacity(0.0)
+            widget.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity")
+            anim.setDuration(350)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            self._fade_anims.append(anim)
+            # 每个widget延迟20ms，总延迟不超过800ms
+            QTimer.singleShot(min(i * 20, 800), anim.start)
 
     def _yuncheng(self, yc):
         """渲染运程总结（事业 / 财运 / 健康 / 感情）"""
@@ -848,12 +871,12 @@ class ResultPanel(QWidget):
         self.export_btn.setVisible(False)
         self.ai_analyze_btn.setVisible(False)
 
-    def show_ai_loading(self, message: str = 'AI正在深度分析中…'):
+    def show_ai_loading(self, message: str = '龙虎山大师兄正在深度分析中…'):
         """显示AI分析加载状态"""
         self._clear_content()
         self._rebuild_header()
 
-        self.status_lbl.setText('AI分析中…')
+        self.status_lbl.setText('龙虎山大师兄分析中…')
         self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
         self.refresh_btn.setVisible(False)
         self.copy_btn.setVisible(False)
@@ -876,7 +899,7 @@ class ResultPanel(QWidget):
         tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
         tx.setAlignment(Qt.AlignCenter)
 
-        sub = QLabel('请稍候，AI正在结合命理知识进行深度解读')
+        sub = QLabel('请稍候，龙虎山大师兄正在结合命理知识进行深度解读')
         sub.setStyleSheet(f"font-size:12px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
         sub.setAlignment(Qt.AlignCenter)
 
@@ -926,7 +949,7 @@ class ResultPanel(QWidget):
         rd = getattr(self, '_current_result', {}) or {}
 
         if not ai_data or not isinstance(ai_data, dict):
-            self._show_ai_error('AI 未返回有效内容，请重试')
+            self._show_ai_error('龙虎山大师兄未返回有效内容，请重试')
             return
 
         self._clear_content()
@@ -942,7 +965,7 @@ class ResultPanel(QWidget):
             self.ai_analyze_btn.setVisible(True)
             self.ai_analyze_btn.setEnabled(True)
             self.ai_analyze_btn.setText('🔄 重新分析')
-        self.status_lbl.setText('✓ AI分析完成')
+        self.status_lbl.setText('✓ 龙虎山大师兄分析完成')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
         )
@@ -1087,11 +1110,11 @@ class ResultPanel(QWidget):
         title_layout.setContentsMargins(0, 0, 0, 4)
         title_layout.setSpacing(8)
 
-        icon = QLabel('🤖')
+        icon = QLabel('🧙')
         icon.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN};")
         title_layout.addWidget(icon)
 
-        title = QLabel('AI 智能深度分析')
+        title = QLabel('龙虎山大师兄智能深度分析')
         title.setStyleSheet(
             f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
             f"color: {Colors.LIUJIN}; font-family: {Fonts.TITLE};"
@@ -1117,12 +1140,12 @@ class ResultPanel(QWidget):
             items = ai_data.get(key, []) or []
             if items:
                 has_ai_content = True
-                ai_card = CollapsibleCard(f'AI·{title}', icon, accent_color=color, collapsed=False)
+                ai_card = CollapsibleCard(f'龙虎山大师兄·{title}', icon, accent_color=color, collapsed=False)
                 ai_card.set_content(self._ai_list(items, color))
                 self.clay.addWidget(ai_card)
 
         if not has_ai_content:
-            empty_label = QLabel('AI 未返回有效条目，请点击「重新分析」重试')
+            empty_label = QLabel('龙虎山大师兄未返回有效条目，请点击「重新分析」重试')
             empty_label.setStyleSheet(
                 f"color:{Colors.TEXT3}; font-size:{Fonts.SZ_BODY}; "
                 f"font-family:{Fonts.BODY}; padding:24px;"
@@ -1139,6 +1162,15 @@ class ResultPanel(QWidget):
     # ----------------- 辅助方法 -----------------
 
     def _clear_content(self):
+        # 停止并清理所有淡入动画，防止旧动画引用已删除的 widget
+        if hasattr(self, '_fade_anims'):
+            for anim in self._fade_anims:
+                try:
+                    anim.stop()
+                    anim.deleteLater()
+                except Exception:
+                    pass
+            self._fade_anims = []
         while self.clay.count():
             item = self.clay.takeAt(0)
             w = item.widget() if item else None
@@ -1164,7 +1196,7 @@ class ResultPanel(QWidget):
                 w = item.widget()
                 if w is None:
                     continue
-                if isinstance(w, QLabel) and ('AI' in w.text() or '智能' in w.text()):
+                if isinstance(w, QLabel) and '龙虎山大师兄' in w.text():
                     self.scroll.ensureWidgetVisible(w)
                     return
             sb = self.scroll.verticalScrollBar()
@@ -1176,7 +1208,7 @@ class ResultPanel(QWidget):
     def _show_ai_error(self, message: str):
         self._clear_content()
         self._rebuild_header()
-        self.status_lbl.setText('AI 异常')
+        self.status_lbl.setText('龙虎山大师兄异常')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};"
         )
@@ -1226,33 +1258,88 @@ class ResultPanel(QWidget):
         return w
 
     def get_chart_data_for_ai(self) -> dict:
-        """获取用于AI分析的排盘数据"""
+        """获取用于AI分析的完整排盘数据（含五行明细/十神/命理/大运），确保大师兄分析有充分命理依据
+
+        注意：早期实现只透传「四柱 + 五行计数」，导致十神/命理/大运等核心数据从未送达 AI，
+        分析只能泛泛而谈。此处补全全部已计算字段，让 DataIntegrator 能拼出完整 prompt。
+        """
         rd = getattr(self, '_current_result', None)
         if not rd or not isinstance(rd, dict):
             return {}
 
         bazi = rd.get('bazi') or {}
-        wuxing = rd.get('wuxing') or {}
+        bi = rd.get('basic_info') or {}
 
         chart_data = {
             'bazi': {
-                'year': bazi.get('year_pillar', ''),
-                'month': bazi.get('month_pillar', ''),
-                'day': bazi.get('day_pillar', ''),
-                'hour': bazi.get('hour_pillar', ''),
-                'rizhu': bazi.get('day_pillar', '')[0] if bazi.get('day_pillar', '') else ''
+                'year_pillar': bazi.get('year_pillar', ''),
+                'month_pillar': bazi.get('month_pillar', ''),
+                'day_pillar': bazi.get('day_pillar', ''),
+                'hour_pillar': bazi.get('hour_pillar', ''),
+                'rizhu': bazi.get('rizhu', ''),
+                'month_zhi': bazi.get('month_zhi', ''),
+                'hour_zhi': bazi.get('hour_zhi', ''),
+                'solar_date': bi.get('solar_date', ''),
+                'lunar_date': bi.get('lunar_date', ''),
             },
-            'wuxing': {}
+            'wuxing': self._adapt_wuxing_for_ai(rd.get('wuxing_detail') or {}),
+            'shishen': self._adapt_shishen_for_ai(rd.get('shishen') or {}),
+            'mingli': rd.get('mingli') or {},
+            'major_fortune': rd.get('dayun') or {},
         }
-
-        if wuxing:
-            total = sum(v for v in wuxing.values() if isinstance(v, (int, float))) or 1
-            for wx_name in ['金', '木', '水', '火', '土']:
-                val = wuxing.get(wx_name, 0)
-                if isinstance(val, (int, float)):
-                    chart_data['wuxing'][wx_name] = {
-                        'count': val,
-                        'percentage': int(val / total * 100)
-                    }
-
         return chart_data
+
+    def _adapt_wuxing_for_ai(self, wx_detail: dict) -> dict:
+        """将 wuxing_detail 整理为 DataIntegrator 期望的五行结构（补齐占比与强弱字段）。"""
+        if not wx_detail or not isinstance(wx_detail, dict):
+            return {}
+        total = float(wx_detail.get('total_score', 0) or 0)
+        out = {}
+        for k, v in wx_detail.items():
+            if k in ('summary', 'tonggen', 'total_score', 'rizhu_wx'):
+                out[k] = v
+            elif isinstance(v, dict):
+                score = float(v.get('score', 0) or 0)
+                pct = round(score / total * 100, 1) if total > 0 else 0.0
+                if total > 0:
+                    if score >= total * 0.30:
+                        strength = '旺'
+                    elif score <= total * 0.12:
+                        strength = '弱'
+                    else:
+                        strength = '中'
+                else:
+                    strength = ''
+                out[k] = {
+                    'score': score,
+                    'count': int(v.get('count', 0) or 0),
+                    'percentage': pct,
+                    'strength': strength,
+                    'description': str(v.get('description', '') or ''),
+                }
+        return out
+
+    def _adapt_shishen_for_ai(self, ss: dict) -> dict:
+        """将十神 details 列表映射为 DataIntegrator 期望的 pillars 结构。"""
+        if not ss or not isinstance(ss, dict):
+            return {}
+        pillars = {}
+        for d in ss.get('details', []) or []:
+            if not isinstance(d, dict):
+                continue
+            pillar = d.get('pillar', '')
+            if not pillar:
+                continue
+            pillars.setdefault(pillar, []).append({
+                'gan': d.get('gan', ''),
+                'zhi': d.get('zhi', ''),
+                'shishen': d.get('gan_shishen', ''),
+                'weight': 1.0,
+            })
+        return {
+            'summary': ss.get('summary', {}) or {},
+            'weight_summary': ss.get('weight_summary', {}) or {},
+            'total_weights': ss.get('total_weights', {}) or {},
+            'analysis': ss.get('analysis', '') or '',
+            'pillars': pillars,
+        }

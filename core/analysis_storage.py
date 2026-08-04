@@ -152,15 +152,20 @@ class AnalysisStorage:
             birth_date = ''
             birth_time = ''
             if 'year' in input_data and 'month' in input_data and 'day' in input_data:
+                year_val = input_data.get('year', '')
+                month_val = int(input_data.get('month', 0) or 0)
+                day_val = int(input_data.get('day', 0) or 0)
                 birth_date = (
-                    f"{input_data.get('year', '')}-"
-                    f"{input_data.get('month', 0):02d}-"
-                    f"{input_data.get('day', 0):02d}"
+                    f"{year_val}-"
+                    f"{month_val:02d}-"
+                    f"{day_val:02d}"
                 )
             if 'hour' in input_data and 'minute' in input_data:
+                hour_val = int(input_data.get('hour', 0) or 0)
+                minute_val = int(input_data.get('minute', 0) or 0)
                 birth_time = (
-                    f"{input_data.get('hour', 0):02d}:"
-                    f"{input_data.get('minute', 0):02d}"
+                    f"{hour_val:02d}:"
+                    f"{minute_val:02d}"
                 )
 
             city = input_data.get('location') or input_data.get('city', '')

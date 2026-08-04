@@ -106,7 +106,7 @@ class PdfExporter(BaseExporter):
                 leftMargin=18 * mm, rightMargin=18 * mm,
                 topMargin=16 * mm, bottomMargin=16 * mm,
                 title='八字排盘分析报告',
-                author='KP-AI-FENGSHUI',
+                author='KP-龙虎山大师兄',
             )
             story = []
             self._build_title(story, data)
@@ -119,6 +119,9 @@ class PdfExporter(BaseExporter):
             self._build_yuncheng(story, data)
             self._build_analysis(story, data)
             self._build_ai(story, data)
+            self._build_meihua(story, data)
+            self._build_liuren(story, data)
+            self._build_zonghe(story, data)
             doc.build(story)
             return True
         except Exception as e:
@@ -334,7 +337,7 @@ class PdfExporter(BaseExporter):
         ai = data.get('ai_analysis', {}) or {}
         if not ai:
             return
-        self._section_title(story, '九、AI 智能深度分析')
+        self._section_title(story, '九、龙虎山大师兄智能深度分析')
         any_content = False
         for key, title in _AI_SECTIONS:
             items = ai.get(key, []) or []
@@ -346,4 +349,96 @@ class PdfExporter(BaseExporter):
             story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
             story.append(Spacer(1, 3 * mm))
         if not any_content:
-            story.append(Paragraph('（AI 未返回有效条目）', self.styles['note']))
+            story.append(Paragraph('（龙虎山大师兄未返回有效条目）', self.styles['note']))
+
+    def _build_meihua(self, story, data):
+        mh = data.get('meihua_data', {}) or {}
+        mh_ai = data.get('meihua_ai') or {}
+        if not mh and not mh_ai:
+            return
+        self._section_title(story, '九、梅花易数卦象')
+        if mh:
+            pairs = [
+                ('起卦方法', mh.get('method')),
+                ('本卦', mh.get('base_hex')),
+                ('变卦', mh.get('changed_hex')),
+                ('互卦', mh.get('hu_hex')),
+                ('体卦', mh.get('ti_gong')),
+                ('用卦', mh.get('yong_gong')),
+                ('体卦五行', mh.get('ti_zhi')),
+                ('用卦五行', mh.get('yong_zhi')),
+                ('互卦五行', mh.get('hu_gong')),
+                ('变卦五行', mh.get('bian_gong')),
+                ('体用关系', mh.get('hex_relation')),
+            ]
+            self._kv_table(story, pairs)
+        if mh_ai:
+            story.append(Spacer(1, 4 * mm))
+            story.append(Paragraph('<b>龙虎山大师兄梅花解读：</b>', self.styles['body']))
+            for key, title in _AI_SECTIONS:
+                items = mh_ai.get(key, []) or []
+                if not items:
+                    continue
+                story.append(Paragraph(_esc(title), self.styles['body']))
+                flow = [ListItem(Paragraph(_esc(_to_str(x)), self.styles['bullet'])) for x in items]
+                story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
+                story.append(Spacer(1, 2 * mm))
+            if mh_ai.get('final_verdict'):
+                story.append(Paragraph('<b>结论：</b>' + _esc(_to_str(mh_ai.get('final_verdict'))),
+                                       self.styles['body']))
+
+    def _build_liuren(self, story, data):
+        lr = data.get('liuren_data', {}) or {}
+        lr_ai = data.get('liuren_ai') or {}
+        if not lr and not lr_ai:
+            return
+        self._section_title(story, '十、大六壬起课')
+        if lr:
+            pairs = [
+                ('公历日期', lr.get('pan_date')),
+                ('四课', lr.get('si_ke')),
+                ('三传', lr.get('san_chuan')),
+                ('三传门法', lr.get('gate')),
+                ('月将', lr.get('yue_jiang')),
+                ('天将', lr.get('tian_jiang')),
+                ('神煞', lr.get('shen_sha')),
+            ]
+            self._kv_table(story, pairs)
+        if lr_ai:
+            story.append(Spacer(1, 4 * mm))
+            story.append(Paragraph('<b>龙虎山大师兄六壬解读：</b>', self.styles['body']))
+            for key, title in _AI_SECTIONS:
+                items = lr_ai.get(key, []) or []
+                if not items:
+                    continue
+                story.append(Paragraph(_esc(title), self.styles['body']))
+                flow = [ListItem(Paragraph(_esc(_to_str(x)), self.styles['bullet'])) for x in items]
+                story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
+                story.append(Spacer(1, 2 * mm))
+            if lr_ai.get('final_verdict'):
+                story.append(Paragraph('<b>结论：</b>' + _esc(_to_str(lr_ai.get('final_verdict'))),
+                                       self.styles['body']))
+
+    def _build_zonghe(self, story, data):
+        z = data.get('zonghe', {}) or {}
+        if not z:
+            return
+        self._section_title(story, '十、综合建议（龙虎山大师兄融合）')
+        sections = [
+            ('tri_method_overview', '三方概览'),
+            ('consistency_check', '矛盾与印证'),
+            ('synthesis', '综合定论'),
+            ('unified_plan', '统一趋吉避凶方案'),
+            ('key_timing', '关键时机与禁忌'),
+        ]
+        for key, title in sections:
+            items = z.get(key) or []
+            if not items:
+                continue
+            story.append(Paragraph(_esc(title), self.styles['body']))
+            flow = [ListItem(Paragraph(_esc(_to_str(x)), self.styles['bullet'])) for x in items]
+            story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
+            story.append(Spacer(1, 3 * mm))
+        disc = z.get('disclaimer')
+        if disc:
+            story.append(Paragraph('<b>免责说明：</b>' + _esc(disc), self.styles['note']))

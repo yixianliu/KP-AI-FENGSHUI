@@ -17,7 +17,10 @@ CHAPTERS: List[tuple] = [
     ('yunshi', '大运流年'),
     ('yuncheng', '运程总结'),
     ('analysis', '吉凶批注'),
-    ('ai_analysis', 'AI 智能分析'),
+    ('ai_analysis', '龙虎山大师兄智能分析'),
+    ('meihua', '梅花易数'),
+    ('liuren', '大六壬起课'),
+    ('zonghe', '综合建议'),
 ]
 
 # 章节标识 -> 实际数据键（在 result data 字典中）
@@ -31,6 +34,9 @@ CHAPTER_KEYS: Dict[str, List[str]] = {
     'yuncheng': ['yuncheng'],
     'analysis': ['analysis'],
     'ai_analysis': ['ai_analysis'],
+    'meihua': ['meihua_data', 'meihua_ai'],
+    'liuren': ['liuren_data', 'liuren_ai'],
+    'zonghe': ['zonghe'],
 }
 
 # 兼容旧导出字段：mingli（神煞）未纳入统一章节，按需保留

@@ -153,8 +153,8 @@ class CollapsibleCard(QFrame):
         return self._collapsed
 
 
-def ai_section_header(title: str = 'AI 智能深度解读', icon: str = '🤖') -> QWidget:
-    """金色渐变分隔条 + 鎏金色标题，用于在各面板中分隔『AI 解读区』，与八字面板视觉一致。
+def ai_section_header(title: str = '龙虎山大师兄智能深度解读', icon: str = '🧙') -> QWidget:
+    """金色渐变分隔条 + 鎏金色标题，用于在各面板中分隔『龙虎山大师兄解读区』，与八字面板视觉一致。
 
     返回可直接 addWidget 的 QWidget（自身无外边距，由父布局控制间距）。
     """

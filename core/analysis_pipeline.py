@@ -5,15 +5,14 @@
 """
 import os
 import sys
+import json
 import logging
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-project_root = Path(__file__).resolve().parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+from core.path_utils import get_app_dir, get_config_path, get_resource_path, get_logs_dir
 
 from api.agnes_client import (
     AgnesClient, AgnesClientError, AgnesRequestError,
@@ -26,6 +25,10 @@ from core.analysis_storage import (
 )
 from core.data_integration import DataIntegrator
 from core.knowledge_base import KnowledgeBase
+from core.ai_cache import (
+    get_cached_result, save_to_cache,
+    get_cache_stats, clear_all as ai_cache_clear_all,
+)
 
 
 def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
@@ -33,15 +36,13 @@ def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.
     设置日志系统
 
     Args:
-        log_dir: 日志目录，默认 logs/
+        log_dir: 日志目录（忽略，统一使用 path_utils.get_logs_dir()）
         log_level: 日志级别
 
     Returns:
         配置好的logger
     """
-    if log_dir is None:
-        log_dir = project_root / 'logs'
-    log_dir = Path(log_dir)
+    log_dir = get_logs_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger('analysis_pipeline')
@@ -108,7 +109,7 @@ class AnalysisPipeline:
 
         # 探测 config.ini 关键配置段
         if config_path is None:
-            config_path = str(Path(__file__).resolve().parent.parent / 'config.ini')
+            config_path = str(get_config_path())
         else:
             config_path = str(Path(config_path))
 
@@ -163,6 +164,20 @@ class AnalysisPipeline:
         start_time = datetime.now()
 
         try:
+            # 缓存命中直接返回（P2-4：避免重复 API 调用）
+            cached = get_cached_result('bazi', input_data, None)
+            if cached:
+                logger.info(f"[八字分析] 缓存命中（hit_count={cached.get('_cache_hit_count', 1)}），跳过 API 调用")
+                return {
+                    'success': True,
+                    'report_id': None,
+                    'ai_analysis': cached,
+                    'chart_data': chart_data or {},
+                    'token_usage': 0,
+                    'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
+                    'from_cache': True,
+                }
+
             logger.info("[八字分析] ========== 开始八字AI分析流程 ==========")
             logger.info(f"[八字分析] 输入数据: 姓名={input_data.get('name', '未知')}, "
                         f"性别={input_data.get('gender', '未知')}, task_id={task_id}")
@@ -215,6 +230,12 @@ class AnalysisPipeline:
             elapsed = (datetime.now() - start_time).total_seconds()
             logger.info(f"[八字分析] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
             logger.info("[八字分析] ========================================")
+
+            # 写入 AI 缓存（P2-4：同盘 + 同问题命中本地 DB，避免重复 API 调用）
+            try:
+                save_to_cache('bazi', input_data, None, ai_analysis)
+            except Exception as e:
+                logger.debug(f"[八字分析] 写入缓存失败（忽略）: {e}")
 
             return {
                 'success': True,
@@ -320,36 +341,30 @@ class AnalysisPipeline:
         prompt = integrator.build_comprehensive_prompt('bazi')
 
         system_prompt = (
-            "你是一位专业的命理大师，精通传统八字命理、阴阳五行、十神、十二长生、神煞、纳音、格局等专业知识。\n"
-            "请基于用户提供的完整八字信息进行深入、细致、专业的分析。\n"
+            "你是一位德高望重的命理宗师，精研子平八字、阴阳五行、十神生克、十二长生、神煞、纳音、格局与用神喜忌之学，断语严谨、有理有据。\n"
+            "你将收到一份【已经程序精确排盘】的八字数据，包含四柱干支、五行分值与强弱、十神分布与权重、吉神凶煞、纳音、空亡、大运走势等。请基于这些数据做专业、深入、可落地的分析，严禁凭空臆造。\n"
             "\n"
-            "分析原则：\n"
-            "1. 必须基于提供的八字数据进行分析，所有结论要有命理依据，不可凭空推断；\n"
-            "2. 兼顾五行平衡、十神力量、月令影响、通根强弱等多角度综合分析；\n"
-            "3. 使用'可能'、'较为'、'相对'等谨慎表述，避免绝对化结论；\n"
-            "4. 分析要深入细致，涵盖性格、事业、婚姻、健康等多个维度；\n"
-            "5. 考虑大运走势对命运的影响；\n"
-            "6. 参考神煞、纳音、空亡等命理特征。\n"
+            "分析铁律：\n"
+            "1. 所有结论必须严格依据所提供的数据推导，并明确点出依据（如『日主甲木生于寅月得令』『财星透干而旺』『七杀攻身』等），不可泛泛而谈；\n"
+            "2. 必须判定【日主强弱】（身强/身弱/中和）与【用神、喜神、忌神】，这是全文分析的枢纽；\n"
+            "3. 五行分析要指出最旺与最弱之五行、对日主的助益或耗泄，并说明补救方向；\n"
+            "4. 十神分析要结合具体十神（正官/七杀/正财/偏财/正印/偏印/食神/伤官/比肩/劫财）及其旺衰，说明对性格、事业、婚姻、健康的影响；\n"
+            "5. 大运分析要说明起运年龄、各步大运干支对命局是喜是忌、关键运势窗口；\n"
+            "6. 用词审慎，多用『多』『易』『相对』『宜』等，避免绝对化与恐吓式表述；\n"
+            "7. 每条分析都要给出命理依据，避免空话套话。\n"
             "\n"
-            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。\n"
-            "JSON必须包含以下字段：\n"
-            "- personality（性格特质，字符串数组，5-8条，每条50-100字）\n"
-            "- career（事业财运，字符串数组，5-8条，每条50-100字）\n"
-            "- marriage（婚姻感情，字符串数组，5-8条，每条50-100字）\n"
-            "- health（健康注意，字符串数组，5-8条，每条50-100字）\n"
-            "- suggestions（综合建议，字符串数组，5-8条，每条50-100字）\n"
-            "- pattern_analysis（格局分析，字符串数组，3-5条，每条50-100字）\n"
-            "- wuxing_balance（五行平衡分析，字符串数组，3-5条，每条50-100字）\n"
-            "- shishen_analysis（十神分析，字符串数组，3-5条，每条50-100字）\n"
-            "- improvement_plan（改善方案，字符串数组，4-6条，每条50-100字）：针对命主五行失衡、\n"
-            "  十神不利、格局缺陷等问题，给出具体可行的改善建议，包括但不限于：\n"
-            "  · 五行补救方法（颜色、方位、配饰、饮食等）\n"
-            "  · 行为习惯调整建议\n"
-            "  · 风水布局优化方向\n"
-            "  · 时机选择与趋吉避凶策略\n"
-            "  每条改善方案需基于命理分析结果，具有针对性和可操作性。\n"
-            "\n"
-            "请结合命理知识进行深度分析，不要泛泛而谈，每条分析要有具体的命理依据。"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字，也不要使用 Markdown 代码块。\n"
+            "JSON必须包含以下字段（数组类字段 5-8 条，每条 80-150 字，须含具体命理依据与可操作建议）：\n"
+            "- personality（性格特质）\n"
+            "- career（事业财运）\n"
+            "- marriage（婚姻感情）\n"
+            "- health（健康注意）\n"
+            "- suggestions（综合建议：针对命局喜忌，给出事业、情感、健康、修身方面的统揽性建议）\n"
+            "- pattern_analysis（格局与用神分析：含日主强弱、格局类型、用神喜忌、成败关键）\n"
+            "- wuxing_balance（五行平衡分析：最旺/最弱五行、对日主影响、补救方向）\n"
+            "- shishen_analysis（十神分析：主导十神及其对人生各领域的影响）\n"
+            "- improvement_plan（改善方案：4-6条，按五行补救/方位颜色/人际修身/风水布局/时机选择分类，具体可操作）\n"
+            "请务必深入、专业、精准，让内容对命主真正有用。"
         )
 
         required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
@@ -362,7 +377,7 @@ class AnalysisPipeline:
         ]
 
         logger.info("[八字分析] 调用AGNES AI模型进行分析...")
-        result = self.agnes_client.chat_completion(messages, temperature=0.3, max_tokens=4096)
+        result = self.agnes_client.chat_completion(messages, temperature=0.25, max_tokens=2048)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
@@ -530,6 +545,20 @@ class AnalysisPipeline:
         start_time = datetime.now()
 
         try:
+            # 缓存命中直接返回（P2-4：避免重复 API 调用）
+            cached = get_cached_result('meihua', input_data, input_data.get('question', ''))
+            if cached:
+                logger.info(f"[梅花易数] 缓存命中（hit_count={cached.get('_cache_hit_count', 1)}），跳过 API 调用")
+                return {
+                    'success': True,
+                    'report_id': None,
+                    'ai_analysis': cached,
+                    'hexagram_data': hexagram_data or {},
+                    'token_usage': 0,
+                    'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
+                    'from_cache': True,
+                }
+
             logger.info("[梅花易数] ======== 开始梅花易数AI分析流程 ========")
             logger.info(f"[梅花易数] 所问之事: {input_data.get('question', '未指定')}, task_id={task_id}")
 
@@ -580,6 +609,12 @@ class AnalysisPipeline:
             logger.info(f"[梅花易数] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
             logger.info("[梅花易数] ======================================")
 
+            # 写入 AI 缓存（P2-4：缓存键含 question 字段，不同问题不命中）
+            try:
+                save_to_cache('meihua', input_data, input_data.get('question', ''), ai_analysis)
+            except Exception as e:
+                logger.debug(f"[梅花易数] 写入缓存失败（忽略）: {e}")
+
             return {
                 'success': True,
                 'report_id': report_id,
@@ -623,18 +658,51 @@ class AnalysisPipeline:
 
         prompt = self._build_meihua_prompt(input_data, hexagram_data)
 
+        # 注入梅花易数知识库上下文（卦辞/爻辞/解卦原则），让解读有据可依
+        try:
+            kb = KnowledgeBase()
+            meihua_kb = kb.build_meihua_knowledge_context(hexagram_data)
+            if meihua_kb:
+                prompt += (
+                    "\n\n" + "=" * 70 +
+                    "\n【梅花易数知识库参考】\n" + "=" * 70 +
+                    "\n" + meihua_kb
+                )
+        except Exception as e:
+            logger.warning(f"[梅花易数] 知识库上下文注入失败（忽略继续）: {e}")
+
         system_prompt = (
-            "你是一位精通梅花易数的专业占卜大师，深谙64卦卦辞爻辞、体用生克、互变错综等解卦之道。"
-            "请基于用户提供的卦象信息进行专业深入的解读和分析。"
-            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。"
-            "JSON必须包含以下字段："
-            "gua_overview（卦象概述，字符串数组，3-5条）、"
-            "situation_analysis（事态分析，字符串数组，3-5条）、"
-            "good_omens（吉兆机遇，字符串数组，3-5条）、"
-            "bad_omens（凶兆隐患，字符串数组，3-5条）、"
-            "action_advice（行动建议，字符串数组，3-5条）、"
-            "final_verdict（总结判断，字符串）。"
-            "请结合卦辞、爻辞、体用生克进行深度分析，针对所问之事给出具体实用的建议。"
+            "你是一位精研邵雍梅花易数的占卜宗师，深谙先天后天六十四卦卦辞爻辞、体用生克、互变错综、卦气旺衰与先天数理。\n"
+            "你将收到一份已经程序起出的卦象（本卦、互卦、变卦、动爻、卦辞爻辞、体用五行生克、综合吉凶）。请据此做专业、深入、针对『所问之事』的解读，严禁套话。\n"
+            "\n"
+            "分析铁律：\n"
+            "1. 必须结合具体卦象：点出本卦之义、动爻爻辞、体用（上卦为某、下卦为某，体卦为某、用卦为某）及其生克关系；\n"
+            "2. 互卦、变卦必须纳入推演：说明事情的发展趋势与最终归宿；\n"
+            "3. 要区分『体』为我方、『用』为所问之事/对方，据此判断事之成否、快慢、损益；\n"
+            "4. 针对『所问之事』给出明确判断（吉/凶/平、成/不成、宜动/宜静），并说明关键时机与注意事项；\n"
+            "5. 用词审慎，避免绝对化；给出现实中可操作的趋吉避凶建议；\n"
+            "6. 严禁脱离卦象空谈，每条分析都要引用具体卦名、爻位或体用生克作为依据。\n"
+            "\n"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字，也不要使用 Markdown 代码块。\n"
+            "JSON必须包含以下字段（数组类字段 5-8 条，每条 80-150 字，须引卦象依据并给可操作建议）：\n"
+            "- gua_overview（卦象概述：本卦之义、体用、所占之事总象）\n"
+            "- situation_analysis（事态分析：当前形势、用神旺衰、成事之机）\n"
+            "- good_omens（吉兆机遇：有利因素、宜把握之时机）\n"
+            "- bad_omens（凶兆隐患：不利因素、须防范之风险）\n"
+            "- action_advice（行动建议：宜/忌、动/静、方位、时机、具体做法）\n"
+            "- final_verdict（总结判断：对所问之事的总体定论与一句话建议）\n"
+            "\n"
+            "【严格格式示例】你必须严格输出如下结构的纯 JSON，且数组字段必须是 JSON 数组（方括号、多个字符串元素），"
+            "绝不能把数组字段写成单个字符串或对象：\n"
+            "{\n"
+            "  'gua_overview': ['本卦水火既济，事已成之象……', '体卦为坎水、用卦为离火，体克用……'],\n"
+            "  'situation_analysis': ['当前形势……', '用神旺衰……'],\n"
+            "  'good_omens': ['有利因素一……', '有利因素二……'],\n"
+            "  'bad_omens': ['风险隐患一……'],\n"
+            "  'action_advice': ['宜……忌……'],\n"
+            "  'final_verdict': '一句话定论……'\n"
+            "}\n"
+            "请深入、专业、精准，让求测者得到真正有用的指引。"
         )
 
         required_fields = [
@@ -648,7 +716,7 @@ class AnalysisPipeline:
         ]
 
         logger.info("[梅花易数] 调用AGNES AI模型进行分析...")
-        result = self.agnes_client.chat_completion(messages, temperature=0.5, max_tokens=2048)
+        result = self.agnes_client.chat_completion(messages, temperature=0.4, max_tokens=2048)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
@@ -754,6 +822,20 @@ class AnalysisPipeline:
         start_time = datetime.now()
 
         try:
+            # 缓存命中直接返回（P2-4：避免重复 API 调用）
+            cached = get_cached_result('liuren', input_data, input_data.get('question', ''))
+            if cached:
+                logger.info(f"[大六壬] 缓存命中（hit_count={cached.get('_cache_hit_count', 1)}），跳过 API 调用")
+                return {
+                    'success': True,
+                    'report_id': None,
+                    'ai_analysis': cached,
+                    'liuren_data': liuren_data or {},
+                    'token_usage': 0,
+                    'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
+                    'from_cache': True,
+                }
+
             logger.info("[大六壬] ======== 开始大六壬AI分析流程 ========")
             logger.info(f"[大六壬] 所问之事: {input_data.get('question', '未指定')}, task_id={task_id}")
 
@@ -804,6 +886,12 @@ class AnalysisPipeline:
             logger.info(f"[大六壬] 流程完成，耗时: {elapsed:.2f}秒，报告ID: {report_id}")
             logger.info("[大六壬] ======================================")
 
+            # 写入 AI 缓存（P2-4：缓存键含 question 字段，不同问题不命中）
+            try:
+                save_to_cache('liuren', input_data, input_data.get('question', ''), ai_analysis)
+            except Exception as e:
+                logger.debug(f"[大六壬] 写入缓存失败（忽略）: {e}")
+
             return {
                 'success': True,
                 'report_id': report_id,
@@ -841,17 +929,26 @@ class AnalysisPipeline:
         prompt = self._build_liuren_prompt(input_data, liuren_data)
 
         system_prompt = (
-            "你是一位精通大六壬（六壬神课）的专业术数大师，深谙天地盘、四课、"
-            "三传、十二天将、神煞格局与九宗门取用法门。"
-            "请基于用户提供的六壬课体信息进行专业深入的解读和分析。"
-            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字。"
-            "JSON必须包含以下字段："
-            "ke_overview（课体总览，字符串数组，3-5条）、"
-            "si_ke_analysis（四课精解，字符串数组，3-5条）、"
-            "san_chuan_analysis（三传推演，字符串数组，3-5条）、"
-            "tian_jiang_analysis（天将神煞，字符串数组，3-5条）、"
-            "final_verdict（总结判断与建议，字符串）。"
-            "请结合四课生克、三传进退、天将阴阳、神煞吉凶进行深度分析，针对所问之事给出具体实用的建议。"
+            "你是一位精研大六壬（六壬神课）的术数宗师，深明天地盘、四课、三传、十二天将、神煞格局与九宗门取用之法，断课如神、理象合一。\n"
+            "你将收到一份已经程序起出的六壬课体（日干支、月将、占时、天盘、四课、三传、十二天将、神煞）。请据此做专业、深入、针对『所问之事』的占断，严禁套话。\n"
+            "\n"
+            "分析铁律：\n"
+            "1. 必须以『日干（或类神）为彼我之分』：日干为求测者/我方，支辰为所占之事/对方/环境；\n"
+            "2. 四课论『明暗、远近、亲疏』：第一课干上神、第二课干阴、第三课支上、第四课支阴，逐一讲明生克与类象；\n"
+            "3. 三传论『初、中、末』之事之始、中、终：说明进退连茹、比用、遥克等取传之理与事之发展；\n"
+            "4. 天将论『阴阳、善恶』：贵人、螣蛇、朱雀等十二将之属性与所乘之神，判断吉凶之由；\n"
+            "5. 神煞论『生克之外的特殊信号』：如驿马、天马、德合、墓绝等，指出关键影响；\n"
+            "6. 针对『所问之事』给出明确判断（成/不成、速/迟、吉/凶）与可操作的趋避建议；\n"
+            "7. 用词审慎，避免绝对化；每条分析都要引用具体课传、天将或神煞作为依据。\n"
+            "\n"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字，也不要使用 Markdown 代码块。\n"
+            "JSON必须包含以下字段（数组类字段 5-8 条，每条 80-150 字，须引课体依据并给可操作建议）：\n"
+            "- ke_overview（课体总览：课名、占类、整体气象与吉凶基调）\n"
+            "- si_ke_analysis（四课精解：干支四课生克与类象，彼我态势）\n"
+            "- san_chuan_analysis（三传推演：初传发端、中传过程、末传归宿，事之始终）\n"
+            "- tian_jiang_analysis（天将神煞：十二将所乘之神、关键神煞之吉凶含义）\n"
+            "- final_verdict（总结判断与建议：对所问之事的总体定论、一句断语与趋避要点）\n"
+            "请深入、专业、精准，让占者得到真正有用的指引。"
         )
 
         required_fields = [
@@ -866,7 +963,7 @@ class AnalysisPipeline:
 
         logger.info("[大六壬] 调用AGNES AI模型进行分析...")
         result = self.agnes_client.chat_completion(
-            messages, temperature=0.5, max_tokens=2048)
+            messages, temperature=0.4, max_tokens=2048)
 
         content = result.get('content', '')
         usage = result.get('usage', {})
@@ -1048,6 +1145,244 @@ class AnalysisPipeline:
         if 'final_verdict' in required_fields and not result.get('final_verdict'):
             result['final_verdict'] = '需结合实际情况综合判断'
 
+        return result
+
+    # ========== 综合建议（融合 八字 + 梅花易数 + 大六壬） ==========
+    def run_comprehensive_analysis(
+            self,
+            parts: Dict[str, Any],
+            meta: Dict[str, Any] = None,
+            task_id: str = None
+    ) -> Dict[str, Any]:
+        """
+        融合三种术数结论，生成统筹的【综合建议】。
+
+        Args:
+            parts: {'bazi': <八字AI分析>, 'meihua': <梅花AI分析>, 'liuren': <六壬AI分析>}
+            meta:  补充信息（姓名/性别/所问之事/各方课体摘要）
+            task_id: 任务ID（可选）
+
+        Returns:
+            {'success': bool, 'ai_analysis': dict, ...}
+        """
+        start_time = datetime.now()
+        try:
+            logger.info("[综合建议] ======== 开始融合三方结论、生成综合建议 ========")
+            if not parts or not any(parts.get(k) for k in ('bazi', 'meihua', 'liuren')):
+                raise AnalysisPipelineError("缺少可用的术数分析结论，无法生成综合建议")
+
+            # 缓存命中直接返回（P2-4：缓存键 = question + 三方 AI 摘要哈希，避免重复综合）
+            cache_input = {
+                'question': (meta or {}).get('question', ''),
+                'bazi': self._digest_for_cache(parts.get('bazi')),
+                'meihua': self._digest_for_cache(parts.get('meihua')),
+                'liuren': self._digest_for_cache(parts.get('liuren')),
+            }
+            cached = get_cached_result('comprehensive', cache_input,
+                                       (meta or {}).get('question', ''))
+            if cached:
+                logger.info(f"[综合建议] 缓存命中（hit_count={cached.get('_cache_hit_count', 1)}），跳过 API 调用")
+                return {
+                    'success': True,
+                    'ai_analysis': cached,
+                    'token_usage': 0,
+                    'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
+                    'from_cache': True,
+                }
+
+            ai_result = self._call_agnes_for_comprehensive(parts, meta or {})
+            ai_analysis = ai_result.get('analysis', {})
+            token_usage = ai_result.get('usage', {}).get('total_tokens', 0)
+
+            # 写入缓存（仅综合的 ai_analysis，键含 question）
+            try:
+                save_to_cache('comprehensive', cache_input,
+                              (meta or {}).get('question', ''), ai_analysis)
+            except Exception as e:
+                logger.debug(f"[综合建议] 写入缓存失败（忽略）: {e}")
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[综合建议] 完成，耗时: {elapsed:.2f}秒")
+            return {
+                'success': True,
+                'ai_analysis': ai_analysis,
+                'token_usage': token_usage,
+                'elapsed_seconds': elapsed,
+            }
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            logger.error(f"[综合建议] 失败: {error_msg}")
+            logger.error(traceback.format_exc())
+            return self._build_error_result(None, type(e).__name__, error_msg, start_time)
+
+    @staticmethod
+    def _digest_for_cache(obj: Any) -> str:
+        """生成对象摘要（用于综合缓存键）：若为 dict 则取 final_verdict 与关键字段，否则取 str。"""
+        if not obj:
+            return ''
+        if isinstance(obj, dict):
+            keys = ('final_verdict', 'synthesis', 'personality')
+            parts = [str(obj.get(k, ''))[:80] for k in keys if obj.get(k)]
+            return ' | '.join(parts) if parts else str(sorted(obj.keys()))[:80]
+        return str(obj)[:80]
+
+    def _call_agnes_for_comprehensive(
+            self,
+            parts: Dict[str, Any],
+            meta: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """调用 AGNES 生成融合综合建议。"""
+        logger.info("[综合建议] 构建融合分析请求...")
+
+        prompt = self._build_comprehensive_prompt(parts, meta)
+
+        system_prompt = (
+            "你是一位贯通八字命理、梅花易数、大六壬三家之学的宗师级顾问（龙虎山大师兄）。\n"
+            "用户就同一人生课题，分别用八字（定命局根基）、梅花易数（测当下所问之事的机缘）、大六壬（断具体所问之事的时空吉凶）三种术数进行了推算。\n"
+            "现在你将三份结论汇总，给出一份统筹、精准、可落地的【综合建议】。\n"
+            "\n"
+            "综合建议铁律：\n"
+            "1. 先逐家概述三方结论要点（不重复全文，提炼关键判断与定论）；\n"
+            "2. 做【矛盾与印证】校验：指出三家一致之处（互为印证、可信度高）与分歧之处（说明可能原因，如尺度不同、所问侧重不同），并给出调和口径；\n"
+            "3. 给出【综合定论】：对用户当前最关心的课题，形成一段权威结论；\n"
+            "4. 给出【统一趋吉避凶方案】：整合三家可操作建议，去重、排序、落地，覆盖事业/情感/健康/修身/时机五个维度，每条 80-150 字且具体可操作；\n"
+            "5. 指出【关键时机与禁忌】：什么时间窗口有利、什么情形宜避；\n"
+            "6. 语气审慎专业，避免绝对化与恐吓；文末加一句负责任的免责说明（命理咨询仅供参考，重大决策须理性判断）。\n"
+            "\n"
+            "输出格式要求：严格用JSON格式输出，不要包含任何额外的解释或说明文字，也不要使用 Markdown 代码块。\n"
+            "JSON必须包含以下字段（数组类字段 4-6 条，每条 80-150 字）：\n"
+            "- tri_method_overview（三方概览：八字/梅花/六壬 各自的核心结论要点）\n"
+            "- consistency_check（矛盾与印证：一致与分歧及调和）\n"
+            "- synthesis（综合定论：对用户课题的统筹结论）\n"
+            "- unified_plan（统一趋吉避凶方案：整合后的可执行建议）\n"
+            "- key_timing（关键时机与禁忌）\n"
+            "- disclaimer（免责说明，字符串）\n"
+            "请务必深入、专业、精准，让内容对用户真正有用。"
+        )
+
+        required_fields = [
+            'tri_method_overview', 'consistency_check', 'synthesis',
+            'unified_plan', 'key_timing', 'disclaimer'
+        ]
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        logger.info("[综合建议] 调用AGNES AI模型...")
+        result = self.agnes_client.chat_completion(
+            messages, temperature=0.4, max_tokens=2048)
+
+        content = result.get('content', '')
+        usage = result.get('usage', {})
+
+        cleaned_content = self.agnes_client._clean_json_response(content)
+
+        try:
+            analysis = json.loads(cleaned_content)
+            analysis = self.agnes_client._validate_json_result(analysis, required_fields)
+        except json.JSONDecodeError:
+            logger.warning("[综合建议] JSON解析失败，尝试文本解析")
+            analysis = self._parse_text_to_comprehensive_fields(cleaned_content, required_fields)
+
+        logger.info(f"[综合建议] 生成字段: {list(analysis.keys())}")
+        return {'analysis': analysis, 'usage': usage}
+
+    def _build_comprehensive_prompt(self, parts: Dict[str, Any], meta: Dict[str, Any]) -> str:
+        """汇总三方结论，拼装给模型的融合提示词。"""
+        lines = []
+        meta = meta or {}
+
+        lines.append("【求测者信息】")
+        lines.append(f"姓名：{meta.get('name', '')}　性别：{meta.get('gender', '')}")
+        if meta.get('question'):
+            lines.append(f"所关心 / 所问之事：{meta.get('question')}")
+        if meta.get('bazi_summary'):
+            lines.append(f"八字四柱：{meta.get('bazi_summary')}")
+        if meta.get('meihua_summary'):
+            lines.append(f"梅花卦象：{meta.get('meihua_summary')}")
+        if meta.get('liuren_summary'):
+            lines.append(f"六壬课体：{meta.get('liuren_summary')}")
+
+        bazi = parts.get('bazi') or {}
+        if bazi:
+            lines.append("\n【八字分析结论】")
+            for k in ['personality', 'career', 'marriage', 'health',
+                      'pattern_analysis', 'wuxing_balance', 'shishen_analysis',
+                      'improvement_plan', 'suggestions']:
+                v = bazi.get(k)
+                if v:
+                    lines.append(f"- {k}: " + (json.dumps(v, ensure_ascii=False)
+                                               if isinstance(v, list) else str(v)))
+
+        meihua = parts.get('meihua') or {}
+        if meihua:
+            lines.append("\n【梅花易数分析结论】")
+            for k in ['gua_overview', 'situation_analysis', 'good_omens',
+                      'bad_omens', 'action_advice', 'final_verdict']:
+                v = meihua.get(k)
+                if v:
+                    lines.append(f"- {k}: " + (json.dumps(v, ensure_ascii=False)
+                                               if isinstance(v, list) else str(v)))
+
+        liuren = parts.get('liuren') or {}
+        if liuren:
+            lines.append("\n【大六壬分析结论】")
+            for k in ['ke_overview', 'si_ke_analysis', 'san_chuan_analysis',
+                      'tian_jiang_analysis', 'final_verdict']:
+                v = liuren.get(k)
+                if v:
+                    lines.append(f"- {k}: " + (json.dumps(v, ensure_ascii=False)
+                                               if isinstance(v, list) else str(v)))
+
+        lines.append("\n请综合以上三方结论，给出统筹、精准、可落地的【综合建议】。")
+        return '\n'.join(lines)
+
+    def _parse_text_to_comprehensive_fields(self, content: str, required_fields: List[str]) -> Dict[str, Any]:
+        """解析非JSON格式的综合建议文本。"""
+        section_keywords = {
+            'tri_method_overview': ['三方概览', '概览', '概述'],
+            'consistency_check': ['矛盾', '印证', '一致', '分歧'],
+            'synthesis': ['综合定论', '定论', '结论'],
+            'unified_plan': ['统一方案', '趋吉避凶', '改善', '方案'],
+            'key_timing': ['时机', '禁忌', '关键'],
+            'disclaimer': ['免责', '声明', '参考'],
+        }
+        result = {}
+        for field in required_fields:
+            if field == 'disclaimer':
+                result[field] = ''
+                continue
+            result[field] = []
+        current_field = None
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            matched = False
+            for field, keywords in section_keywords.items():
+                if field in required_fields and field != 'disclaimer':
+                    for kw in keywords:
+                        if kw in line and len(line) < 30:
+                            current_field = field
+                            matched = True
+                            break
+                if matched:
+                    break
+            if matched:
+                continue
+            if current_field and current_field in result:
+                if line and line[0] in ['•', '·', '-', '●', '★', '◆', '1.', '2.', '3.', '4.', '5.', '（', '(']:
+                    result[current_field].append(line.lstrip('•·-●★◆1234567890.（() '))
+                elif len(line) > 10:
+                    result[current_field].append(line)
+        for field in required_fields:
+            if field == 'disclaimer':
+                if not result[field]:
+                    result[field] = '命理咨询仅供参考，重大决策须结合现实理性判断。'
+            elif not result[field]:
+                result[field] = ['内容解析异常，请重新生成综合建议。']
         return result
 
     # ==================== 通用方法 ====================

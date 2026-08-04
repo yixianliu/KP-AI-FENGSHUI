@@ -104,7 +104,7 @@ class AboutDialog(QDialog):
         """)
         text_grp.addWidget(title)
 
-        sub = QLabel('AI Fengshui Analyzer · 中国传统命理学 × 现代 AI')
+        sub = QLabel('龙虎山大师兄 · 中国传统命理学 × 玄学智能解读')
         sub.setStyleSheet("""
             font-size: 12px;
             color: rgba(255,255,255,0.80);
@@ -151,9 +151,9 @@ class AboutDialog(QDialog):
         inner.addWidget(lbl)
 
         text = QLabel(
-            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与现代 AI 大模型深度融合的'
+            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与龙虎山大师兄深度融合的'
             '桌面端专业命理分析工具。\n\n'
-            '通过严谨的命理算法计算，结合 Agnes AI 的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
+            '通过严谨的命理算法计算，结合龙虎山大师兄的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
         )
         text.setWordWrap(True)
         text.setAlignment(Qt.AlignJustify)

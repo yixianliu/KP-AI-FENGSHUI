@@ -176,6 +176,18 @@ CREATE TABLE IF NOT EXISTS "meihua_knowledge" (
     "content_key" TEXT NOT NULL,
     "content_value" TEXT
 );
+-- AI 分析调用本地缓存（P2-4）：同盘 + 同问题命中本地 SQLite，避免重复 API 调用
+CREATE TABLE IF NOT EXISTS "ai_cache" (
+    "pan_type" TEXT NOT NULL,
+    "input_hash" TEXT NOT NULL,
+    "question_hash" TEXT NOT NULL,
+    "ai_json" LONGTEXT NOT NULL,
+    "hit_count" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    "last_used_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_cache_uk_pan_input_q" ON "ai_cache" ("pan_type", "input_hash", "question_hash");
+CREATE INDEX IF NOT EXISTS "ai_cache_idx_last_used" ON "ai_cache" ("last_used_at");
 CREATE TABLE IF NOT EXISTS "meihua_terms" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "name" TEXT NOT NULL,
@@ -3203,5 +3215,16 @@ INSERT INTO "yunshi_zhi_analysis" VALUES (9, '申', '申金锐利，主果断刚
 INSERT INTO "yunshi_zhi_analysis" VALUES (10, '酉', '酉金清秀，主才华出众，但需防孤芳自赏');
 INSERT INTO "yunshi_zhi_analysis" VALUES (11, '戌', '戌土厚重，主稳重可靠，但需防固执己见');
 INSERT INTO "yunshi_zhi_analysis" VALUES (12, '亥', '亥水智慧，主聪明灵活，但需防散漫无章');
+
+-- 梅花易数解卦原则种子（P2-3：与 _BUILTIN_MEIHUA_RULES 同步，避免删库重建后丢失 AI 解读兜底原则）
+INSERT INTO "meihua_knowledge" ("section", "subsection", "content_key", "content_value") VALUES
+    ('体用关系', '基本', 'ti_yong', '上卦为体（主我方/问事主体），下卦为用（主所问之事/对方）；静卦为体之象，动爻所在之卦为用。'),
+    ('体用关系', '基本', 'sheng_ke_ji_xiong', '用生体、体克用则吉；用克体、体生用则凶；体用比和则事平顺。'),
+    ('动静之机', '动爻', 'dong_jing', '动爻之卦主事之变动与趋向，动则变、静则守，观动处可知事之转机。'),
+    ('互卦变卦', '中段', 'hu_gua', '互卦揭示事情发展的中段过程，承上启下，定事态演变之关键。'),
+    ('互卦变卦', '终局', 'bian_gua', '变卦为事之结局与归宿，据以定最终成败、进退可否。'),
+    ('卦气旺衰', '节气', 'gua_qi', '当令者旺、失令者衰；体卦得令而旺则事易成，体衰受克则多阻。'),
+    ('卦名本义', '解读', 'gua_ming', '熟参卦名、卦辞本义（如乾健、坤顺、屯难、既济成），以定事之大象。'),
+    ('断语风格', '原则', 'duan_yu', '凶信易见、吉信须审，言克不言生、言咎不言祥，下结论宜留余地。');
 
 COMMIT;

@@ -41,18 +41,24 @@ class AiAnalysisWorker(QThread):
         try:
             self.progress_updated.emit('validating', '正在验证输入数据...')
 
-            self.progress_updated.emit('initializing', '正在初始化AI分析引擎...')
+            self.progress_updated.emit('initializing', '正在初始化龙虎山大师兄分析引擎...')
             pipeline = AnalysisPipeline()
 
             if self.analysis_type == 'bazi':
-                self.progress_updated.emit('analyzing', 'AI正在深入分析八字命理...')
+                self.progress_updated.emit('analyzing', '龙虎山大师兄正在深入分析八字命理...')
                 result = pipeline.run_bazi_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'meihua':
-                self.progress_updated.emit('analyzing', 'AI正在解读卦象玄机...')
+                self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读卦象玄机...')
                 result = pipeline.run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'liuren':
-                self.progress_updated.emit('analyzing', 'AI正在解读六壬玄机...')
+                self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读六壬玄机...')
                 result = pipeline.run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
+            elif self.analysis_type == 'comprehensive':
+                self.progress_updated.emit('analyzing', '龙虎山大师兄正在统筹三方结论，生成综合建议...')
+                # chart_data 此处承载 {'parts': 三方分析, 'meta': 补充信息}
+                parts = (self.chart_data or {}).get('parts', {})
+                meta = (self.chart_data or {}).get('meta', {})
+                result = pipeline.run_comprehensive_analysis(parts, meta, self.task_id)
             else:
                 self.analysis_failed.emit('unknown_type', f'不支持的分析类型: {self.analysis_type}')
                 return

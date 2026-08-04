@@ -595,14 +595,29 @@ class DatabaseManager:
 
     # -- 梅花易数知识 --
     def get_meihua_knowledge(self) -> dict:
-        """获取梅花易数知识 {section: {content_key: content_value}}"""
+        """获取梅花易数知识 {section: {content_key: content_value}}
+
+        兼容两种 content_value 形态：
+        - JSON 字符串（历史数据，列表/对象）：解析后赋值。
+        - 纯文本（新 P2-3 种子，中文规则）：直接以字符串赋值。
+        """
+        import json as _json
         rows = self._query_all("SELECT * FROM meihua_knowledge")
         result = {}
         for r in rows:
             section = r['section']
             if section not in result:
                 result[section] = {}
-            result[section][r['content_key']] = json.loads(r['content_value']) if isinstance(r['content_value'], str) else r['content_value']
+            val = r['content_value']
+            if isinstance(val, str):
+                s = val.strip()
+                if s.startswith(('[', '{')):
+                    try:
+                        val = _json.loads(val)
+                    except _json.JSONDecodeError:
+                        # 纯文本：保持原样
+                        pass
+            result[section][r['content_key']] = val
         return result
 
     # -- 城市坐标 --

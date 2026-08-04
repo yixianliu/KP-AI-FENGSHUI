@@ -17,14 +17,15 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt
 
 from ui.styles import Colors, Fonts, Spacing
+from core.path_utils import get_config_path, get_resource_path
 
 logger = logging.getLogger(__name__)
 
 # AI 模型配置字段规范：(key, 显示名, 默认值, 是否密码, 占位符, 验证类型)
 AI_FIELD_SPECS = [
     ('api_key',    'API Key',             '',   True,  'sk-xxxxxxxx...', None),
-    ('api_url',    'API 接口地址',        '',  False,  'https://apihub.agnes-ai.com/v1/chat/completions', 'url'),
-    ('model',      '模型名称',            '',  False,  'agnes-2.0-flash', None),
+    ('api_url',    'API 接口地址',        '',  False,  'https://api.agnes-ai.cn/v1/chat/completions', 'url'),
+    ('model',      '模型名称',            '',  False,  'agnes-2.5-flash', None),
     ('timeout',    '请求超时（秒）',       '120', False, '', 'int'),
     ('max_tokens', '最大 Token 数',        '4096', False, '', 'int'),
     ('max_retries', '最大重试次数',        '3',  False, '', 'int'),
@@ -74,7 +75,7 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(16)
 
-        title = QLabel('AI 模型配置')
+        title = QLabel('龙虎山大师兄配置')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_TITLE};
             font-weight: {Fonts.W_BOLD};
@@ -88,7 +89,7 @@ class SettingsDialog(QDialog):
 
     # ======================== AI 模型配置 Tab ========================
     def _build_ai_tab(self, root: QVBoxLayout):
-        lbl = QLabel('AI 模型配置')
+        lbl = QLabel('龙虎山大师兄配置')
         lbl.setStyleSheet(f"""
             font-size: {Fonts.SZ_SECTION};
             font-weight: {Fonts.W_BOLD};
@@ -97,7 +98,7 @@ class SettingsDialog(QDialog):
         """)
         root.addWidget(lbl)
 
-        desc = QLabel('配置 Agnes AI 分析模型的接口参数。修改保存后即时生效。')
+        desc = QLabel('配置龙虎山大师兄分析模型的接口参数。修改保存后即时生效。')
         desc.setWordWrap(True)
         desc.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3};")
         root.addWidget(desc)
@@ -161,7 +162,7 @@ class SettingsDialog(QDialog):
     def _read_ai_config(self) -> dict:
         """从 config.ini 读取当前 [agnes] 段配置。"""
         try:
-            p = Path(__file__).resolve().parent.parent.parent / 'config.ini'
+            p = get_config_path()
             parser = configparser.ConfigParser()
             if p.exists():
                 parser.read(p, encoding='utf-8')
@@ -247,7 +248,7 @@ class SettingsDialog(QDialog):
         self.ai_test_btn.setEnabled(False)
         self.ai_test_btn.setText('测试中…')
         try:
-            cfg_path = Path(__file__).resolve().parent.parent.parent / 'config.ini'
+            cfg_path = get_config_path()
             parser = configparser.ConfigParser()
             parser.read(str(cfg_path), encoding='utf-8')
             if not parser.has_section('agnes'):
@@ -266,7 +267,7 @@ class SettingsDialog(QDialog):
                 temperature=0.0, max_tokens=4,
             )
             QMessageBox.information(self, '连接测试',
-                                    '\u2705 Agnes AI 接口连接成功！\n'
+                                    '\u2705 龙虎山大师兄接口连接成功！\n'
                                     f'模型: {client.model}\n'
                                     f'返回: {resp.get("content", "")[:50]}')
         except Exception as e:
@@ -290,7 +291,7 @@ class SettingsDialog(QDialog):
             return
 
         # 写入 config.ini（原子写入）
-        cfg_path = Path(__file__).resolve().parent.parent.parent / 'config.ini'
+        cfg_path = get_config_path()
         parser = configparser.ConfigParser()
         parser.read(str(cfg_path), encoding='utf-8')
         if not parser.has_section('agnes'):
@@ -307,8 +308,8 @@ class SettingsDialog(QDialog):
         ac._default_client = None
 
         QMessageBox.information(self, '保存成功',
-                                'AI 模型配置已保存并即时生效。\n'
-                                '后续 AI 分析将使用新配置。')
+                                '龙虎山大师兄配置已保存并即时生效。\n'
+                                '后续龙虎山大师兄分析将使用新配置。')
         self.accept()
 
     # -------------------- 样式辅助 --------------------

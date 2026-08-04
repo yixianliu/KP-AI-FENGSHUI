@@ -21,9 +21,6 @@ ui/components/__pycache__
 /dist/
 /build/
 
-# ---- 运行时错误日志 ----
-runtime_error.log
-
 # ---- 根级字节码 ----
 *.pyc
 
