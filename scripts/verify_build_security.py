@@ -5,13 +5,17 @@ scripts/verify_build_security.py — 打包产物密钥残留校验
 用途：在发布前对 dist/ 做二进制级扫描，确认没有任何机密被打进客户端。
       这是「可验证的安全」，不依赖肉眼检查或主观判断。
 
+发布约定：产物中【不含任何 AI 原始信息】—— 无端点、无密钥、无模型名。
+        运行参数由用户在 GUI「设置」中自行填写，存于本机 ai_config.json。
+
 校验逻辑：
-  1. 从 server/.env 读取真实机密值（AGNES_API_KEY / ADMIN_TOKEN），
+  1. 若 server/.env 仍存在，读取其中的历史机密值（AGNES_API_KEY / ADMIN_TOKEN），
      断言它们【绝不出现】在任何产物文件中；
-  2. 用通用正则扫描 sk- 风格密钥，捕捉遗漏的硬编码；
-  3. APP_KEYS 属于「设计上会随 exe 分发」的非机密，出现属正常，
+  2. 用通用正则扫描密钥形态、已知上游端点、内置模型名与已废弃的凭据模块名；
+  3. 文件名级检查：config.ini / _embedded_config.py 等旧版凭据载体不得入包；
+  4. APP_KEYS 属于历史上「设计上会随 exe 分发」的非机密，出现属正常，
      脚本会明确区分并给出提示，避免误报干扰判断；
-  4. .exe / .zip 等二进制与压缩包均会被解开或按字节扫描。
+  5. .exe / .zip 等二进制与压缩包均会被解开或按字节扫描。
 
 用法：
     python scripts/verify_build_security.py
@@ -28,10 +32,18 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# 通用密钥形态（覆盖 OpenAI 风格）
+# 通用密钥形态 + AI 原始信息（端点 / 内置模型名 / 已废弃的凭据模块）
+# 发布约定：产物中不得出现任何 AI 原始信息，用户自行在 GUI 填写。
 _GENERIC_PATTERNS = [
     (re.compile(rb'sk-[A-Za-z0-9_\-]{16,}'), 'OpenAI 风格密钥 (sk-...)'),
+    (re.compile(rb'Bearer\s+sk-'), '明文 Bearer 密钥'),
+    (re.compile(rb'api\.agnes-ai\.cn'), '硬编码的上游端点'),
+    (re.compile(rb'agnes-2\.5-(?:flash|pro)'), '硬编码的内置模型名'),
+    (re.compile(rb'_embedded_config'), '已废弃的密钥烧录模块'),
 ]
+
+# 这些文件名不得出现在产物中（旧版凭据载体）
+_FORBIDDEN_FILENAMES = ('config.ini', '_embedded_config.py', '_embedded_config.pyc')
 
 # 读取 .env 时，这些键属于机密，必须不出现在产物中
 _SECRET_KEYS = ('AGNES_API_KEY', 'ADMIN_TOKEN')
@@ -125,6 +137,13 @@ def scan(dist: Path, env_path: Path) -> int:
         if env.get(k, '').strip()
     }
 
+    # 文件名级检查：旧版凭据载体不得随产物分发
+    forbidden_files = [
+        str(p.relative_to(dist))
+        for p in dist.rglob('*')
+        if p.is_file() and p.name in _FORBIDDEN_FILENAMES
+    ]
+
     secret_hits: List[str] = []
     generic_hits: List[str] = []
     public_hits: List[str] = []
@@ -162,9 +181,16 @@ def scan(dist: Path, env_path: Path) -> int:
             print(f'   - {h}')
         print('=' * 64)
 
+    if forbidden_files:
+        ok = False
+        print('[失败] 产物中出现旧版凭据载体文件，禁止发布：')
+        for h in forbidden_files:
+            print(f'   - {h}')
+        print('   请先运行 scripts/purge_ai_secrets.py 后重新打包。')
+
     if generic_hits:
         ok = False
-        print('[失败] 产物中发现疑似硬编码密钥：')
+        print('[失败] 产物中发现 AI 原始信息残留（密钥 / 端点 / 内置模型名）：')
         for h in sorted(set(generic_hits)):
             print(f'   - {h}')
 
@@ -179,7 +205,8 @@ def scan(dist: Path, env_path: Path) -> int:
 
     if ok:
         print('=' * 64)
-        print('[通过] 未在产物中发现任何机密残留，可以发布。')
+        print('[通过] 产物中不含任何 AI 原始信息（端点 / 密钥 / 模型名），可以发布。')
+        print('       用户首次运行需在「设置 → 龙虎山大师兄配置」中自行填写。')
         print('=' * 64)
         return 0
     return 1

@@ -36,6 +36,9 @@ server/.env
 *.env
 !server/.env.example
 
+# 构建期生成的混淆内置配置（含 AI 密钥混淆体，非明文，但勿入库）
+core/_embedded_config.py
+
 # 中转服务数据库（含设备令牌摘要与用量）
 server/data/
 server/relay.db
@@ -46,3 +49,7 @@ device.json
 **/device.json
 dist
 build
+docs
+tests
+api
+api

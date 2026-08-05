@@ -104,34 +104,33 @@ class AnalysisPipeline:
         logger.info("=" * 60)
 
         # ===== AI 降级探测 =====
-        self.ai_enabled = True
-        self._ai_disabled_reasons = []
-
-        # 探测 config.ini 关键配置段
+        # AI 参数（模型类型 / 端点 / 认证 / 请求参数）统一来自 core.ai_config
+        # 中央管理器，由用户在 GUI「设置」中填写；产物内不含任何内置凭据。
+        # 未配置或配置不完整时优雅降级（AI 分析与存储不可用，排盘本身不受影响）。
         if config_path is None:
             config_path = str(get_config_path())
         else:
             config_path = str(Path(config_path))
 
-        import configparser
-        cfg = configparser.ConfigParser()
-        cfg.read(config_path, encoding='utf-8')
+        self.ai_enabled = False
+        self._ai_disabled_reasons = []
+        try:
+            self.agnes_client = AgnesClient()
+            self.ai_enabled = True
+        except AgnesClientError as e:
+            self._ai_disabled_reasons.append('AI 模型配置')
+            logger.warning(f"[分析流程] AI 已禁用：{e}")
 
-        # 注：本地 SQLite 存储（AnalysisStorage）始终可用，无需外部服务。
-        # AI 是否启用仅取决于 [agnes] 配置段。
-        if not cfg.has_section('agnes'):
-            self.ai_enabled = False
-            self._ai_disabled_reasons.append('[agnes]')
-
-        if self._ai_disabled_reasons:
-            logger.warning(f"[分析流程] AI 已禁用，缺失配置段: {', '.join(self._ai_disabled_reasons)}")
+        if self.ai_enabled:
+            logger.info("[分析流程] AI 配置完整性检测通过")
         else:
-            logger.info("[分析流程] 配置完整性检测通过")
+            logger.warning(
+                f"[分析流程] AI 已禁用，原因: {', '.join(self._ai_disabled_reasons) or '未知'}"
+            )
 
         try:
             self.validator = DataValidator()
             self.storage = AnalysisStorage(config_path) if self.ai_enabled else None
-            self.agnes_client = AgnesClient(verify_ssl=False) if self.ai_enabled else None
             logger.info("[分析流程] 所有模块初始化完成")
         except Exception as e:
             logger.error(f"[分析流程] 初始化失败: {e}")

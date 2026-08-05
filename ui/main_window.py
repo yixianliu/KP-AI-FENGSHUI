@@ -113,31 +113,58 @@ class MainWindow(QMainWindow):
         self._last_ai_meta = {'name': '', 'gender': ''}
         # 最近一次八字输入（含出生日期/地点），供『综合建议』落库时使用
         self._last_bazi_input = None
-        # ===== R4: AI 降级检测 =====
+        # ===== R4: AI 降级检测 + 配置热更新订阅 =====
         self._ai_available = self._check_ai_availability()
         self._update_ai_buttons_state()
+        self._subscribe_ai_config()
 
     def _check_ai_availability(self) -> bool:
-        """探测 config.ini 是否包含 [agnes] 配置段（AI 分析所需）。"""
-        import configparser
-        cfg = configparser.ConfigParser()
-        config_path = get_config_path()
-        cfg.read(str(config_path), encoding='utf-8')
-        return cfg.has_section('agnes')
+        """探测 AI 模型配置是否完整可用（唯一来源：core.ai_config）。"""
+        try:
+            from core.ai_config import is_ai_configured
+            return is_ai_configured()
+        except Exception:
+            return False
+
+    def _subscribe_ai_config(self):
+        """订阅配置变更，用户在设置中改完即时刷新界面，无需重启。"""
+        try:
+            from core.ai_config import subscribe
+            self._ai_config_unsubscribe = subscribe(self._on_ai_config_changed)
+        except Exception as e:
+            self._logger.warning(f"[设置] AI 配置订阅失败：{e}")
+            self._ai_config_unsubscribe = None
+
+    def _on_ai_config_changed(self, version: int):
+        """配置热更新回调：重新探测可用性并刷新按钮状态。"""
+        try:
+            self._ai_available = self._check_ai_availability()
+            self._update_ai_buttons_state()
+            self._logger.info(f"[设置] AI 配置已更新（v{version}），界面状态已刷新")
+        except Exception as e:
+            self._logger.warning(f"[设置] AI 配置热更新处理失败：{e}")
 
     def _update_ai_buttons_state(self):
-        """根据 AI 可用性更新结果面板上的 AI 分析按钮状态"""
-        if not self._ai_available:
-            msg = '龙虎山大师兄功能当前不可用，请检查 config.ini 中的 [agnes] 配置'
-            if hasattr(self, 'bazi_result'):
-                self.bazi_result.ai_analyze_btn.setVisible(False)
-                self.bazi_result.set_ai_status_message(msg)
-            if hasattr(self, 'meihua_result'):
-                self.meihua_result.ai_analyze_btn.setVisible(False)
-                self.meihua_result.set_ai_status_message(msg)
-            if hasattr(self, 'liuren_result'):
-                self.liuren_result.ai_analyze_btn.setVisible(False)
-                self.liuren_result.set_ai_status_message(msg)
+        """根据 AI 可用性更新各结果面板上的 AI 分析按钮状态。"""
+        if self._ai_available:
+            msg = ''
+        else:
+            msg = '龙虎山大师兄功能当前不可用，请在「设置」中配置 AI 模型'
+
+        for attr in ('bazi_result', 'meihua_result', 'liuren_result'):
+            panel = getattr(self, attr, None)
+            if panel is None:
+                continue
+            btn = getattr(panel, 'ai_analyze_btn', None)
+            if btn is not None and not self._ai_available:
+                # 仅在不可用时强制隐藏；可用时交由面板自身的展示逻辑控制
+                btn.setVisible(False)
+            setter = getattr(panel, 'set_ai_status_message', None)
+            if callable(setter):
+                try:
+                    setter(msg)
+                except Exception:
+                    pass
 
     # ===== AI worker 线程生命周期管理 =====
 
@@ -628,10 +655,15 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('已退出登录')
 
     def _show_settings_dialog(self):
-        """打开设置对话框（存储方式热切换）。"""
+        """打开 AI 模型配置对话框（保存后热生效，无需重启）。"""
         try:
             dlg = SettingsDialog(self)
             dlg.exec()
+            # 兜底刷新：即便订阅回调因异常未触发，关闭对话框后也同步一次状态
+            self._ai_available = self._check_ai_availability()
+            self._update_ai_buttons_state()
+            if self._ai_available:
+                self.statusBar().showMessage('AI 模型配置已生效', 4000)
         except Exception as e:
             self._logger.error(f"[设置] 打开设置对话框失败：{e}")
             traceback.print_exc()
