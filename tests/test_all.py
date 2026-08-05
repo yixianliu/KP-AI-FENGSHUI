@@ -198,26 +198,90 @@ class TestPerformance(unittest.TestCase):
 
 
 class TestSecurity(unittest.TestCase):
-    """安全测试"""
-    
-    def test_api_key_from_config(self):
-        """测试API密钥从配置文件读取"""
-        from api.agnes_client import load_agnes_config
-        config = load_agnes_config()
-        self.assertIn('api_key', config)
-        self.assertTrue(config['api_key'], "API密钥未在config.ini中配置")
-    
-    def test_storage_config_from_config(self):
-        """测试 AI 模型配置段（agnes）从配置文件读取；存储已统一为本地 SQLite，无独立配置段"""
-        import configparser
+    """安全测试
+
+    客户端采用中转服务架构：上游 AI 密钥只存在于服务端环境变量中。
+    以下测试守护该不变量 —— 一旦有人把密钥写回客户端，测试立即失败。
+    """
+
+    def test_relay_config_loads(self):
+        """中转服务配置可正常读取，且不含任何上游密钥字段"""
+        from api.agnes_client import load_relay_config
+        config = load_relay_config()
+
+        self.assertIn('base_url', config)
+        self.assertTrue(config['base_url'], "中转服务地址未在 config.ini [relay] 段配置")
+        self.assertIn('app_key', config)
+
+        # 客户端配置中不允许出现任何上游密钥字段
+        self.assertNotIn('api_key', config,
+                         "客户端配置不应包含 api_key —— 上游密钥必须只存在于服务端")
+
+    def test_client_config_contains_no_secret(self):
+        """config.ini 随 exe 分发，其中不得出现 sk- 形态的密钥"""
+        import re
         from pathlib import Path
 
         config_path = Path(__file__).resolve().parent.parent / 'config.ini'
-        parser = configparser.ConfigParser()
-        parser.read(config_path, encoding='utf-8')
+        raw = config_path.read_text(encoding='utf-8')
 
-        self.assertIn('agnes', parser)
-        self.assertTrue(parser['agnes'].get('api_key'), "API密钥未在config.ini中配置")
+        self.assertIsNone(
+            re.search(r'sk-[A-Za-z0-9_\-]{16,}', raw),
+            "config.ini 中发现疑似上游 API 密钥。该文件随 exe 分发给所有用户，"
+            "任何密钥都会被直接读取，必须迁移到中转服务的环境变量中。"
+        )
+        self.assertNotIn(
+            'agnes', {s.lower() for s in _config_sections(config_path)},
+            "检测到遗留的 [agnes] 段（旧版直连架构）。客户端应只保留 [relay] 段。"
+        )
+
+    def test_client_source_has_no_hardcoded_key(self):
+        """客户端源码中不得硬编码任何 sk- 密钥"""
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        pattern = re.compile(r'sk-[A-Za-z0-9_\-]{16,}')
+        offenders = []
+
+        # 只扫客户端代码；server/ 目录不打包进 exe，且其密钥来自环境变量
+        for sub in ('api', 'core', 'ui'):
+            for py in (root / sub).rglob('*.py'):
+                try:
+                    text = py.read_text(encoding='utf-8')
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if pattern.search(text):
+                    offenders.append(str(py.relative_to(root)))
+
+        self.assertEqual(
+            offenders, [],
+            f"以下客户端源码中发现硬编码密钥：{offenders}。"
+            "客户端代码会被反编译，密钥必须放在服务端。"
+        )
+
+    def test_log_scrubber_masks_secrets(self):
+        """日志脱敏能覆盖常见凭据形态"""
+        from core.secure_log import scrub
+
+        cases = [
+            'api_key = sk-abcdefghijklmnopqrstuvwxyz123456',
+            'Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz123456',
+            'device_token="abcdefghijklmnopqrstuvwxyz1234567890ABCD"',
+        ]
+        for raw in cases:
+            masked = scrub(raw)
+            self.assertIn('***REDACTED***', masked, f"未脱敏: {raw}")
+            self.assertNotIn('sk-abcdefghijklmnop', masked, f"密钥泄漏: {masked}")
+
+
+def _config_sections(path):
+    """读取 ini 文件的段名列表。"""
+    import configparser
+    parser = configparser.ConfigParser()
+    parser.read(path, encoding='utf-8')
+    return parser.sections()
+
     
 
 if __name__ == '__main__':

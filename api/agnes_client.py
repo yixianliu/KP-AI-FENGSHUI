@@ -1,21 +1,26 @@
 """
-AGNES AI 模型客户端模块
-基于 agnes-2.5-flash API（api.agnes-ai.cn）封装 AI 分析调用接口
-接口调试脚本见 scripts/agnes_test_client.py：
-    POST https://api.agnes-ai.cn/v1/chat/completions
-    Headers:
-        Content-Type: application/json
-        Authorization: Bearer <api_key>
-    Body:
-        {
-            "model": "agnes-2.5-flash",
-            "messages": [ {"role": "system", "content": ...}, {"role": "user", "content": ...} ]
-        }
-返回值为 OpenAI 兼容的 chat/completions 结构：
-    {
-        "choices": [ {"message": {"role": "assistant", "content": "..."}} ],
-        "usage": {...}
-    }
+AGNES AI 客户端模块（中转版）
+
+【架构变更说明】
+本模块曾直接持有上游 API 密钥并调用 api.agnes-ai.cn。该做法存在无法修补的
+安全缺陷：随 exe 分发的密钥可被抓包、内存扫描、解包反编译等方式取走，
+代码混淆与反调试对前两者完全无效。
+
+现改为：客户端 --(设备令牌)--> 自建中转服务 --(上游密钥)--> Agnes AI
+        客户端不再持有任何上游密钥。
+
+【对外契约保持不变】
+    AgnesClient / get_agnes_client / load_agnes_config
+    AgnesClientError / AgnesRequestError / AgnesTimeoutError / AgnesResponseError
+    AgnesClient.chat_completion(messages, temperature, max_tokens)
+        -> {'content': str, 'usage': dict}
+    AgnesClient._clean_json_response / _validate_json_result
+上层 core.analysis_pipeline、ui.main_window 无需改动。
+
+【客户端持有的凭据】
+    relay.app_key   —— 准入密钥，随 exe 分发，「必然会泄露」，仅作门槛用
+    设备令牌         —— 一机一份，服务端可单独吊销与限额
+两者泄露均不影响上游密钥安全，这正是本架构的意义。
 """
 
 import threading
@@ -28,12 +33,15 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# 默认中转服务地址（发布前须改为你自己的域名，且必须是 HTTPS）
+DEFAULT_RELAY_BASE_URL = 'https://relay.example.com'
+
 
 # ================================================================
-# 异常定义
+# 异常定义（保持原有层次，上层 except 逻辑不受影响）
 # ================================================================
 class AgnesClientError(Exception):
-    """AGNES 客户端基础异常"""
+    """客户端基础异常"""
     pass
 
 
@@ -54,32 +62,34 @@ class AgnesResponseError(AgnesClientError):
     pass
 
 
+class AgnesQuotaError(AgnesClientError):
+    """配额用尽（不可重试）"""
+    pass
+
+
 def _is_transient_status(status_code: Optional[int]) -> bool:
     """
     判定 HTTP 状态码是否为「可重试的瞬时错误」。
 
-    包括：
-      - 429 限流（Too Many Requests）
-      - 500 服务器内部错误
-      - 502 网关错误
-      - 503 服务不可用（如 system memory overloaded 过载）
-      - 504 网关超时
-    其余（如 4xx 客户端错误）不可重试。
+    注意 429 不在其中：中转服务用 429 表示配额用尽，重试无意义；
+    上游繁忙已由中转服务映射为 503。
     """
     if status_code is None:
         return False
-    return status_code in (429, 500, 502, 503, 504)
+    return status_code in (500, 502, 503, 504)
 
 
 # ================================================================
 # 配置加载
 # ================================================================
-def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+def load_relay_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     """
-    从 config.ini 读取 [agnes] 段配置（不再兼容已废弃的 [ernie]/百度千帆配置）。
+    从 config.ini 读取 [relay] 段配置。
 
-    Returns:
-        dict，包含 api_url / api_key / model / max_retries / retry_delay / timeout
+    配置项均非机密：
+        base_url  中转服务地址
+        app_key   客户端准入密钥（会随 exe 泄露，仅作门槛）
+        model     模型名，仅用于分析记录展示；真正生效的模型由服务端强制指定
     """
     if config_path is None:
         from core.path_utils import get_config_path
@@ -90,21 +100,31 @@ def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     parser = configparser.ConfigParser()
     parser.read(str(config_path), encoding='utf-8')
 
-    section = 'agnes'
+    section = 'relay'
 
     def _get(key: str, default: str) -> str:
         if parser.has_section(section) and parser.has_option(section, key):
             return parser.get(section, key)
         return default
 
+    def _get_int(key: str, default: str) -> int:
+        try:
+            return int(_get(key, default))
+        except (TypeError, ValueError):
+            return int(default)
+
     return {
-        'api_url': _get('api_url', 'https://api.agnes-ai.cn/v1/chat/completions'),
-        'api_key': _get('api_key', ''),
+        'base_url': _get('base_url', DEFAULT_RELAY_BASE_URL).rstrip('/'),
+        'app_key': _get('app_key', ''),
         'model': _get('model', 'agnes-2.5-flash'),
-        'max_retries': int(_get('max_retries', '3')),
-        'retry_delay': int(_get('retry_delay', '3')),
-        'timeout': int(_get('timeout', '120')),
+        'max_retries': _get_int('max_retries', '2'),
+        'retry_delay': _get_int('retry_delay', '5'),
+        'timeout': _get_int('timeout', '120'),
     }
+
+
+# 兼容别名：历史代码与测试仍以 load_agnes_config 名称引用
+load_agnes_config = load_relay_config
 
 
 # ================================================================
@@ -112,30 +132,123 @@ def load_agnes_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 # ================================================================
 class AgnesClient:
     """
-    AGNES AI 模型客户端
-    封装对 api.agnes-ai.cn 的 chat/completions 调用，
-    对外提供稳定的 chat/completions 调用契约，便于上层直接消费。
+    AI 客户端（经由自建中转服务）。
+
+    对外行为与旧版一致；内部改为携带设备令牌访问中转服务，
+    不再持有、不再传输任何上游 API 密钥。
     """
 
     def __init__(self, config_path: Optional[str] = None, verify_ssl: bool = True):
         """
         Args:
-            config_path: 配置文件路径，默认读取项目根目录 config.ini
-            verify_ssl: 是否校验 SSL 证书，默认 True
+            config_path: 配置文件路径，默认读取应用目录 config.ini
+            verify_ssl: 是否校验 SSL 证书，默认 True（生产环境请勿关闭）
         """
-        config = load_agnes_config(config_path)
-        self.api_url: str = config['api_url']
-        self.api_key: str = config['api_key']
+        config = load_relay_config(config_path)
+        self.base_url: str = config['base_url']
+        self.app_key: str = config['app_key']
         self.model: str = config['model']
         self.max_retries: int = config['max_retries']
         self.retry_delay: int = config['retry_delay']
         self.timeout: int = config['timeout']
         self.verify_ssl: bool = verify_ssl
 
-        if not self.api_url:
-            raise AgnesClientError("API地址未配置，请在 config.ini 的 [agnes] 段配置 api_url")
-        if not self.api_key:
-            raise AgnesClientError("API密钥未配置，请在 config.ini 的 [agnes] 段配置 api_key")
+        self._device_token: Optional[str] = None
+        self._token_lock = threading.Lock()
+
+        if not self.base_url:
+            raise AgnesClientError(
+                '中转服务地址未配置，请在 config.ini 的 [relay] 段配置 base_url'
+            )
+        if not self.app_key:
+            raise AgnesClientError(
+                '客户端准入密钥未配置，请在 config.ini 的 [relay] 段配置 app_key'
+            )
+        if self.base_url.startswith('http://'):
+            # 明文 HTTP 会导致设备令牌在链路上裸奔
+            logger.warning('[relay] 中转服务使用明文 HTTP，设备令牌存在被窃听风险')
+
+    # ------------------------------------------------------------
+    # 依赖惰性导入
+    # ------------------------------------------------------------
+    @staticmethod
+    def _requests():
+        try:
+            import requests
+            import urllib3
+            from urllib3.exceptions import InsecureRequestWarning
+            urllib3.disable_warnings(InsecureRequestWarning)
+            return requests
+        except ImportError as e:
+            raise AgnesClientError(
+                f"缺少依赖 {e.name}，请先安装：pip install requests urllib3"
+            ) from e
+
+    # ------------------------------------------------------------
+    # 设备注册与令牌
+    # ------------------------------------------------------------
+    def _register_device(self) -> str:
+        """向中转服务注册本机，换取设备令牌。"""
+        from core.device_identity import get_device_fingerprint, save_device_token
+
+        requests = self._requests()
+        url = f'{self.base_url}/v1/register'
+        payload = {
+            'fingerprint': get_device_fingerprint(),
+            'app_version': '5.0',
+        }
+        try:
+            resp = requests.post(
+                url,
+                headers={'Content-Type': 'application/json',
+                         'X-App-Key': self.app_key},
+                json=payload,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+            )
+        except Exception as e:
+            raise AgnesRequestError(f'设备注册请求失败: {e}') from e
+
+        if resp.status_code == 429:
+            raise AgnesQuotaError('设备注册过于频繁，请稍后再试')
+        if resp.status_code != 200:
+            raise AgnesRequestError(
+                f'设备注册失败（HTTP {resp.status_code}）',
+                status_code=resp.status_code,
+            )
+
+        try:
+            token = resp.json().get('device_token', '')
+        except ValueError as e:
+            raise AgnesResponseError('设备注册响应格式异常') from e
+
+        if not token:
+            raise AgnesResponseError('设备注册未返回令牌')
+
+        save_device_token(token)
+        logger.info('[relay] 设备注册成功')
+        return token
+
+    def _ensure_token(self, force_refresh: bool = False) -> str:
+        """获取可用设备令牌：优先本地缓存，缺失或强制刷新时重新注册。"""
+        from core.device_identity import load_device_token, clear_device_token
+
+        with self._token_lock:
+            if force_refresh:
+                self._device_token = None
+                clear_device_token()
+
+            if self._device_token:
+                return self._device_token
+
+            token = load_device_token()
+            if token:
+                self._device_token = token
+                return token
+
+            token = self._register_device()
+            self._device_token = token
+            return token
 
     # ------------------------------------------------------------
     # 核心调用
@@ -147,135 +260,132 @@ class AgnesClient:
             max_tokens: int = 2048
     ) -> Dict[str, Any]:
         """
-        调用 AGNES chat/completions 接口，进行多轮对话补全。
+        经中转服务发起对话补全。
 
-        Args:
-            messages: 消息列表，例如
-                [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
-            temperature: 采样温度（OpenAI 兼容参数）
-            max_tokens: 最大生成 token 数（OpenAI 兼容参数）
+        Args / Returns / Raises 与旧版完全一致，上层无需改动。
 
         Returns:
             dict: {"content": str, "usage": dict}
-                返回结构遵循 OpenAI 兼容的 chat/completions 格式，便于上层直接消费。
 
         Raises:
             AgnesRequestError: HTTP 非 200 或网络请求异常
             AgnesTimeoutError: 请求超时（重试耗尽后）
             AgnesResponseError: 响应结构解析失败
+            AgnesQuotaError:    配额用尽
         """
-        # 惰性导入：未安装 requests/urllib3 时，仅本方法在调用时报错，
-        # 不影响整个模块（及依赖它的 analysis_pipeline / main_window）的导入与启动。
-        try:
-            import requests
-            import urllib3
-            from urllib3.exceptions import InsecureRequestWarning
-            urllib3.disable_warnings(InsecureRequestWarning)
-        except ImportError as e:
-            raise AgnesClientError(
-                f"缺少依赖 {e.name}，请先安装：pip install requests urllib3"
-            ) from e
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': self.api_key,
-        }
+        requests = self._requests()
+        url = f'{self.base_url}/v1/chat'
         payload = {
-            'model': self.model,
             'messages': messages,
             'temperature': temperature,
             'max_tokens': max_tokens,
-            'chat_template_kwargs': {'enable_thinking': False},
         }
 
+        token = self._ensure_token()
+        reauth_used = False
         last_err: Optional[Exception] = None
+
         for attempt in range(self.max_retries + 1):
             try:
-                logger.debug(
-                    "[AGNES] 第 %d 次请求 %s model=%s",
-                    attempt + 1, self.api_url, self.model
-                )
-                resp = requests.request(
-                    'POST',
-                    self.api_url,
-                    headers=headers,
+                logger.debug('[relay] 第 %d 次请求中转服务', attempt + 1)
+                resp = requests.post(
+                    url,
+                    headers={'Content-Type': 'application/json',
+                             'Authorization': f'Bearer {token}'},
                     json=payload,
                     timeout=self.timeout,
                     verify=self.verify_ssl,
                 )
 
+                # 令牌失效或被吊销：清除后重新注册并重试一次
+                if resp.status_code in (401, 403) and not reauth_used:
+                    reauth_used = True
+                    logger.info('[relay] 设备令牌失效，正在重新注册')
+                    token = self._ensure_token(force_refresh=True)
+                    continue
+
+                if resp.status_code == 429:
+                    raise AgnesQuotaError(self._detail(resp, '使用次数已达上限'))
+
                 if resp.status_code != 200:
                     raise AgnesRequestError(
-                        f"HTTP {resp.status_code}: {resp.text[:500]}",
+                        self._detail(resp, f'服务返回 HTTP {resp.status_code}'),
                         status_code=resp.status_code,
                     )
 
                 try:
                     data = resp.json()
                 except ValueError as e:
-                    raise AgnesResponseError(f"响应不是合法 JSON: {e}") from e
+                    raise AgnesResponseError(f'响应不是合法 JSON: {e}') from e
 
                 content = self._extract_content(data)
                 usage = data.get('usage', {}) if isinstance(data, dict) else {}
                 return {'content': content, 'usage': usage}
 
-            except AgnesResponseError:
-                # 响应解析失败属业务错误，不重试
+            except (AgnesResponseError, AgnesQuotaError):
+                # 业务错误，重试无意义
                 raise
             except AgnesRequestError as e:
-                # 5xx / 429 等瞬时错误（如服务过载 system memory overloaded）可重试；
-                # 其余 4xx 属客户端错误，直接上抛。
                 if attempt < self.max_retries and _is_transient_status(e.status_code):
                     delay = self.retry_delay * (2 ** attempt)
                     last_err = e
                     logger.warning(
-                        "[AGNES] HTTP %s 瞬时错误（第 %d 次），%d 秒后重试：%s",
-                        e.status_code, attempt + 1, delay, e,
+                        '[relay] HTTP %s 瞬时错误（第 %d 次），%d 秒后重试',
+                        e.status_code, attempt + 1, delay,
                     )
                     time.sleep(delay)
                     continue
                 raise
             except requests.exceptions.Timeout as e:
                 last_err = e
-                logger.warning("[AGNES] 请求超时（第 %d 次），%s", attempt + 1, e)
+                logger.warning('[relay] 请求超时（第 %d 次）', attempt + 1)
                 if attempt < self.max_retries:
                     time.sleep(self.retry_delay * (2 ** attempt))
                     continue
-                raise AgnesTimeoutError(f"请求超时: {e}") from e
+                raise AgnesTimeoutError('请求超时，请检查网络后重试') from e
             except requests.exceptions.RequestException as e:
                 last_err = e
-                logger.warning("[AGNES] 请求异常（第 %d 次），%s", attempt + 1, e)
+                logger.warning('[relay] 请求异常（第 %d 次）', attempt + 1)
                 if attempt < self.max_retries:
                     time.sleep(self.retry_delay * (2 ** attempt))
                     continue
-                raise AgnesRequestError(f"请求失败: {e}") from e
+                raise AgnesRequestError('无法连接分析服务，请检查网络') from e
 
-        # 理论上不会到达这里
-        raise AgnesRequestError(f"未知错误: {last_err}")
+        raise AgnesRequestError(f'未知错误: {last_err}')
 
     # ------------------------------------------------------------
-    # 响应内容提取
+    # 响应处理
     # ------------------------------------------------------------
+    @staticmethod
+    def _detail(resp, fallback: str) -> str:
+        """提取中转服务返回的 detail 文案（已由服务端确保不含敏感信息）。"""
+        try:
+            detail = resp.json().get('detail')
+            if isinstance(detail, str) and detail:
+                return detail
+        except Exception:
+            pass
+        return fallback
+
     @staticmethod
     def _extract_content(data: Any) -> str:
         """
-        从 OpenAI 兼容的响应中提取助手回复文本。
+        从中转服务响应中提取回复文本。
 
-        兼容结构：
-            {"choices": [{"message": {"content": "..."}}]}
-        以及简化的 {"content": "..."} 结构。
+        兼容 OpenAI 结构 {"choices":[{"message":{"content":...}}]}
+        与中转服务的简化结构 {"content": "..."}。
         """
+        if isinstance(data, dict) and 'content' in data:
+            return data.get('content') or ''
         if isinstance(data, dict) and 'choices' in data:
             choices = data.get('choices') or []
             if choices and isinstance(choices[0], dict):
                 message = choices[0].get('message', {}) or {}
                 return message.get('content', '') or ''
-        if isinstance(data, dict) and 'content' in data:
-            return data.get('content') or ''
-        raise AgnesResponseError(f"响应中未找到 content 字段: {str(data)[:300]}")
+        raise AgnesResponseError('响应中未找到 content 字段')
 
     # ------------------------------------------------------------
-    # 响应清洗 / 校验（与历史实现契约保持一致）
+    # JSON 清洗 / 校验（逻辑与旧版完全一致，上层依赖不变）
     # ------------------------------------------------------------
     @staticmethod
     def _clean_json_response(content: str) -> str:
@@ -313,8 +423,6 @@ class AgnesClient:
         """
         if not isinstance(analysis, dict):
             analysis = {}
-        # 字符串类字段（结论句）：必须为「字符串」。
-        # 八字/梅花/六壬的 final_verdict，以及综合建议的 disclaimer 均属此类。
         string_fields = {'final_verdict', 'disclaimer'}
         for field in required_fields:
             value = analysis.get(field)
@@ -325,7 +433,6 @@ class AgnesClient:
                     analysis[field] = '\n'.join(str(x) for x in value if x)
                 elif not isinstance(value, str):
                     analysis[field] = str(value)
-                # 已是字符串则保持
             else:
                 if value is None:
                     analysis[field] = []
@@ -348,11 +455,10 @@ _singleton_lock = threading.Lock()
 
 
 def get_agnes_client() -> AgnesClient:
-    """获取（惰性创建）AGNES 客户端单例，线程安全。"""
+    """获取（惰性创建）客户端单例，线程安全。"""
     global _default_client
     if _default_client is None:
         with _singleton_lock:
-            # 双重检查：防止两个线程同时进入 if 块
             if _default_client is None:
                 _default_client = AgnesClient()
     return _default_client

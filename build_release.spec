@@ -24,6 +24,9 @@ a = Analysis(
     ],
     datas=[
         # 配置文件
+        # 安全约定：config.ini 会随 exe 分发给所有公众用户，
+        # 因此其中不得包含任何机密（上游 API 密钥已迁至中转服务环境变量）。
+        # 打包后请执行 scripts/verify_build_security.py 校验产物无密钥残留。
         ('config.ini', '.'),
         ('config.ini.example', '.'),
         ('favicon.ico', '.'),
@@ -37,6 +40,8 @@ a = Analysis(
     hiddenimports=[
         # 核心模块
         'core.path_utils',
+        'core.secure_log',
+        'core.device_identity',
         'core.sqlite_db',
         'core.log_handler',
         'core.analysis_pipeline',
@@ -99,7 +104,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['pyi_rth_ssl.py'],
-    excludes=['PyQt5', 'PyQt6', 'PIL', 'notebook', 'jinja2', 'tkinter', 'python313'],
+    # 'server' 为中转服务端代码，持有上游密钥，严禁打进客户端
+    excludes=['PyQt5', 'PyQt6', 'PIL', 'notebook', 'jinja2', 'tkinter', 'python313',
+              'server', 'server.app'],
     cipher=block_cipher,
     noarchive=False,
 )
