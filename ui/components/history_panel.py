@@ -5,7 +5,7 @@
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QLabel, QComboBox, QPushButton, QTextEdit, QMessageBox, QSizePolicy,
+    QLabel, QComboBox, QPushButton, QTextEdit, QMessageBox,
     QLineEdit, QDateEdit, QCheckBox,
 )
 from PySide6.QtCore import Signal, Qt, QDate
@@ -212,10 +212,9 @@ class HistoryListPanel(QWidget):
     """历史记录右侧列表 + 详情面板"""
     load_to_bazi = Signal(dict)   # 把选中的记录 dict 抛给主窗口载入
 
-    def __init__(self, db_manager, user_id_getter, parent=None):
+    def __init__(self, db_manager, parent=None):
         super().__init__(parent)
         self.db = db_manager               # DatabaseManager 实例（可能为 None）
-        self.uid_getter = user_id_getter  # callable -> int
         self._records = []
         self._build()
 
@@ -288,11 +287,10 @@ class HistoryListPanel(QWidget):
     # ----------------- 数据加载 -----------------
     def load(self, pan_type: str = '', name: str = '', start: str = '', end: str = '',
              wuxing: str = '', geju_type: str = '', strength: str = ''):
-        uid = self.uid_getter() or 1
         try:
             if self.db:
                 recs = self.db.search_records(
-                    uid, pan_type, name, start, end,
+                    0, pan_type, name, start, end,
                     wuxing, geju_type, strength, 200)
             else:
                 recs = []
@@ -355,8 +353,7 @@ class HistoryListPanel(QWidget):
             QMessageBox.information(self, '提示', '请先选择一条记录')
             return
         rid = cur.data(Qt.UserRole)
-        uid = self.uid_getter() or 1
-        if self.db and self.db.delete_record(rid, uid):
+        if self.db and self.db.delete_record(rid, 0):
             QMessageBox.information(self, '已删除', '记录已删除')
             self.load()
         else:

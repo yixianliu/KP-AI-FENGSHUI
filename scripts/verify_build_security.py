@@ -5,13 +5,14 @@ scripts/verify_build_security.py — 打包产物密钥残留校验
 用途：在发布前对 dist/ 做二进制级扫描，确认没有任何机密被打进客户端。
       这是「可验证的安全」，不依赖肉眼检查或主观判断。
 
-发布约定：产物中【不含任何 AI 原始信息】—— 无端点、无密钥、无模型名。
-        运行参数由用户在 GUI「设置」中自行填写，存于本机 ai_config.json。
+发布约定：产物中【不得含任何密钥】；官方固定后端（龙虎山大师兄 AI 的端点
+        与 agnes-2.5-flash 模型名）属公开、非机密的产品常量，允许随包分发。
+        其余上游端点 / 密钥视为泄漏，必须零出现。
 
 校验逻辑：
   1. 若 server/.env 仍存在，读取其中的历史机密值（AGNES_API_KEY / ADMIN_TOKEN），
      断言它们【绝不出现】在任何产物文件中；
-  2. 用通用正则扫描密钥形态、已知上游端点、内置模型名与已废弃的凭据模块名；
+  2. 用通用正则扫描密钥形态、非官方上游端点、非发布模型名与已废弃的凭据模块名；
   3. 文件名级检查：config.ini / _embedded_config.py 等旧版凭据载体不得入包；
   4. APP_KEYS 属于历史上「设计上会随 exe 分发」的非机密，出现属正常，
      脚本会明确区分并给出提示，避免误报干扰判断；
@@ -32,13 +33,15 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# 通用密钥形态 + AI 原始信息（端点 / 内置模型名 / 已废弃的凭据模块）
-# 发布约定：产物中不得出现任何 AI 原始信息，用户自行在 GUI 填写。
+# 通用密钥形态 + 非官方 AI 信息（端点 / 模型名 / 已废弃的凭据模块）
+# 发布约定：产物中不得含任何密钥；官方固定后端（api.agnes-ai.cn 与
+# agnes-2.5-flash）属公开、非机密的产品常量，允许随包分发，故在此放行。
 _GENERIC_PATTERNS = [
     (re.compile(rb'sk-[A-Za-z0-9_\-]{16,}'), 'OpenAI 风格密钥 (sk-...)'),
     (re.compile(rb'Bearer\s+sk-'), '明文 Bearer 密钥'),
-    (re.compile(rb'api\.agnes-ai\.cn'), '硬编码的上游端点'),
-    (re.compile(rb'agnes-2\.5-(?:flash|pro)'), '硬编码的内置模型名'),
+    # 官方固定后端（公开、非机密）随包分发属正常；其余上游端点视为泄漏
+    (re.compile(rb'api\.(?!agnes-ai\.cn)[A-Za-z0-9.\-]+\.(?:com|cn)'), '硬编码的非官方上游端点'),
+    (re.compile(rb'agnes-2\.5-pro'), '硬编码的内置模型名（pro 非发布模型）'),
     (re.compile(rb'_embedded_config'), '已废弃的密钥烧录模块'),
 ]
 
@@ -190,7 +193,7 @@ def scan(dist: Path, env_path: Path) -> int:
 
     if generic_hits:
         ok = False
-        print('[失败] 产物中发现 AI 原始信息残留（密钥 / 端点 / 内置模型名）：')
+        print('[失败] 产物中发现密钥或非官方上游端点残留（官方公开后端除外）：')
         for h in sorted(set(generic_hits)):
             print(f'   - {h}')
 
@@ -205,8 +208,8 @@ def scan(dist: Path, env_path: Path) -> int:
 
     if ok:
         print('=' * 64)
-        print('[通过] 产物中不含任何 AI 原始信息（端点 / 密钥 / 模型名），可以发布。')
-        print('       用户首次运行需在「设置 → 龙虎山大师兄配置」中自行填写。')
+        print('[通过] 产物中不含任何密钥，官方公开后端信息除外，可以发布。')
+        print('       用户首次运行需在「设置 → 龙虎山大师兄配置」中自行填写 API 密钥。')
         print('=' * 64)
         return 0
     return 1

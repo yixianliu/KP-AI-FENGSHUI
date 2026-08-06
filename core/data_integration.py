@@ -12,7 +12,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

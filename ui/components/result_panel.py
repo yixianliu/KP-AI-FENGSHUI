@@ -3,9 +3,8 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
                              QPushButton, QScrollArea, QProgressBar, QGraphicsOpacityEffect,
-                             QToolButton, QDialog, QSizePolicy)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer
-from PySide6.QtGui import QColor
+                             QDialog, QSizePolicy)
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.collapsible_card import CollapsibleCard
 

@@ -30,8 +30,12 @@ core/ai_config.py — AI 模型配置中央管理器（全局唯一权威源）
   在本机上，任何能运行本程序代码的人都可以还原它。请勿绑定高价值账户。
 
 【发布产物约定】
-  本模块不含任何默认端点 / 默认密钥 / 默认模型名。
-  打包后的 exe 中不存在任何 AI 原始信息，全部由用户在 GUI 中填写。
+  本程序仅接入一个固定的官方后端「龙虎山大师兄 AI（Agnes AI）」，
+  其端点与模型名作为公开的、非机密的产品常量写在本模块
+  （OFFICIAL_AGNES_ENDPOINT / OFFICIAL_AGNES_MODEL）。
+  真正需要保密、且由用户填写的只有 API 密钥：
+  密钥经 GUI 填写后落盘混淆（设备指纹 + XOR + base64），不随 exe 明文分发。
+  安全边界：exe 不得包含任何密钥；官方公开后端信息允许随包分发。
 """
 from __future__ import annotations
 
@@ -41,6 +45,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 import threading
 import time
 import uuid
@@ -57,12 +62,25 @@ SCHEMA_VERSION = 1
 _ENC_PREFIX = 'enc:v1:'
 # 混淆用静态盐（非机密，仅让明文→密文映射不平凡）
 _STATIC_SALT = b'KP-AI-FENGSHUI::ai_config::v1'
+
+# 调试兜底日志只打印一次，避免 get_active 高频调用时刷屏
+_debug_fallback_logged = False
 # 外部文件改动检测的节流间隔（秒），避免高频 stat
 _MTIME_CHECK_INTERVAL = 2.0
 
 
 # ================================================================
-# 供应商预设：仅提供「填写模板」，不含任何真实凭据
+# 官方固定后端（公开、非机密）：程序仅接入此一个模型
+# GUI 仅索取 API 密钥，端点与模型名固定，不向用户暴露任何选择项
+# ================================================================
+OFFICIAL_AGNES_ENDPOINT = 'https://api.agnes-ai.cn/v1/chat/completions'
+OFFICIAL_AGNES_MODEL = 'agnes-2.5-flash'
+OFFICIAL_PROVIDER_KEY = 'agnes'
+
+
+# ================================================================
+# 供应商预设：当前仅保留官方「龙虎山大师兄 AI」一个模型
+# （公开端点 / 模型名已固化为上方产品常量，GUI 不暴露多模型选择）
 # ================================================================
 @dataclass(frozen=True)
 class ProviderPreset:
@@ -77,68 +95,18 @@ class ProviderPreset:
 
 
 PROVIDER_PRESETS: Dict[str, ProviderPreset] = {
-    # 通用档：不预置任何端点与模型名，完全由用户填写。
-    # 这是默认项 —— 程序本体对「用哪家模型」不做任何预设。
-    'openai_compatible': ProviderPreset(
-        key='openai_compatible',
-        label='OpenAI 兼容接口（通用）',
-        api_url='',
-        models=(),
+    OFFICIAL_PROVIDER_KEY: ProviderPreset(
+        key=OFFICIAL_PROVIDER_KEY,
+        label='龙虎山大师兄 AI',
+        api_url=OFFICIAL_AGNES_ENDPOINT,
+        models=(OFFICIAL_AGNES_MODEL,),
         auth_scheme='bearer',
-    ),
-    'openai': ProviderPreset(
-        key='openai',
-        label='OpenAI',
-        api_url='https://api.openai.com/v1/chat/completions',
-        models=('gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'),
-        auth_scheme='bearer',
-    ),
-    'deepseek': ProviderPreset(
-        key='deepseek',
-        label='DeepSeek',
-        api_url='https://api.deepseek.com/chat/completions',
-        models=('deepseek-chat', 'deepseek-reasoner'),
-        auth_scheme='bearer',
-    ),
-    'moonshot': ProviderPreset(
-        key='moonshot',
-        label='Moonshot 月之暗面',
-        api_url='https://api.moonshot.cn/v1/chat/completions',
-        models=('moonshot-v1-8k', 'moonshot-v1-32k'),
-        auth_scheme='bearer',
-    ),
-    'dashscope': ProviderPreset(
-        key='dashscope',
-        label='阿里云百炼（通义千问）',
-        api_url='https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-        models=('qwen-plus', 'qwen-turbo', 'qwen-max'),
-        auth_scheme='bearer',
-    ),
-    'zhipu': ProviderPreset(
-        key='zhipu',
-        label='智谱 GLM',
-        api_url='https://open.bigmodel.cn/api/paas/v4/chat/completions',
-        models=('glm-4-flash', 'glm-4-plus'),
-        auth_scheme='bearer',
-    ),
-    'ollama': ProviderPreset(
-        key='ollama',
-        label='Ollama 本地模型',
-        api_url='http://localhost:11434/v1/chat/completions',
-        models=('qwen2.5:7b', 'llama3.1:8b'),
-        auth_scheme='raw',
-        needs_key=False,
-    ),
-    'custom': ProviderPreset(
-        key='custom',
-        label='自定义',
-        api_url='',
-        models=(),
-        auth_scheme='bearer',
+        send_no_think=True,      # agnes-2.5-flash 关闭思考模式可显著提速
+        needs_key=True,
     ),
 }
 
-DEFAULT_PROVIDER = 'openai_compatible'
+DEFAULT_PROVIDER = OFFICIAL_PROVIDER_KEY
 
 
 # ================================================================
@@ -486,13 +454,48 @@ class AIConfigManager:
             return [copy.deepcopy(p) for p in self._profiles]
 
     def get_active(self) -> Optional[AIProfile]:
-        """返回当前生效的配置档副本；未配置时返回 None。"""
+        """返回当前生效的配置档副本；未配置时返回 None。
+
+        调试兜底：源码运行（非冻结）且用户尚未在 GUI 配置时，
+        自动返回 core.debug_keys 中的本地密钥作为生效配置，
+        便于 `python main.py` 命令行调试无需先走 GUI。
+        该兜底为内存态、不落盘，绝不进入打包产物。
+        """
         self.load()
         with self._lock:
-            for p in self._profiles:
-                if p.id == self._active_id:
-                    return copy.deepcopy(p)
-            return copy.deepcopy(self._profiles[0]) if self._profiles else None
+            # 候选档：当前生效档优先，否则取全部档
+            candidates = [p for p in self._profiles if p.id == self._active_id] or self._profiles
+        # 优先返回「字段完整、可发起请求」的档（GUI 已配好且含有效密钥）。
+        # 仅当不存在任何可用档时，才在调试模式（非冻结）下注入本地调试密钥。
+        # 这样即便磁盘残留一个「空密钥 / 不完整」的档，也不会阻塞调试兜底；
+        # 冻结（EXE）运行时兜底返回 None，保持产物零密钥。
+        for p in candidates:
+            if p.is_usable():
+                return copy.deepcopy(p)
+        return self._debug_fallback_profile()
+
+    def _debug_fallback_profile(self) -> Optional[AIProfile]:
+        """调试模式兜底：从 core.debug_keys 读取本地密钥（内存态、不落盘）。"""
+        # 打包产物（PyInstaller 冻结）运行时直接忽略，且 core.debug_keys 不会被打进 exe
+        if getattr(sys, 'frozen', False):
+            return None
+        try:
+            from core.debug_keys import get_debug_keys
+            data = get_debug_keys()
+        except Exception:
+            return None
+        if not data:
+            return None
+        profile = make_default_profile()
+        profile.name = '调试密钥（自动注入）'
+        profile.api_key = data['api_key']
+        profile.api_url = data['api_url']
+        profile.model = data['model']
+        global _debug_fallback_logged
+        if not _debug_fallback_logged:
+            _debug_fallback_logged = True
+            logger.info('[AI配置] 调试模式：已注入本地调试密钥（来自 core.debug_keys）')
+        return profile
 
     def get_profile(self, profile_id: str) -> Optional[AIProfile]:
         self.load()
@@ -517,7 +520,7 @@ class AIConfigManager:
         """供 UI 展示的一句话状态。"""
         profile = self.get_active()
         if profile is None:
-            return '尚未配置 AI 模型，请在「设置」中填写 API 端点与密钥'
+            return '尚未配置 AI 模型，请在「设置」中填写 API 密钥'
         err = profile.validate()
         if err:
             return f'当前配置不完整：{err}'

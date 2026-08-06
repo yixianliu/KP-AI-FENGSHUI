@@ -16,15 +16,15 @@
 - **命理特征**：神煞（天德、月德、文昌、桃花等）、纳音五行、空亡判定、干支冲合害刑
 - **大运流年**：大运方向计算、起运年龄推算、流年运势分析、小运及五行制衡交互
 - **格局分析**：正格/变格自动判定，格局层次评估
-- **AI 智能分析**：双模型融合校验（传统规则引擎 + AI 大模型），生成性格、事业、婚姻、健康、财富等多维度报告
+- **AI 智能解读**：传统规则引擎与 AI 大模型融合，生成性格、事业、婚姻、健康、财富等多维度报告
 - **梅花易数**：支持时间起卦、报数起卦、方位起卦、文字起卦，本卦/互卦/变卦/错卦/综卦完整解卦
 
 ### 辅助功能
 
 - **报告导出**：支持 PDF、Excel、CSV 多格式分析报告导出
-- **历史记录**：自动保存排盘记录和 AI 分析到 MySQL 数据库，支持查询追溯
+- **历史记录**：自动保存排盘记录和 AI 分析到本地 SQLite 数据库，支持查询追溯
 - **知识库注入**：AI 分析前自动注入命理知识库上下文，增强专业性
-- **异步非阻塞**：基于 QThread + Redis 的异步 AI 分析，UI 永不卡顿
+- **异步非阻塞**：基于 QThread 的异步 AI 分析，UI 永不卡顿
 
 ---
 
@@ -45,13 +45,13 @@
 |  +-------------+  +--------------+  +---------------------------+ |
 |  +-------------+  +--------------+  +---------------------------+ |
 |  | 命理特征分析  |  |  梅花易数引擎 |  |  AI 分析管线              | |
-|  | MingLi     |  |  MeiHua      |  |  Pipeline+Redis         | |
+|  | MingLi     |  |  MeiHua      |  |  Pipeline (分析管线)    | |
 |  +-------------+  +--------------+  +---------------------------+ |
 +----------------------------------------+-------------------------+
                                          | 数据请求 & 分析结果
 +----------------------------------------v-------------------------+
 |                  基础设施层                                         |
-|  MySQL (数据库)  .  Redis (任务队列)  .  Agnes AI API            |
+|  SQLite (本地数据库)  .  Agnes AI API                            |
 +------------------------------------------------------------------+
 ```
 
@@ -80,11 +80,11 @@
         |
         v
   5. AI 异步分析 (analysis_pipeline + agnes_client)
-      QThread 后台执行 -> 调用 Agnes AI API -> 结果存入 Redis + MySQL
+      QThread 后台执行 -> 调用 Agnes AI API -> 结果存入本地 SQLite
         |
         v
   6. 前端轮询 & 展示 (ResultPanel)
-      Redis 状态轮询 -> 渐进式渲染 AI 报告
+      状态回调驱动 -> 渐进式渲染 AI 报告
 ```
 
 ---
@@ -95,8 +95,7 @@
 |------|------|---------|
 | 编程语言 | Python | 3.10+ |
 | GUI 框架 | PySide6 (Qt for Python) | 6.6+ |
-| 数据库 | MySQL | 8.0+ |
-| 缓存/消息队列 | Redis | 3.0+ |
+| 数据库 | SQLite（本地） | 内置 |
 | AI 模型 | Agnes AI | agnes-2.5-flash |
 | 农历转换 | lunarcalendar | 0.0.9 |
 
@@ -120,50 +119,26 @@ pip install -r requirements.txt
 
 ### 2. 数据库配置
 
-初始化 MySQL 数据库：
+本工具使用本地 **SQLite** 数据库，无需安装 MySQL，也无需配置连接串。
 
-```bash
-mysql -u root -p < database/base.sql
-```
+- 打包运行：首次启动自动从内置种子库 `data/fengshui.db` 初始化；
+- 源码运行：数据库文件自动创建于用户目录
+  `C:\Users\<你>\.kp-fengshui\data\fengshui.db`。
 
-编辑 `config.ini` 配置数据库连接：
+### 3. 配置 AI 接口（龙虎山大师兄）
 
-```ini
-[database]
-host = 127.0.0.1
-user = root
-password = your_password
-database = ai_fengshui
-charset = utf8mb4
-```
+本工具已内置**唯一的** AI 后端：**龙虎山大师兄（Agnes AI，`agnes-2.5-flash`）**，
+端点固定为 `https://api.agnes-ai.cn/v1/chat/completions`，无需也不支持切换其他模型。
 
-### 3. Redis 配置（可选）
+首次使用请在软件内配置密钥：
 
-如需使用 AI 异步分析功能，配置 Redis：
+1. 打开「设置 → 龙虎山大师兄配置」；
+2. 在 **API 密钥** 输入框中粘贴你的密钥（可点右侧「显示 / 隐藏」图标）；
+3. 点击「测试连接」验证密钥有效性，再点「保存并应用」。
 
-```ini
-[redis]
-host = 127.0.0.1
-port = 6379
-password =
-db = 0
-```
+配置仅保存在本机 `ai_config.json`（设备指纹混淆存储），不会写入任何源码或分发文件。
 
-### 4. 配置 AI 接口
-
-编辑 `config.ini` 中的 Agnes AI API：
-
-```ini
-[agnes]
-api_url = https://api.agnes-ai.cn/v1/chat/completions
-api_key = Bearer your_api_key
-model = agnes-2.5-flash
-max_retries = 2
-retry_delay = 2
-timeout = 60
-```
-
-### 5. 运行程序
+### 4. 运行程序
 
 ```bash
 python main.py
@@ -176,7 +151,6 @@ python main.py
 ```
 KP-AI-FENGSHUI/
 ├── main.py                          # 程序入口
-├── config.ini                       # 配置文件（数据库/Redis/AI接口）
 ├── requirements.txt                 # Python 依赖清单
 ├── README.md                        # 项目文档（本文件）
 │
@@ -193,14 +167,13 @@ KP-AI-FENGSHUI/
 │   ├── hexagram_analyzer.py         # 卦象分析器（体用/五行生克）
 │   ├── analysis_pipeline.py         # AI 分析主流程编排
 │   ├── data_integration.py          # 数据整合 & Prompt 构建
-│   ├── analysis_storage.py          # 分析报告持久化（MySQL）
+│   ├── analysis_storage.py          # 分析报告持久化（SQLite）
 │   ├── knowledge_base.py            # 命理知识库上下文注入
 │   ├── solar_time.py                # 真太阳时计算（均时差+经度修正）
 │   ├── calendar_utils.py            # 日历工具（节气/均时差计算）
 │   ├── lunar_converter.py           # 农历/公历转换
 │   ├── data_validator.py            # 数据验证器
-│   ├── database_manager.py          # MySQL 访问层
-│   ├── redis_manager.py             # Redis 任务管理
+│   ├── database_manager.py          # SQLite 访问层（单例）
 │   ├── location_db.py               # 城市经纬度数据库
 │   ├── errors.py                    # 异常定义与错误码
 │   └── __init__.py                  # 模块统一导出
@@ -214,7 +187,7 @@ KP-AI-FENGSHUI/
 │   │   ├── meihua_input.py          # 梅花易数输入面板
 │   │   ├── meihua_result_panel.py   # 梅花易数结果面板
 │   │   ├── ai_analysis_worker.py    # AI 分析工作线程（QThread）
-│   │   ├── login_dialog.py          # 用户登录对话框
+│   │   ├── settings_dialog.py       # 龙虎山大师兄配置（极简 AI 密钥设置）
 │   │   └── export_dialog.py         # 导出格式选择对话框
 │   └── export/                      # 导出模块
 │       ├── base_exporter.py         # 导出基类
@@ -226,7 +199,7 @@ KP-AI-FENGSHUI/
 │   └── agnes_client.py              # Agnes AI API 客户端（OpenAI 兼容）
 │
 ├── database/                        # 数据库 Schema
-│   └── base.sql                     # 完整数据库建表脚本（30+ 张表）
+│   └── base.sql                     # 完整数据库建表脚本（SQLite，37 张表）
 │
 └── tests/                           # 测试
     └── test_all.py                  # 综合测试
@@ -299,11 +272,11 @@ KP-AI-FENGSHUI/
 ### AI 智能分析
 
 1. **数据整合**：`DataIntegrator` 将 20+ 字段的不同数据类型统一清洗
-2. **知识库注入**：从 MySQL 预加载五行特性、十神含义等上下文
+2. **知识库注入**：从本地知识库预加载五行特性、十神含义等上下文
 3. **Prompt 构建**：生成 500+ 行结构化自然语言 Prompt
 4. **异步执行**：`QThread` 后台调用 Agnes AI API，不阻塞 UI
-5. **Redis 状态机**：pending -> analyzing -> completed，前端轮询获取结果
-6. **持久化存储**：完整分析报告以 JSON 格式存入 MySQL
+5. **状态回调**：pending -> analyzing -> completed，前端实时获取结果
+6. **持久化存储**：完整分析报告以 JSON 格式存入本地 SQLite
 
 ---
 
@@ -370,43 +343,21 @@ result = pipeline.run_bazi_analysis(
 ## 测试
 
 ```bash
-# 运行综合测试
-python -m pytest tests/test_all.py -v
-
-# 或直接运行
-python tests/test_all.py
+# 运行全部测试（unittest）
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ---
 
 ## 配置
 
-完整 `config.ini` 配置说明：
+本工具**无需任何配置文件**。数据库使用本地 SQLite（自动初始化），AI 后端为内置固定的
+龙虎山大师兄（Agnes AI），仅需在软件内「设置 → 龙虎山大师兄配置」中填写 API 密钥即可。
 
-```ini
-[database]
-host = 127.0.0.1
-user = root
-password = your_password
-database = ai_fengshui
-charset = utf8mb4
+- AI 密钥：保存在本机 `ai_config.json`（设备指纹混淆存储），不落盘明文、不写源码、不分发；
+- 数据库：自动创建于用户目录 `C:\Users\<你>\.kp-fengshui\data\fengshui.db`。
 
-[redis]
-host = 127.0.0.1
-port = 6379
-password =
-db = 0
-
-[agnes]
-api_url = https://api.agnes-ai.cn/v1/chat/completions
-api_key = Bearer your_api_key
-model = agnes-2.5-flash
-max_retries = 2
-retry_delay = 2
-timeout = 60
-```
-
-> **安全提示**：API Key 和数据库密码应妥善保管，不要提交到版本控制系统。可使用 `config.ini.example` 作为模板，实际配置加入 `.gitignore`。
+> **安全提示**：API 密钥由你自己持有，请妥善保管，不要提交到版本控制系统或分享给他人。
 
 ---
 
@@ -424,7 +375,7 @@ timeout = 60
 1. 核心算法在 `core/` 目录下实现
 2. UI 组件在 `ui/components/` 目录下实现
 3. 知识库数据通过 `database/base.sql` 维护
-4. 配置文件通过 `config.ini` 管理
+4. AI 配置通过「设置 → 龙虎山大师兄配置」GUI 管理，密钥落盘于本机 `ai_config.json`
 
 ---
 
@@ -440,8 +391,8 @@ MIT License
 
 ---
 
-**版本**: v4.0
+**版本**: v5.0
 **最后更新**: 2026年6月29日
 **语言**: Python 3.10+
 **框架**: PySide6 (Qt 6)
-**数据库**: MySQL 8.0+ / Redis 3.0+
+**数据库**: SQLite（本地，内置）

@@ -2,7 +2,6 @@
 风水排盘专业工具 - 精美国风设计系统 v5.0
 三色点缀：朱砂红·青花蓝·鎏金黄 | 暖米底色 | 圆角卡片 | 柔和阴影 | 微动画
 """
-from PySide6.QtGui import QColor
 
 
 class Colors:
@@ -547,24 +546,6 @@ class Stylesheets:
             background: {Colors.HOVER};
             color: {Colors.TEXT2};
             border-color: {Colors.BORDER2};
-        }}
-    """
-
-    # ==================== 登录/注册对话框卡片 ====================
-    DIALOG_CARD = f"""
-        QDialog {{
-            background-color: {Colors.BG};
-        }}
-        QLabel#dialog_title {{
-            font-size: {Fonts.SZ_HERO};
-            font-weight: {Fonts.W_BOLD};
-            color: {Colors.TEXT};
-            font-family: {Fonts.TITLE};
-        }}
-        QLabel#dialog_subtitle {{
-            font-size: {Fonts.SZ_BODY};
-            color: {Colors.TEXT3};
-            font-family: {Fonts.BODY};
         }}
     """
 

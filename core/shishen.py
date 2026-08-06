@@ -8,7 +8,7 @@
 """
 
 from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_HIDDEN_GAN_DETAIL
-from core.calendar_utils import _lazy_init, TIAN_GAN, DI_ZHI
+from core.calendar_utils import TIAN_GAN
 from core.database_manager import DatabaseManager
 
 
@@ -80,7 +80,6 @@ class ShiShenAnalyzer:
         if not shishen_type:
             return ''
         
-        rizhu_yang = self.tian_gan_map[rizhu] % 2 == 0
         other_yang = self.tian_gan_map[other] % 2 == 0
         
         if shishen_type in ['我生', '克我']:

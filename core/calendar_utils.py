@@ -161,9 +161,7 @@ class JieQiCalculator:
         """二分法查找指定黄经对应的儒略日"""
         start_jd = JieQiCalculator._calculate_julian_day(year, 1, 1)
         end_jd = JieQiCalculator._calculate_julian_day(year, 12, 31)
-        
-        tolerance = 0.00001
-        
+
         for _ in range(50):
             mid_jd = (start_jd + end_jd) / 2
             current_angle = JieQiCalculator._calculate_sun_longitude(mid_jd)
@@ -234,9 +232,8 @@ class JieQiCalculator:
             julian_day = JieQiCalculator._find_julian_day_for_angle(target_angle, year)
             jieqi_time = JieQiCalculator._julian_day_to_datetime(julian_day)
             return jieqi_time
-        except Exception as e:
-            fallback_jieqi = JieQiCalculator._calculate_jieqi_fallback(year, jieqi_index)
-            return fallback_jieqi
+        except Exception:
+            return JieQiCalculator._calculate_jieqi_fallback(year, jieqi_index)
 
     @staticmethod
     def _calculate_jieqi_fallback(year, jieqi_index):

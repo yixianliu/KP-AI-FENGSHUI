@@ -2,7 +2,6 @@
 数据验证模块
 负责验证输入数据的完整性、格式正确性和业务规则约束
 """
-import re
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime

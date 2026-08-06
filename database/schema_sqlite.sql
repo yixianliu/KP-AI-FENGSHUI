@@ -290,12 +290,6 @@ CREATE TABLE IF NOT EXISTS "tian_gan_he" (
     "he_name" TEXT DEFAULT NULL,
     "description" TEXT
 );
-CREATE TABLE IF NOT EXISTS "users" (
-    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-    "username" TEXT NOT NULL,
-    "password_hash" TEXT NOT NULL,
-    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
-);
 CREATE TABLE IF NOT EXISTS "wuxing_knowledge" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "wuxing_name" TEXT NOT NULL,
@@ -382,8 +376,6 @@ CREATE INDEX IF NOT EXISTS "sixty_jiazi_idx_ganzhi" ON "sixty_jiazi" ("ganzhi");
 CREATE UNIQUE INDEX IF NOT EXISTS "tian_gan_gan" ON "tian_gan" ("gan");
 CREATE INDEX IF NOT EXISTS "tian_gan_idx_gan" ON "tian_gan" ("gan");
 CREATE UNIQUE INDEX IF NOT EXISTS "tian_gan_he_gan_pair" ON "tian_gan_he" ("gan_pair");
-CREATE UNIQUE INDEX IF NOT EXISTS "users_username" ON "users" ("username");
-CREATE INDEX IF NOT EXISTS "users_idx_username" ON "users" ("username");
 CREATE UNIQUE INDEX IF NOT EXISTS "wuxing_knowledge_wuxing_name" ON "wuxing_knowledge" ("wuxing_name");
 CREATE INDEX IF NOT EXISTS "wuxing_relations_idx_relation_type" ON "wuxing_relations" ("relation_type");
 CREATE UNIQUE INDEX IF NOT EXISTS "yue_ling_weight_uk_zhi_wx" ON "yue_ling_weight" ("zhi", "wuxing");

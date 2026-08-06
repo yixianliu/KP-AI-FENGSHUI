@@ -4,8 +4,8 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QPushButton, QGridLayout, QSizePolicy)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.collapsible_card import CollapsibleCard, ai_section_header
 

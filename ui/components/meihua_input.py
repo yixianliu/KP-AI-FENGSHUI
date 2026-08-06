@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                              QSpinBox, QStackedWidget, QScrollArea, QGroupBox,
                              QRadioButton, QGridLayout)
 from PySide6.QtCore import Qt
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.styles import Stylesheets, Colors, Fonts
 from core.meihua import YAO_NAMES
 
 METHODS = [

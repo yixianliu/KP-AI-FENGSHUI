@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                             QLabel, QComboBox, QCheckBox, QPushButton,
-                             QGroupBox, QLineEdit, QButtonGroup, QRadioButton,
-                             QFileDialog, QMessageBox, QGridLayout)
+                             QLabel, QCheckBox, QPushButton,
+                             QGroupBox, QLineEdit, QRadioButton,
+                             QMessageBox, QGridLayout)
 from PySide6.QtCore import Signal, Qt
 
 from ui.export.base_exporter import CHAPTERS

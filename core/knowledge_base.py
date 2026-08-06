@@ -2,11 +2,11 @@
 命理知识库 - 结构化存储八字命理和梅花易数的专业知识
 支持术语查询、知识检索、分类浏览等功能
 为AI分析提供结构化知识支撑
-数据来源：MySQL数据库
+数据来源：本地 SQLite（data/fengshui.db）
 """
 import json
 from core.database_manager import DatabaseManager
-from core.wuxing import TIAN_GAN_WUXING, DI_ZHI_WUXING
+from core.wuxing import TIAN_GAN_WUXING
 from core.hexagram_analyzer import BAGUA, HEXAGRAMS
 
 

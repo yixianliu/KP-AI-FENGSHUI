@@ -2,10 +2,10 @@
 梅花易数卦象分析与爻辞解读系统
 包含八卦基础数据、64卦卦辞爻辞、吉凶判断及解卦分析
 先天八卦数：乾1、兑2、离3、震4、巽5、坎6、艮7、坤8
-数据来源：MySQL数据库
+数据来源：本地 SQLite（data/fengshui.db）
 """
 from core.database_manager import DatabaseManager
-from core.hexagram_data import HEXAGRAMS_FULL, GAN_YAO_FULL
+from core.hexagram_data import GAN_YAO_FULL
 
 
 def _get_db():
@@ -304,7 +304,6 @@ class HexagramAnalyzer:
         if '比' in base_name or '亲比' in base_desc:
             suggestions.append('宜广结善缘，与人为善，得道多助。')
 
-        bi_name = bi_info.get('name', '')
         bi_desc = bi_info.get('description', '')
         bi_judgment_val = bi_info.get('judgment', '')
 

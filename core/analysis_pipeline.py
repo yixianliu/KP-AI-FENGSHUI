@@ -3,8 +3,6 @@
 整合数据验证、AI模型调用、结果存储的完整流程
 包含完善的错误处理和日志记录机制
 """
-import os
-import sys
 import json
 import logging
 import traceback
@@ -12,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from core.path_utils import get_app_dir, get_config_path, get_resource_path, get_logs_dir
+from core.path_utils import get_config_path, get_logs_dir
 
 from api.agnes_client import (
     AgnesClient, AgnesClientError, AgnesRequestError,
@@ -20,15 +18,12 @@ from api.agnes_client import (
 )
 from core.data_validator import DataValidator, DataValidationError
 from core.analysis_storage import (
-    AnalysisStorage, AnalysisStorageError,
+    AnalysisStorage,
     DatabaseConnectionError, DatabaseQueryError
 )
 from core.data_integration import DataIntegrator
 from core.knowledge_base import KnowledgeBase
-from core.ai_cache import (
-    get_cached_result, save_to_cache,
-    get_cache_stats, clear_all as ai_cache_clear_all,
-)
+from core.ai_cache import get_cached_result, save_to_cache
 
 
 def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
@@ -140,6 +135,23 @@ class AnalysisPipeline:
             else:
                 raise AnalysisPipelineError(f"分析流程初始化失败: {e}") from e
 
+    # ==================== 通用方法 ====================
+
+    def _ensure_ai_ready(self, pan_label: str, start_time) -> Optional[Dict[str, Any]]:
+        """AI 客户端未就绪（未配置）时返回错误结果，避免后续调用崩溃。
+
+        仅靠 agnes_client 是否存在来判断：AI 未配置时构造抛错，
+        self.agnes_client 从未被赋值（为 None）；单元测试可注入假客户端绕过。
+        """
+        if getattr(self, 'agnes_client', None) is None:
+            msg = (
+                "AI 模型未配置，分析功能不可用。请打开「设置 → 龙虎山大师兄配置」"
+                "填写 API 密钥后保存。"
+            )
+            logger.warning(f"[{pan_label}分析] {msg}")
+            return self._build_error_result(None, 'ai_disabled', msg, start_time)
+        return None
+
     # ==================== 八字分析流程 ====================
 
     def run_bazi_analysis(
@@ -176,6 +188,11 @@ class AnalysisPipeline:
                     'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
                     'from_cache': True,
                 }
+
+            # 缓存未命中，需真实调用 AI —— 此时 AI 必须已配置
+            guard = self._ensure_ai_ready('八字', start_time)
+            if guard is not None:
+                return guard
 
             logger.info("[八字分析] ========== 开始八字AI分析流程 ==========")
             logger.info(f"[八字分析] 输入数据: 姓名={input_data.get('name', '未知')}, "
@@ -398,69 +415,6 @@ class AnalysisPipeline:
             'usage': usage
         }
 
-    def _build_bazi_prompt(
-            self,
-            input_data: Dict[str, Any],
-            chart_data: Dict[str, Any]
-    ) -> str:
-        """
-        构建八字分析提示词
-
-        Args:
-            input_data: 输入数据
-            chart_data: 排盘数据
-
-        Returns:
-            提示词字符串
-        """
-        parts = []
-
-        name = input_data.get('name', '未命名')
-        gender = input_data.get('gender', '未知')
-        parts.append(f"命主信息：姓名{name}，性别{gender}")
-
-        if 'year' in input_data and 'month' in input_data and 'day' in input_data:
-            birth_date = (
-                f"{input_data['year']}-{input_data['month']:02d}-{input_data['day']:02d}"
-            )
-            birth_time = f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}"
-            parts.append(f"出生时间：公历{birth_date} {birth_time}")
-
-        loc = input_data.get('location') or input_data.get('city')
-        if loc:
-            parts.append(f"出生地：{loc}")
-
-        if chart_data:
-            bazi = chart_data.get('bazi', chart_data)
-            if isinstance(bazi, dict):
-                if 'year' in bazi and 'month' in bazi and 'day' in bazi and 'hour' in bazi:
-                    parts.append(
-                        f"八字四柱：年柱{bazi['year']} 月柱{bazi['month']} "
-                        f"日柱{bazi['day']} 时柱{bazi['hour']}"
-                    )
-                if 'rizhu' in bazi:
-                    parts.append(f"日主：{bazi['rizhu']}")
-
-            wuxing = chart_data.get('wuxing', {})
-            if wuxing:
-                wx_summary = wuxing.get('summary', '')
-                if wx_summary:
-                    parts.append(f"五行分析：{wx_summary}")
-                for wx in ['木', '火', '土', '金', '水']:
-                    wx_data = wuxing.get(wx, {})
-                    if isinstance(wx_data, dict):
-                        count = wx_data.get('count', 0)
-                        percentage = wx_data.get('percentage', 0)
-                        if count > 0:
-                            parts.append(f"  {wx}：{count:.1f} ({percentage}%)")
-
-            shishen = chart_data.get('shishen', {})
-            if shishen and shishen.get('summary'):
-                shishen_list = [f"{k}{v}个" for k, v in shishen['summary'].items()]
-                parts.append(f"十神分布：{'、'.join(shishen_list)}")
-
-        return '\n'.join(parts)
-
     def _parse_text_to_bazi_fields(self, content: str, required_fields: List[str]) -> Dict[str, Any]:
         """
         解析非JSON格式的八字分析文本
@@ -557,6 +511,11 @@ class AnalysisPipeline:
                     'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
                     'from_cache': True,
                 }
+
+            # 缓存未命中，需真实调用 AI —— 此时 AI 必须已配置
+            guard = self._ensure_ai_ready('梅花易数', start_time)
+            if guard is not None:
+                return guard
 
             logger.info("[梅花易数] ======== 开始梅花易数AI分析流程 ========")
             logger.info(f"[梅花易数] 所问之事: {input_data.get('question', '未指定')}, task_id={task_id}")
@@ -834,6 +793,11 @@ class AnalysisPipeline:
                     'elapsed_seconds': (datetime.now() - start_time).total_seconds(),
                     'from_cache': True,
                 }
+
+            # 缓存未命中，需真实调用 AI —— 此时 AI 必须已配置
+            guard = self._ensure_ai_ready('大六壬', start_time)
+            if guard is not None:
+                return guard
 
             logger.info("[大六壬] ======== 开始大六壬AI分析流程 ========")
             logger.info(f"[大六壬] 所问之事: {input_data.get('question', '未指定')}, task_id={task_id}")
@@ -1189,6 +1153,10 @@ class AnalysisPipeline:
                     'from_cache': True,
                 }
 
+            # 缓存未命中，需真实调用 AI —— 此时 AI 必须已配置
+            guard = self._ensure_ai_ready('综合建议', start_time)
+            if guard is not None:
+                return guard
             ai_result = self._call_agnes_for_comprehensive(parts, meta or {})
             ai_analysis = ai_result.get('analysis', {})
             token_usage = ai_result.get('usage', {}).get('total_tokens', 0)

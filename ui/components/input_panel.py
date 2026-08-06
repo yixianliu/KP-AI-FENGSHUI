@@ -4,7 +4,7 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QComboBox, QPushButton, QFrame, QButtonGroup,
-                             QDateEdit, QTextEdit, QScrollArea, QSpinBox)
+                             QDateEdit, QTextEdit, QScrollArea)
 from PySide6.QtCore import QDate, Qt
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 

@@ -16,7 +16,6 @@ core/ai_cache.py — AI 分析调用本地缓存层（P2-4）
 import hashlib
 import json
 import logging
-import time
 from typing import Any, Dict, Optional
 
 from core import sqlite_db

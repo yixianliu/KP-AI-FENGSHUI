@@ -14,7 +14,6 @@ logger.info/warning/error 在写本地文件的同时，也会结构化写入 sy
     logger.info("xxx")   # 自动落文件 + system_logs
 """
 import logging
-import sys
 from pathlib import Path
 from datetime import datetime
 

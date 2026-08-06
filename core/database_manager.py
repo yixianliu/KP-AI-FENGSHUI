@@ -7,10 +7,8 @@
 （ui_settings / operation_logs / system_logs）——这些表不在 base.sql 导出内。
 """
 import json
-from datetime import datetime
 from typing import Optional, Dict, List, Any
 
-import sqlite3
 import logging
 
 from core import sqlite_db
@@ -42,10 +40,14 @@ class DatabaseManager:
         conn = self._connect()
         try:
             cur = conn.cursor()
-            # 保障用户名唯一（schema 中 users 无 UNIQUE 约束）
-            cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
-                "ON users (username)")
+            # 登录/注册功能已移除，清理遗留的 users 表与索引
+            cur.execute("DROP TABLE IF EXISTS users")
+            cur.execute("DROP INDEX IF EXISTS idx_users_username")
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            cur = conn.cursor()
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS ui_settings (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -669,133 +671,6 @@ class DatabaseManager:
                         result[zhi].append(other)
         return result
 
-    # ==================== 用户管理 ====================
-
-    def create_user(self, username: str, password: str) -> Optional[int]:
-        """
-        创建新用户（使用 bcrypt 加密）
-
-        Args:
-            username: 用户名
-            password: 用户密码（明文）
-
-        Returns:
-            新用户ID，失败返回None
-        """
-        try:
-            import bcrypt
-        except ModuleNotFoundError:
-            raise RuntimeError(
-                "需要 bcrypt 才能创建用户，请先安装：pip install bcrypt")
-        if not username or not password:
-            return None
-        
-        if len(password) < 6:
-            raise ValueError("密码长度不能少于6位")
-        
-        # 使用 bcrypt 加密密码（自动加盐）
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, password_hash)
-                )
-                user_id = cursor.lastrowid
-                connection.commit()
-                return user_id
-        except sqlite3.IntegrityError:
-            return None
-        except Exception as e:
-            logger.error(f"创建用户失败: {e}")
-            return None
-
-    def verify_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
-        """
-        验证用户登录（使用 bcrypt 验证）
-
-        Args:
-            username: 用户名
-            password: 用户密码（明文）
-
-        Returns:
-            用户信息字典，验证失败返回None
-        """
-        try:
-            import bcrypt
-        except ModuleNotFoundError:
-            raise RuntimeError(
-                "需要 bcrypt 才能验证登录，请先安装：pip install bcrypt")
-        if not username or not password:
-            return None
-        
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "SELECT id, username, password_hash, created_at FROM users WHERE username = ?",
-                    (username,)
-                )
-                user = cursor.fetchone()
-                    
-                if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                    # 返回用户信息（不包含密码哈希）
-                    return {
-                        'id': user['id'],
-                        'username': user['username'],
-                        'created_at': user['created_at']
-                    }
-                return None
-        except Exception as e:
-            logger.error(f"验证用户失败: {e}")
-            return None
-
-    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
-        """
-        根据用户名查询用户
-
-        Args:
-            username: 用户名
-
-        Returns:
-            用户信息字典，不存在返回None
-        """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "SELECT id, username, created_at FROM users WHERE username = ?",
-                    (username,)
-                )
-                return cursor.fetchone()
-        except Exception as e:
-            print(f"查询用户失败: {e}")
-            return None
-
-    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """
-        根据用户ID查询用户
-
-        Args:
-            user_id: 用户ID
-
-        Returns:
-            用户信息字典，不存在返回None
-        """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "SELECT id, username, created_at FROM users WHERE id = ?",
-                    (user_id,)
-                )
-                return cursor.fetchone()
-        except Exception as e:
-            print(f"查询用户失败: {e}")
-            return None
-
     # ==================== 排盘记录管理 ====================
 
     def save_pan_record(self, user_id: int, name: str, gender: str,
@@ -864,46 +739,6 @@ class DatabaseManager:
         except Exception as e:
             print(f"更新排盘AI分析结果失败: {e}")
             return False
-
-    def get_user_records(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        获取用户的排盘记录列表
-
-        Args:
-            user_id: 用户ID
-            limit: 返回记录数量上限
-
-        Returns:
-            排盘记录列表
-        """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    """
-                    SELECT id, name, gender, birth_date, birth_time,
-                           city, pan_type, result_json, created_at
-                    FROM pan_records
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (user_id, limit)
-                )
-                rows = cursor.fetchall()
-                records = []
-                for r in rows:
-                    rec = dict(r)
-                    try:
-                        rec['result'] = json.loads(rec['result_json'])
-                    except (json.JSONDecodeError, KeyError):
-                        rec['result'] = {}
-                    del rec['result_json']
-                    records.append(rec)
-                return records
-        except Exception as e:
-            print(f"获取排盘记录失败: {e}")
-            return []
 
     def search_records(self, user_id: int, pan_type: str = '', name: str = '',
                         start_date: str = '', end_date: str = '',

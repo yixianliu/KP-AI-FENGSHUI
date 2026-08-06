@@ -1,5 +1,4 @@
 import sys
-import os
 import traceback
 from pathlib import Path
 
@@ -12,7 +11,7 @@ if _project_str not in sys.path:
     sys.path.insert(0, _project_str)
 
 # 统一路径工具（必须在 import core.* 之前注入 sys.path）
-from core.path_utils import get_app_dir, get_config_path, get_resource_path, get_logs_dir
+from core.path_utils import get_resource_path, get_logs_dir
 
 # 日志脱敏：尽可能早地挂载，确保后续任何日志/崩溃信息都不会写出凭据
 from core.secure_log import install_log_scrubber, scrub

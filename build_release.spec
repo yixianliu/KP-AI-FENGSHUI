@@ -75,7 +75,6 @@ a = Analysis(
         'ui.styles',
         'ui.components.settings_dialog',
         'ui.components.about_dialog',
-        'ui.components.login_dialog',
         'ui.components.input_panel',
         'ui.components.result_panel',
         'ui.components.meihua_input',

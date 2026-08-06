@@ -4,13 +4,12 @@ QSplitter左右分栏28%/72% · 暖米底色 · 圆角卡片 · 三色点缀 · 
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFrame, QApplication, QStatusBar,
-                               QPushButton, QStackedWidget, QSplitter, QScrollArea,
-                               QMessageBox, QGraphicsDropShadowEffect)
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QFont, QColor, QIcon
-from pathlib import Path
+                               QPushButton, QStackedWidget, QSplitter,
+                               QMessageBox)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QIcon
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from core.path_utils import get_config_path, get_resource_path
+from core.path_utils import get_resource_path
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from ui.components.meihua_input import MeihuaInputPanel
@@ -19,7 +18,6 @@ from ui.components.liuren_input import LiurenInputPanel
 from ui.components.liuren_result_panel import LiurenResultPanel
 from ui.components.comprehensive_panel import ComprehensiveInputPanel, ComprehensiveResultPanel
 from ui.components.history_panel import HistoryFilterPanel, HistoryListPanel
-from ui.components.login_dialog import LoginDialog, RegisterDialog
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
@@ -60,9 +58,6 @@ class MainWindow(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         
-        # 用户状态
-        self.current_user_id = None
-        self.current_username = None
         self.db_manager = None
 
         # 统一日志（本地文件 + 存储后端 system_logs）
@@ -292,7 +287,7 @@ class MainWindow(QMainWindow):
             ok = mgr.save_operation_log(
                 op_type=op_type,
                 op_object=op_object,
-                user_id=self.current_user_id,
+                user_id=0,
                 session=self._session_id,
                 detail=detail,
             )
@@ -439,27 +434,6 @@ class MainWindow(QMainWindow):
         h.addWidget(nav_container)
         h.addStretch()
 
-        # 用户登录按钮 - 简化
-        self.user_btn = QPushButton('👤 登录')
-        self.user_btn.setCursor(Qt.PointingHandCursor)
-        self.user_btn.setFixedHeight(30)
-        self.user_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {Colors.QINGHUA};
-                border: 1px solid {Colors.QINGHUA_LIGHT};
-                border-radius: {Spacing.RADIUS_SM};
-                font-size: {Fonts.SZ_SMALL};
-                font-family: {Fonts.BODY};
-                padding: 3px 12px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.QINGHUA_GLOW};
-            }}
-        """)
-        self.user_btn.clicked.connect(self._on_user_btn_clicked)
-        h.addWidget(self.user_btn)
-
         # 设置按钮（存储后端切换 / 界面配置）
         self.settings_btn = QPushButton('⚙')
         self.settings_btn.setCursor(Qt.PointingHandCursor)
@@ -523,7 +497,7 @@ class MainWindow(QMainWindow):
         self.right_stack.addWidget(self.liuren_result)
         self.zonghe_result = ComprehensiveResultPanel()
         self.right_stack.addWidget(self.zonghe_result)
-        self.history_right = HistoryListPanel(self.db_manager, lambda: self.current_user_id)
+        self.history_right = HistoryListPanel(self.db_manager)
         self.right_stack.addWidget(self.history_right)
 
     def _apply_splitter_ratio(self):
@@ -576,84 +550,6 @@ class MainWindow(QMainWindow):
         self.history_left.filter_changed.connect(self.history_right.load)
         self.history_right.load_to_bazi.connect(self._on_load_history_record)
 
-    # ===== 用户登录相关 =====
-
-    def _on_user_btn_clicked(self):
-        """处理用户按钮点击事件"""
-        if self.current_user_id is not None:
-            # 已登录，显示退出确认
-            reply = QMessageBox.question(
-                self, '确认退出', f'当前用户: {self.current_username}\n是否退出登录？',
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self._logout()
-        else:
-            # 未登录，显示登录对话框
-            self._show_login_dialog()
-
-    def _show_login_dialog(self):
-        """显示登录对话框"""
-        dialog = LoginDialog(db_manager=self.db_manager, parent=self)
-        dialog.user_logged_in.connect(self._on_user_logged_in)
-        dialog.switch_to_register.connect(lambda: self._show_register_dialog(dialog))
-        dialog.exec()
-
-    def _show_register_dialog(self, close_dialog=None):
-        """显示注册对话框"""
-        if close_dialog:
-            close_dialog.close()
-        dialog = RegisterDialog(db_manager=self.db_manager, parent=self)
-        dialog.user_registered.connect(self._on_user_logged_in)
-        dialog.switch_to_login.connect(lambda: self._show_login_dialog())
-        dialog.exec()
-
-    def _on_user_logged_in(self, user_id: int, username: str):
-        """用户登录成功回调"""
-        self.current_user_id = user_id
-        self.current_username = username
-        self._log_op('login', username)
-        self.user_btn.setText(f'👤 {username}')
-        self.user_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {Colors.QINGHUA_GLOW};
-                color: {Colors.QINGHUA};
-                border: 1px solid {Colors.QINGHUA_LIGHT};
-                border-radius: {Spacing.RADIUS_SM};
-                font-size: {Fonts.SZ_SMALL};
-                font-family: {Fonts.BODY};
-                padding: 4px 16px;
-            }}
-            QPushButton:hover {{
-                background: rgba(74, 122, 144, 0.18);
-                color: {Colors.QINGHUA_DARK};
-            }}
-        """)
-        self.statusBar().showMessage(f'欢迎回来，{username}')
-
-    def _logout(self):
-        """退出登录"""
-        self._log_op('logout', self.current_username or '')
-        self.current_user_id = None
-        self.current_username = None
-        self.user_btn.setText('👤 登录')
-        self.user_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {Colors.QINGHUA};
-                border: 1px solid {Colors.QINGHUA_LIGHT};
-                border-radius: {Spacing.RADIUS_SM};
-                font-size: {Fonts.SZ_SMALL};
-                font-family: {Fonts.BODY};
-                padding: 4px 16px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.QINGHUA_GLOW};
-                color: {Colors.QINGHUA_DARK};
-            }}
-        """)
-        self.statusBar().showMessage('已退出登录')
-
     def _show_settings_dialog(self):
         """打开 AI 模型配置对话框（保存后热生效，无需重启）。"""
         try:
@@ -679,7 +575,7 @@ class MainWindow(QMainWindow):
 
     def _save_pan_record(self, data: dict, result: dict, pan_type: str, ai_result: dict = None):
         """保存排盘记录到数据库。返回值: record_id 或 None"""
-        if not self.db_manager or self.current_user_id is None:
+        if not self.db_manager:
             return None
 
         try:
@@ -687,7 +583,7 @@ class MainWindow(QMainWindow):
             birth_time = f"{data.get('hour', 0):02d}:{data.get('minute', 0):02d}"
 
             record_id = self.db_manager.save_pan_record(
-                user_id=self.current_user_id,
+                user_id=0,
                 name=data.get('name', '未命名'),
                 gender=data.get('gender', ''),
                 birth_date=birth_date,
@@ -880,7 +776,6 @@ class MainWindow(QMainWindow):
     def _analysis(self, ml, ss):
         a = []
         sh_summary = ss.get('summary', {})
-        sh_weight_summary = ss.get('weight_summary', {})
         sh_total_weights = ss.get('total_weights', {})
 
         if sh_summary:
@@ -954,7 +849,6 @@ class MainWindow(QMainWindow):
                 temperature=0.0, max_tokens=256,
             )
             content = (resp or {}).get('content', '')
-            from api.agnes_client import AgnesClient
             cleaned = AgnesClient._clean_json_response(content)
             import json
             obj = json.loads(cleaned)
@@ -1277,7 +1171,7 @@ class MainWindow(QMainWindow):
             elapsed = result.get('elapsed_seconds', 0)
 
             # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and self.current_user_id and hasattr(self, '_last_liuren_record_id'):
+            if self.db_manager and hasattr(self, '_last_liuren_record_id'):
                 try:
                     last_id = self._last_liuren_record_id
                     if last_id:
@@ -1484,7 +1378,7 @@ class MainWindow(QMainWindow):
             elapsed = result.get('elapsed_seconds', 0)
 
             # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and self.current_user_id and hasattr(self, '_last_bazi_record_id'):
+            if self.db_manager and hasattr(self, '_last_bazi_record_id'):
                 try:
                     last_id = self._last_bazi_record_id
                     if last_id:
@@ -1588,7 +1482,7 @@ class MainWindow(QMainWindow):
             elapsed = result.get('elapsed_seconds', 0)
 
             # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and self.current_user_id and hasattr(self, '_last_meihua_record_id'):
+            if self.db_manager and hasattr(self, '_last_meihua_record_id'):
                 try:
                     last_id = self._last_meihua_record_id
                     if last_id:

@@ -390,7 +390,6 @@ class LiuRenCalculator:
         return ((k3 if gan_yang else k1), 'maoxing')
 
     def _forced_gate(self, method, ri_gan, ri_zhi, si_ke, k1, k3):
-        gs = si_ke['gan_shang']['tianpan']
         zs = si_ke['zhi_shang']['tianpan']
         gan_yang = GAN.index(ri_gan) % 2 == 0
         # 返回 (初传, 门法) 元组，避免解包崩溃

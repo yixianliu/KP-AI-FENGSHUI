@@ -19,7 +19,7 @@ import sqlite3
 import logging
 import threading
 
-from core.path_utils import get_app_dir, get_resource_path, get_data_dir
+from core.path_utils import get_resource_path, get_data_dir
 
 logger = logging.getLogger(__name__)
 

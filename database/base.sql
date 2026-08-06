@@ -3397,8 +3397,7 @@ CREATE TABLE `pan_records`
     `created_at`  datetime                                                      NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`) USING BTREE,
     INDEX `idx_user_id` (`user_id` ASC) USING BTREE,
-    INDEX `idx_created_at` (`created_at` ASC) USING BTREE,
-    CONSTRAINT `pan_records_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
+    INDEX `idx_created_at` (`created_at` ASC) USING BTREE
 ) ENGINE = InnoDB
   CHARACTER SET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci
@@ -4153,28 +4152,6 @@ INSERT INTO `tian_gan_he`
 VALUES (4, '丁壬', '木', '淫昵之合', '主感情丰富，以情合意');
 INSERT INTO `tian_gan_he`
 VALUES (5, '戊癸', '火', '无情之合', '主老少相配，无情中有情');
-
--- ----------------------------
--- Table structure for users
--- ----------------------------
-DROP TABLE IF EXISTS `users`;
-CREATE TABLE `users`
-(
-    `id`            int(11)                                                      NOT NULL AUTO_INCREMENT,
-    `username`      varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-    `password_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-    `created_at`    datetime                                                     NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`) USING BTREE,
-    UNIQUE INDEX `username` (`username` ASC) USING BTREE,
-    INDEX `idx_username` (`username` ASC) USING BTREE
-) ENGINE = InnoDB
-  CHARACTER SET = utf8mb4
-  COLLATE = utf8mb4_0900_ai_ci
-  ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of users
--- ----------------------------
 
 -- ----------------------------
 -- Table structure for wuxing_knowledge

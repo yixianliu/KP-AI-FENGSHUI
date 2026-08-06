@@ -4,10 +4,9 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QFrame, QComboBox, QButtonGroup,
-                             QStackedWidget, QScrollArea, QGroupBox,
-                             QRadioButton, QGridLayout)
+                             QScrollArea, QGroupBox, QGridLayout)
 from PySide6.QtCore import Qt
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.styles import Stylesheets, Colors, Fonts
 from core.liuren import GATE_METHODS, GATE_NAMES
 
 ZHI_LIST = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']

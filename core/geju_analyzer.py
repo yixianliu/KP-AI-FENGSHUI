@@ -88,26 +88,10 @@ class GeJuAnalyzer:
 
     def _judge_main_geju(self, bazi, wuxing_result, wangshuai):
         """判定主格局"""
-        rizhu = bazi.get('rizhu', '')
-        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
-        
-        total_score = wuxing_result.get('total_score', 0)
-        rizhu_score = wuxing_result.get(rizhu_wx, {}).get('score', 0)
-        rizhu_ratio = rizhu_score / total_score if total_score > 0 else 0
-        
-        tonggen = wuxing_result.get('tonggen', {})
-        tonggen_total = tonggen.get('total', 0)
-        tonggen_strong = tonggen.get('strong', 0)
-        
         sorted_wx = sorted(['木', '火', '土', '金', '水'],
                           key=lambda x: wuxing_result[x]['score'], reverse=True)
-        
         max_wx = sorted_wx[0]
-        max_score = wuxing_result[max_wx]['score']
-        max_ratio = max_score / total_score if total_score > 0 else 0
-        
-        month_zhi = bazi.get('month_zhi', '')
-        
+
         if self._is_zhuanwang(bazi, wuxing_result):
             return self._get_zhuanwang_name(max_wx), '专旺格', self._get_zhuanwang_desc(max_wx)
         
@@ -246,16 +230,13 @@ class GeJuAnalyzer:
     def _is_sha_gong(self, bazi, wuxing_result):
         """判定杀印相生格"""
         rizhu = bazi.get('rizhu', '')
-        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
-        
+
         gan_list = [ganzhi[0] for ganzhi in bazi['四柱']]
-        zhi_list = [ganzhi[1] for ganzhi in bazi['四柱']]
-        
+
         has_sha = False
         has_yin = False
         
         for gan in gan_list:
-            gan_wx = _TIAN_GAN_WUXING.get(gan, '')
             if self._is_killing(rizhu, gan):
                 has_sha = True
             if self._is_seal(rizhu, gan):
@@ -301,9 +282,6 @@ class GeJuAnalyzer:
 
     def _is_bi_jie(self, bazi, wuxing_result):
         """判定身弱用比劫格"""
-        rizhu = bazi.get('rizhu', '')
-        rizhu_wx = _TIAN_GAN_WUXING.get(rizhu, '')
-        
         tonggen = wuxing_result.get('tonggen', {})
         tonggen_total = tonggen.get('total', 0)
         

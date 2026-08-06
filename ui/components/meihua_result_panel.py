@@ -450,8 +450,6 @@ class MeihuaResultPanel(QWidget):
         # 体用关系判断（梅花易数：不动为体，动者为用）
         ti_gua = f"{upper_gua_name}(体)"
         yong_gua = f"{lower_gua_name}(用)"
-        ti_color = WX_COLORS.get(upper_element, Colors.TEXT)
-        yong_color = WX_COLORS.get(lower_element, Colors.TEXT)
         
         # 生克关系计算
         GENERATES = {'金→水', '水→木', '木→火', '火→土', '土→金'}
@@ -829,57 +827,6 @@ class MeihuaResultPanel(QWidget):
 
         widget.setMinimumHeight(400)
         return widget
-
-    def display_ai_analysis(self, ai_result):
-        """显示AI分析结果"""
-        placeholder = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
-        if not placeholder:
-            return
-
-        # 容器：金色分隔标题 + 各子项折叠卡片（与八字面板 AI 区一致）
-        container = QWidget()
-        cv = QVBoxLayout(container)
-        cv.setContentsMargins(0, 0, 0, 0)
-        cv.setSpacing(12)
-        cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
-
-        sections = [
-            ('overview', '📋', '卦象概览', Colors.QINGHUA),
-            ('situation', '🌟', '情势分析', Colors.QINGHUA),
-            ('auspicious', '🍀', '吉祥机遇', Colors.SUCCESS),
-            ('inauspicious', '⚠️', '凶险隐患', Colors.ZHUSHA),
-            ('advice', '💡', '行动建议', Colors.LIUJIN),
-            ('summary', '🎯', '总结判断', Colors.LIUJIN),
-        ]
-        for key, icon, title, color in sections:
-            content = ai_result.get(key, '')
-            if not content:
-                continue
-            body = QLabel(content)
-            body.setWordWrap(True)
-            body.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_SECONDARY};
-                font-family: {Fonts.FAMILY_CN};
-                line-height: 1.7;
-            """)
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
-            card.set_content(body)
-            cv.addWidget(card)
-
-        ai_card = container
-
-        placeholder_idx = None
-        for i in range(self.content_layout.count()):
-            item = self.content_layout.itemAt(i)
-            if item.widget() and item.widget() == placeholder:
-                placeholder_idx = i
-                break
-
-        if placeholder_idx is not None:
-            self.content_layout.insertWidget(placeholder_idx, ai_card)
-            placeholder.setParent(None)
-            placeholder.deleteLater()
 
     def show_ai_loading(self, message: str = '龙虎山大师兄正在解读卦象玄机…'):
         """显示AI分析加载状态"""

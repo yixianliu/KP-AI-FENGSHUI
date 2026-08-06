@@ -4,7 +4,7 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QScrollArea, QSizePolicy, QProgressBar)
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.collapsible_card import CollapsibleCard
 
@@ -380,7 +380,7 @@ class ComprehensiveResultPanel(QWidget):
     # ----------------- 导出 -----------------
     def _on_export_click(self):
         """导出综合建议为 CSV / Excel / PDF（复用导出对话框与三导出器）。"""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
         from ui.components.export_dialog import ExportDialog
         from ui.export import CsvExporter, ExcelExporter
         from ui.export.base_exporter import filter_export_data

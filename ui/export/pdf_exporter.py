@@ -327,7 +327,6 @@ class PdfExporter(BaseExporter):
         items = []
         for a in an:
             t = a.get('type', '')
-            color = {'吉': _C_QINGHUA, '凶': _C_ZHUSHA}.get(t, _C_LIUJIN)
             label = f"[{t}] " if t else ''
             items.append(ListItem(Paragraph(_esc(label + _to_str(a.get('text'))),
                                       self.styles['bullet'])))
