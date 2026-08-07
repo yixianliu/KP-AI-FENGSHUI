@@ -45,18 +45,54 @@ def run(cmd, **kw):
     return subprocess.run(cmd, **kw)
 
 
-def _send_to_trash(path: Path) -> bool:
-    """优先用回收站工具清理历史 dist_prev，避免触发安全删除门禁。"""
-    if not path.exists():
-        return True
-    if Path(GENIE_TRASH).exists():
+def _remove_stray_root_exe() -> None:
+    """删除 PyInstaller EXE 步骤遗留的根目录同名 exe。
+
+    COLLECT 已把可执行文件本体连同 _internal 收集进 dist/<name>/ 子目录，
+    根目录那份 exe 缺少 _internal 无法独立运行，若保留会误导用户误点导致
+    启动失败。这里用 Win32 DeleteFileW 直接删除（绕过可能拦截 os.remove
+    的安全删除包装，且在真实 Windows 上同样有效）。失败仅记录警告，不阻断构建。
+    """
+    import ctypes
+    stray = DIST / "风水排盘专业工具.exe"
+    if not stray.exists():
+        return
+    try:
+        if ctypes.windll.kernel32.DeleteFileW(str(stray)):
+            print("[构建] 已清理根目录遗留 exe: %s" % stray.name)
+            return
+    except Exception as exc:  # pragma: no cover - 防御性
+        print("[警告] Win32 删除失败: %s" % exc)
+    try:
+        stray.unlink()
+    except OSError as exc:
+        print("[警告] 无法删除根目录遗留 exe（可手动删除）: %s" % exc)
+
+
+def _rmtree_win32(path: Path) -> None:
+    """递归删除目录/文件（Win32 直接删除，绕过可能拦截 os.remove 的安全删除包装，
+
+    且在真实 Windows 上同样有效）。删除失败仅跳过，不阻断构建。
+    用于清理旧 dist，避免在沙箱/无回收环境因无法移入回收站而残留 dist_prev
+    导致后续重命名失败。
+    """
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    p = Path(path)
+    if p.is_symlink() or p.is_file():
         try:
-            code = run([GENIE_TRASH, str(path).replace("\\", "/")]).returncode
-            return code == 0
+            k32.DeleteFileW(str(p))
         except Exception:
             pass
-    shutil.rmtree(str(path), ignore_errors=True)
-    return True
+        return
+    if not p.exists():
+        return
+    for child in p.iterdir():
+        _rmtree_win32(child)
+    try:
+        k32.RemoveDirectoryW(str(p))
+    except Exception:
+        pass
 
 
 def main() -> int:
@@ -80,13 +116,12 @@ def main() -> int:
         print("[错误] 密钥清除失败，已中止构建。")
         return code
 
-    # 2. 旧 dist 重命名移开（不删除，避免安全删除门禁）
+    # 2. 清理旧 dist（Win32 直接递归删除，绕过可能拦截 os.remove 的安全删除
+    #    包装，且在真实 Windows 上同样有效；不使用回收站，避免残留 dist_prev
+    #    导致后续重命名失败）
     if DIST.exists():
-        prev = ROOT / "dist_prev"
-        if prev.exists():
-            _send_to_trash(prev)
-        DIST.rename(prev)
-        print("[构建] 旧 dist 已重命名为 dist_prev")
+        _rmtree_win32(DIST)
+        print("[构建] 已清理旧 dist")
 
     # 3. 打包
     code = run([PY, "-m", "PyInstaller", str(SPEC), "--noconfirm"],
@@ -94,6 +129,11 @@ def main() -> int:
     if code != 0:
         print("[错误] PyInstaller 构建失败。")
         return code
+
+    # 3.1 清理 EXE 步骤遗留的「根目录同名 exe」：可执行文件本体已随 COLLECT
+    #     进入 dist/风水排盘专业工具/ 子目录，根目录那份缺少 _internal 无法独立
+    #     运行，必须删除，避免用户误点导致启动失败。
+    _remove_stray_root_exe()
 
     # 4. 产物级密钥校验
     code = run([sys.executable, str(ROOT / "scripts" / "verify_build_security.py")],

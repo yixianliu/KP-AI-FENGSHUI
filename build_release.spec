@@ -14,9 +14,12 @@ a = Analysis(
         # Visual C++ 运行时 (来自 managed Python PySide6)
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/msvcp140.dll', '.'),
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/msvcp140_1.dll', '.'),
+        ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/msvcp140_2.dll', '.'),
+        ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/msvcp140_codecvt_ids.dll', '.'),
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/vcruntime140.dll', '.'),
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/vcruntime140_1.dll', '.'),
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/concrt140.dll', '.'),
+        ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/Lib/site-packages/PySide6/vccorlib140.dll', '.'),
         # SSL 模块 (解决 HTTPS 连接问题)
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/DLLs/_ssl.pyd', '.'),
         ('C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/DLLs/libssl-3-x64.dll', '.'),

@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 
 # ↓↓↓ 仅本地调试填写，留空则忽略（由 GUI 配置 / 运行时环境变量接管）↓↓↓
-DEBUG_AGNES_API_KEY = "sk-nXcJVCLluIbranCCHGO9MIrmBFvhRl5E4goKMrsVt0F0fkFm"   # 调试用密钥，仅开发机；打包前由 purge 自动清空
+DEBUG_AGNES_API_KEY = ""   # 调试用密钥，仅开发机；打包前由 purge 自动清空
 DEBUG_AGNES_API_URL = "https://api.agnes-ai.cn/v1/chat/completions"
 DEBUG_AGNES_MODEL = "agnes-2.5-flash"
 # ↑↑↑ ↑↑↑
