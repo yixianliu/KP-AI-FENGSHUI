@@ -55,3 +55,4 @@ config.ini
 # 客户端本机设备标识
 device.json
 **/device.json
+tests
