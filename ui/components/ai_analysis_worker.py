@@ -88,9 +88,20 @@ class AiAnalysisManager(QObject):
     """
 
     def __init__(self, parent=None):
+        """
+        初始化分析管理器。
+
+        生命周期约定：同一时刻只持有一个工作线程 self._worker。新任务启动前会先
+        等待上一个线程自然结束（见 start_analysis），且线程对象必须由本管理器长期
+        持有——若不保留 Python 引用，QThread 会在函数返回后被回收，触发
+        "QThread: Destroyed while thread is still running" 崩溃。
+
+        Args:
+            parent: Qt 父对象（通常为主窗口），用于随父对象一并析构。
+        """
         super().__init__(parent)
-        self._worker = None
-        self._result_cache = {}
+        self._worker = None      # 当前（或最近一次）的工作线程，兼作保活引用
+        self._result_cache = {}  # 预留的结果缓存，便于后续按 task_id 复用分析结果
 
     def start_analysis(self, analysis_type: str, input_data: dict, chart_data: dict = None, task_id: str = None) -> AiAnalysisWorker:
         """

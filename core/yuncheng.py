@@ -77,6 +77,20 @@ class YunChengAnalyzer:
     # ----------------------------------------------------------------
     @staticmethod
     def _w(weights, key):
+        """从十神权重表中安全取出某一项的数值。
+
+        位于本类最底层：_lvl 及各维度文案方法都经由它读取权重，
+        因此这里把所有脏数据（键缺失、值为 None、值为字符串）统一
+        兜成 0.0，上层无需再做判空。
+
+        Args:
+            weights: 十神权重字典，形如 {'官杀': 2.4, '财星': 1.1, 'total': 8.0}；
+                允许为 None。
+            key: 要取的十神类别名，或汇总键 'total'。
+
+        Returns:
+            float: 对应权重值；缺失或无法转 float 时返回 0.0。
+        """
         try:
             return float((weights or {}).get(key, 0) or 0)
         except Exception:
@@ -88,6 +102,8 @@ class YunChengAnalyzer:
         total = YunChengAnalyzer._w(weights, 'total')
         if total <= 0:
             return '平'
+        # 用占全局权重的比例而非绝对值，才能跨不同八字横向比较；
+        # 五类十神均分约为 0.2，故 0.3 以上论旺、0.1 以下论弱
         r = YunChengAnalyzer._w(weights, key) / total
         if r >= 0.3:
             return '旺'
@@ -97,6 +113,22 @@ class YunChengAnalyzer:
 
     @staticmethod
     def _yong(yong):
+        """从用神结论中提取用神、喜神、忌神三组名称。
+
+        用神是全局最需要的那个五行/十神，喜神为辅助用神者，忌神为
+        损伤用神者——这三者是各维度文案给出"宜/忌"建议的共同依据，
+        故各 _career/_wealth/_love 等方法开头都会先调用本方法取值。
+
+        Args:
+            yong: 用神分析结果字典。兼容两套键名：优先取带 _name 后缀的
+                中文名（yongshen_name / xishen_names / jishen_names），
+                取不到则回退到 yongshen / xishen / jishen。
+
+        Returns:
+            tuple[str, str, str]: (用神名, 喜神名串, 忌神名串)。
+                喜神与忌神可能有多个，已用顿号连接成单个字符串；
+                任一项缺失时返回空字符串，调用方直接以真值判断即可。
+        """
         ys = yong.get('yongshen_name') or yong.get('yongshen') or ''
         xs = '、'.join(yong.get('xishen_names') or []) or '、'.join(yong.get('xishen') or [])
         js = '、'.join(yong.get('jishen_names') or []) or '、'.join(yong.get('jishen') or [])
@@ -104,6 +136,16 @@ class YunChengAnalyzer:
 
     @staticmethod
     def _strength_desc(strength):
+        """把日主旺衰结论翻译成一句可读的中文断语。
+
+        供各维度文案作为开场白复用，统一口径避免各处措辞不一。
+
+        Args:
+            strength: 旺衰等级，'身强' / '身弱' / '中和' 之一。
+
+        Returns:
+            str: 对应断语；传入未知值（含空串）时返回 '日主强弱待定'。
+        """
         return {
             '身强': '日主五行能量充沛，可任财官',
             '身弱': '日主五行偏弱，宜生扶帮身',
@@ -114,6 +156,23 @@ class YunChengAnalyzer:
     # 各维度文案（均由真实信号驱动）
     # ----------------------------------------------------------------
     def _career(self, rizhu, wx, weights, yong, strength, geju_name):
+        """生成「事业」维度文案。
+
+        analyze() 调度的第一个维度方法。事业主要看官杀（职权与约束）、
+        印星（贵人学业）、食伤（才华表达）、比劫（合作竞争）四类十神的
+        强弱组合，再叠加用神与格局做收尾建议。
+
+        Args:
+            rizhu: 日干（命主本人）。
+            wx: 日主五行。
+            weights: 十神权重字典。
+            yong: 用神分析结果字典。
+            strength: 日主旺衰等级（'身强'/'身弱'/'中和'）。
+            geju_name: 格局名称；扶抑格/身强格/身弱格属通用格局，不额外成句。
+
+        Returns:
+            str: 拼接好的事业分析段落。
+        """
         ys, xs, js = self._yong(yong)
         guan = self._lvl(weights, '官杀')   # 事业 / 职权 / 名气约束
         yin = self._lvl(weights, '印星')    # 贵人 / 学业
@@ -142,12 +201,30 @@ class YunChengAnalyzer:
         if ys:
             parts.append(f'用神取{ys}，行运遇{ys}旺地事业得助而上扬；忌{js or "无"}过旺反成牵制。')
 
+        # 扶抑格/身强格/身弱格是最普遍的默认归类，说了等于没说，
+        # 只有特殊格局（如从格、专旺格）才值得单独成句
         if geju_name and geju_name not in ('', '扶抑格', '身强格', '身弱格'):
             parts.append(f'命入{geju_name}，格局自有气象，事业宜顺势扬长。')
 
         return ''.join(parts)
 
     def _wealth(self, rizhu, wx, weights, yong, strength):
+        """生成「财运」维度文案。
+
+        analyze() 调度的第二个维度方法。财运以财星为主体，食伤为财之
+        原神（才华变现即"食伤生财"），比劫则为夺财之星（合伙分利）。
+        另需结合身强弱：身弱而财旺者担不起财，反主为财所累。
+
+        Args:
+            rizhu: 日干。
+            wx: 日主五行。
+            weights: 十神权重字典。
+            yong: 用神分析结果字典。
+            strength: 日主旺衰等级。
+
+        Returns:
+            str: 拼接好的财运分析段落。
+        """
         ys, xs, js = self._yong(yong)
         cai = self._lvl(weights, '财星')    # 财运
         bi = self._lvl(weights, '比劫')     # 合作 / 分财 / 竞争
@@ -173,12 +250,36 @@ class YunChengAnalyzer:
         return ''.join(parts)
 
     def _health(self, rizhu, wx, weights, yong, wx_summary, strength):
+        """生成「健康」维度文案。
+
+        analyze() 调度的第三个维度方法。中医与命理共用五行配脏腑的体系
+        （见模块级 _WX_BODY），故健康推断的路径是：先由日主五行定先天
+        体质倾向，再从五行旺衰摘要中挑出过旺/过弱的五行，对应到脏腑给出
+        "偏弱宜补、偏旺宜泄"的调养方向。
+
+        注意：结论仅为五行生克之推演，末尾会附加免责声明，不作医学诊断。
+
+        Args:
+            rizhu: 日干。
+            wx: 日主五行，用于查 _WX_BODY 定位相关脏腑。
+            weights: 十神权重字典（此处主要看印星，印主生身、类比免疫力）。
+            yong: 用神分析结果字典。
+            wx_summary: 五行旺衰摘要串，形如 '木旺极，水极弱'，本方法从中
+                解析出偏颇的五行。
+            strength: 日主旺衰等级。
+
+        Returns:
+            str: 拼接好的健康分析段落。
+        """
         ys, xs, js = self._yong(yong)
         yin = self._lvl(weights, '印星')    # 生身 / 免疫力靠山
         body = _WX_BODY.get(wx, '相应脏腑')
         parts = [f'日主{rizhu}（五行属{wx or "？"}），先天体质与「{body}」最为相关。']
 
         # 五行旺衰 -> 偏颇脏腑
+        # wx_summary 是 WuXingAnalyzer 拼出的短句（如 '木旺极，水极弱'），
+        # 五行字总是紧挨在类别词之前，故下面靠"截取类别词前两个字符再筛
+        # 五行字"的方式反解，属对既有文案格式的轻量解析而非严格分词
         if wx_summary:
             weak_els = []
             for cat, els in (('极弱', '偏弱'), ('旺极', '偏旺')):
@@ -191,6 +292,8 @@ class YunChengAnalyzer:
                             for c in seg:
                                 if c in ('木', '火', '土', '金', '水'):
                                     weak_els.append((c, cat))
+            # 上面的嵌套扫描会让同一个五行重复入列，此处按五行去重，
+            # 保证每个偏颇五行只出一句调养建议
             seen = set()
             for el, cat in weak_els:
                 if el in seen:
@@ -215,6 +318,23 @@ class YunChengAnalyzer:
         return ''.join(parts)
 
     def _love(self, rizhu, wx, weights, yong, strength):
+        """生成「感情」维度文案。
+
+        analyze() 调度的第四个维度方法。命理以十神代指配偶：男命看财星
+        （妻星），女命看官杀（夫星）；女命另需看食伤（食伤克官，主感情
+        中的锋芒与波折）。比劫过旺则主缘分被分（争夫夺妻、第三者）。
+
+        Args:
+            rizhu: 日干。本方法据其阴阳粗判男女命取向（甲丙戊庚壬为阳干），
+                因为界面未必传入性别，此为退而求其次的参考口径。
+            wx: 日主五行。
+            weights: 十神权重字典。
+            yong: 用神分析结果字典。
+            strength: 日主旺衰等级。
+
+        Returns:
+            str: 拼接好的感情分析段落；rizhu 为空时仅输出通用部分。
+        """
         ys, xs, js = self._yong(yong)
         cai = self._lvl(weights, '财星')    # 男命妻星
         guan = self._lvl(weights, '官杀')  # 女命夫星
@@ -251,6 +371,24 @@ class YunChengAnalyzer:
         return ''.join(parts)
 
     def _overview(self, rizhu, wx, strength, geju_name, geju_type, wx_summary, yong):
+        """生成「综合」概述文案。
+
+        analyze() 调度的收尾方法，把日主、格局、五行、用神喜忌四条主线
+        压缩成一小段总述，末句给出贯穿全局的调运原则：顺用神而行——
+        身弱则生扶补益，身强则克泄耗其有余，中和则随大运流年而转。
+
+        Args:
+            rizhu: 日干。
+            wx: 日主五行。
+            strength: 日主旺衰等级。
+            geju_name: 格局名称，为空则跳过格局句。
+            geju_type: 格局类别（如正格/变格），缺失时占位显示破折号。
+            wx_summary: 五行旺衰摘要串，为空则跳过五行句。
+            yong: 用神分析结果字典。
+
+        Returns:
+            str: 拼接好的综合概述段落。
+        """
         ys, xs, js = self._yong(yong)
         bits = [f'日主{rizhu}（{wx or "？"}），{self._strength_desc(strength)}。']
         if geju_name:
@@ -263,13 +401,29 @@ class YunChengAnalyzer:
         return ''.join(bits)
 
     def _tags(self, weights, yong, strength, wx_summary) -> List[str]:
+        """把长段文案压缩成一组短标签，供 UI 以徽章形式速览。
+
+        analyze() 最后调用，输出与前述各维度同源（同样基于十神强弱与
+        用神），只是换成极简表达。
+
+        Args:
+            weights: 十神权重字典。
+            yong: 用神分析结果字典。
+            strength: 日主旺衰等级，非空时作为首个标签。
+            wx_summary: 五行旺衰摘要串（当前保留待用，不参与标签生成）。
+
+        Returns:
+            List[str]: 标签列表，如 ['身强', '事业偏强', '财运偏弱', '用神水']。
+        """
         tags = []
         if strength:
             tags.append(strength)
         lv_map = {'旺': '偏强', '弱': '偏弱', '平': '均衡'}
+        # 把十神术语映射为大众能懂的生活维度词，再缀上强弱后缀
         for cat, key in (('官杀', '事业'), ('财星', '财运'), ('印星', '贵人'),
                          ('食伤', '才华'), ('比劫', '人缘')):
             lv = self._lvl(weights, cat)
+            # 只保留有辨识度的偏强/偏弱项，'平' 属常态不出标签以免刷屏
             if lv != '平':
                 tags.append(f'{key}{lv_map[lv]}')
         ys, xs, js = self._yong(yong)

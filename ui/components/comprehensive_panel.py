@@ -21,12 +21,18 @@ class ComprehensiveInputPanel(QWidget):
     ]
 
     def __init__(self, parent=None):
+        """初始化左侧控制面板，建立三方就绪状态字典与状态指示控件缓存。
+
+        Args:
+            parent: 父控件。
+        """
         super().__init__(parent)
         self._status = {m: False for m, _ in self.METHODS}
         self._pills = {}
         self.init_ui()
 
     def init_ui(self):
+        """构建左侧控制面板 UI：标题、说明、三方就绪状态列表与「生成综合建议」按钮。"""
         self.setStyleSheet(f"background-color: {Colors.BG};")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
@@ -113,6 +119,14 @@ class ComprehensiveInputPanel(QWidget):
 
     # ----------------- 对外接口 -----------------
     def update_status(self, method: str, ready: bool):
+        """更新某一术数方（八字/梅花/六壬）的就绪状态，并联动「生成」按钮可用性。
+
+        当三方全部就绪时启用生成按钮，否则提示「请先完成三方分析」。
+
+        Args:
+            method: 方法标识（bazi/meihua/liuren）。
+            ready: 该方是否已完成龙虎山大师兄分析。
+        """
         if method not in self._pills:
             return
         self._status[method] = ready
@@ -138,10 +152,20 @@ class ComprehensiveInputPanel(QWidget):
         self.gen_btn.setText('🔮 生成综合建议' if all_ready else '🔮 请先完成三方分析')
 
     def refresh_status(self, status_dict: dict):
+        """批量刷新三方就绪状态（由外部统一推送状态字典时调用）。
+
+        Args:
+            status_dict: 形如 {method: ready} 的状态字典。
+        """
         for m, ready in status_dict.items():
             self.update_status(m, bool(ready))
 
     def set_busy(self, busy: bool):
+        """生成过程中的忙碌态：禁用生成按钮并显示「生成中」文案。
+
+        Args:
+            busy: True 表示正在生成，False 恢复可点击。
+        """
         self.gen_btn.setEnabled(not busy)
         self.gen_btn.setText('⏳ 综合建议生成中…' if busy else '🔮 生成综合建议')
 
@@ -158,11 +182,17 @@ class ComprehensiveResultPanel(QWidget):
     ]
 
     def __init__(self, parent=None):
+        """初始化右侧结果面板，缓存最近一次综合建议供导出复用。
+
+        Args:
+            parent: 父控件。
+        """
         super().__init__(parent)
         self._current_zonghe = None  # 最近一次综合建议 AI 结论，供导出
         self.init_ui()
 
     def init_ui(self):
+        """构建右侧结果面板 UI：可滚动内容区与顶部标题栏（含导出按钮）。"""
         self.setStyleSheet(f"background-color: {Colors.BG};")
         main = QVBoxLayout(self)
         main.setContentsMargins(0, 0, 0, 0)
@@ -185,6 +215,11 @@ class ComprehensiveResultPanel(QWidget):
         main.addWidget(self.scroll, 1)
 
     def _header(self):
+        """构建顶部标题栏：龙虎山大师兄综合建议标题、导出按钮与状态文字。
+
+        Returns:
+            标题栏布局 QHBoxLayout。
+        """
         hdr = QHBoxLayout()
         hdr.setSpacing(8)
         icon = QLabel('🧙')
@@ -216,6 +251,7 @@ class ComprehensiveResultPanel(QWidget):
 
     # ----------------- 内容渲染 -----------------
     def _clear_content(self):
+        """清空内容区：递归销毁所有动态控件（含嵌套布局中的子控件），避免内存泄漏。"""
         while self.clay.count():
             item = self.clay.takeAt(0)
             w = item.widget() if item else None
@@ -234,6 +270,11 @@ class ComprehensiveResultPanel(QWidget):
                     self.clay.removeItem(lay)
 
     def show_loading(self, msg: str):
+        """显示综合建议生成中的加载态：无限进度条 + 提示文案。
+
+        Args:
+            msg: 加载提示文字。
+        """
         self._clear_content()
         self._current_zonghe = None
         self.clay.addLayout(self._header())
@@ -261,6 +302,11 @@ class ComprehensiveResultPanel(QWidget):
         self.clay.addStretch()
 
     def show_error(self, msg: str):
+        """显示生成失败的错误提示（红色异常态）。
+
+        Args:
+            msg: 错误描述文案。
+        """
         self._clear_content()
         self._current_zonghe = None
         self.clay.addLayout(self._header())
@@ -274,6 +320,11 @@ class ComprehensiveResultPanel(QWidget):
         self.clay.addStretch()
 
     def display_result(self, ai_analysis: dict):
+        """对外入口：渲染龙虎山大师兄综合建议（三方概览/矛盾印证/定论/方案/时机）。
+
+        Args:
+            ai_analysis: 综合建议结构化字典（含各 section 字段与 disclaimer）。
+        """
         self._clear_content()
         self._current_zonghe = ai_analysis or {}
         self.clay.addLayout(self._header())
@@ -283,6 +334,11 @@ class ComprehensiveResultPanel(QWidget):
         self.clay.addStretch()
 
     def _render_sections(self, ai_data: dict):
+        """渲染各综合建议分区：金色渐变分隔线 + 标题，再按 SECTIONS 顺序生成折叠卡片。
+
+        Args:
+            ai_data: 综合建议结构化字典。
+        """
         # 分隔线 + 大标题
         divider = QFrame()
         divider.setFixedHeight(2)
@@ -334,6 +390,15 @@ class ComprehensiveResultPanel(QWidget):
             self.clay.addWidget(empty)
 
     def _ai_list(self, items: list, color: str) -> QWidget:
+        """将列表型建议渲染为带序号圆点的条目列表（序号底色取分区强调色）。
+
+        Args:
+            items: 字符串条目列表。
+            color: 序号圆点配色。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
@@ -363,6 +428,15 @@ class ComprehensiveResultPanel(QWidget):
         return w
 
     def _text_block(self, text: str, color: str) -> QWidget:
+        """将单段文本渲染为自动换行的文本块（用于非列表型的综合建议分区）。
+
+        Args:
+            text: 文本内容。
+            color: 配色（仅作语义保留，此处文本统一用主文字色）。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)

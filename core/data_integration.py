@@ -22,6 +22,7 @@ class DataIntegrator:
     """数据整合器 - 统一管理分析所需的所有数据"""
 
     def __init__(self):
+        """初始化各数据槽位：原始/中间/历史/知识库/关联/清洗后数据容器。"""
         self.raw_data = {}
         self.processed_data = {}
         self.historical_records = []

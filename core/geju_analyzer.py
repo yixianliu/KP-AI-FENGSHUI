@@ -14,6 +14,7 @@ from core.database_manager import DatabaseManager
 
 
 def _get_db():
+    """返回 DatabaseManager 实例，供本模块惰性加载合化/冲刑/五行生克等参考数据。"""
     return DatabaseManager()
 
 
@@ -28,6 +29,7 @@ _TIAN_GAN_MAP = None
 
 
 def _lazy_init():
+    """首次调用时从数据库加载天干五行、五合、地支六合/三合/冲/刑/天干序号等基础表；之后幂等。"""
     global _TIAN_GAN_WUXING, _TIAN_GAN_HE, _DI_ZHI_HE
     global _DI_ZHI_SAN_HE, _DI_ZHI_CHONG, _DI_ZHI_XING, _TIAN_GAN_MAP
     if _TIAN_GAN_WUXING is None:
@@ -54,6 +56,7 @@ class GeJuAnalyzer:
     """格局判定分析器"""
 
     def __init__(self):
+        """初始化时加载基础命理表，并持有五行量化器用于旺衰/能量计算。"""
         _lazy_init()
         self.wuxing_quantifier = WuxingQuantifier()
 

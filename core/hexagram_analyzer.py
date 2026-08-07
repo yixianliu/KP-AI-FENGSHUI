@@ -9,19 +9,24 @@ from core.hexagram_data import GAN_YAO_FULL
 
 
 def _get_db():
+    """获取数据库管理器实例，用于后续八卦/64卦数据查询。"""
     return DatabaseManager()
 
 
 def _get_bagua():
+    """从数据库读取八卦基础数据，返回以先天数（1-8）为键的字典。"""
     return _get_db().get_ba_gua()
 
 
 # 兼容旧代码的惰性加载
 class _LazyBagua:
+    """八卦数据的惰性加载容器，首次访问时才从数据库读取并缓存，避免无谓查询。"""
     def __init__(self):
+        """初始化空缓存，实际数据在首次访问时由 _load 加载。"""
         self._data = None
 
     def _load(self):
+        """从数据库加载八卦（乾兑离震巽坎艮坤）数据并缓存，重复调用只加载一次。"""
         if self._data is None:
             db_data = _get_bagua()
             self._data = {}
@@ -36,48 +41,60 @@ class _LazyBagua:
         return self._data
 
     def __getitem__(self, key):
+        """支持下标访问，触发懒加载后返回对应先天数的八卦信息。"""
         return self._load()[key]
 
     def get(self, key, default=None):
+        """兼容 dict.get：缺失键时返回 default。"""
         return self._load().get(key, default)
 
     def items(self):
+        """返回 (先天数, 八卦信息) 的视图，便于遍历。"""
         return self._load().items()
 
     def keys(self):
+        """返回所有先天数键的视图。"""
         return self._load().keys()
 
     def values(self):
+        """返回所有八卦信息值的视图。"""
         return self._load().values()
 
     def __iter__(self):
+        """支持 for 循环按先天数遍历八卦。"""
         return iter(self._load())
 
     def __len__(self):
+        """返回八卦总数（正常为 8）。"""
         return len(self._load())
 
     def __contains__(self, key):
+        """支持 in 运算符，判断某先天数是否已有八卦数据。"""
         return key in self._load()
 
 
 class _LazyHexagrams:
     """兼容旧代码的HEXAGRAMS字典 - 从数据库加载"""
     def __init__(self):
+        """初始化空缓存，64卦数据在首次访问时懒加载。"""
         self._data = None
 
     def _load(self):
+        """从数据库加载64卦完整数据（卦名/卦辞/爻辞等）并按 (上卦,下卦) 缓存。"""
         if self._data is None:
             self._data = {}
+            # 旧版以 hexagram_id 为键的数据已废弃，此处仅为兼容占位，不再处理
             for key, info in GAN_YAO_FULL.items():
-                # key is hexagram_id (int), we need to find the (upper, lower) tuple
+                # key 为 hexagram_id（整数），但本容器以 (上卦,下卦) 元组为键，故跳过
                 pass
-            # Load from database with (upper, lower) as key
+            # 以 (上卦先天数, 下卦先天数) 为键从数据库加载64卦
             db = _get_db()
             rows = db.get_hexagram_64()
             for (upper, lower), info in rows.items():
                 hex_id = info['hexagram_id']
                 yao_list = db.get_hexagram_yao_ci(hex_id)
                 yao_ci = []
+                # 逐爻提取爻名、爻辞原文与释义，组装该卦的爻辞列表
                 for yao in yao_list:
                     yao_ci.append({
                         'yao': yao['yao_name'],
@@ -94,27 +111,35 @@ class _LazyHexagrams:
         return self._data
 
     def __getitem__(self, key):
+        """按 (上卦,下卦) 先天数元组取下卦完整信息，触发懒加载。"""
         return self._load()[key]
 
     def get(self, key, default=None):
+        """兼容 dict.get：缺失键时返回 default。"""
         return self._load().get(key, default)
 
     def items(self):
+        """返回 ((上卦,下卦), 卦信息) 的视图。"""
         return self._load().items()
 
     def keys(self):
+        """返回所有 (上卦,下卦) 键的视图。"""
         return self._load().keys()
 
     def values(self):
+        """返回所有64卦信息值的视图。"""
         return self._load().values()
 
     def __iter__(self):
+        """遍历所有 (上卦,下卦) 键。"""
         return iter(self._load())
 
     def __len__(self):
+        """返回64卦总数（正常为 64）。"""
         return len(self._load())
 
     def __contains__(self, key):
+        """判断某 (上卦,下卦) 组合是否存在。"""
         return key in self._load()
 
 
@@ -126,6 +151,7 @@ class HexagramAnalyzer:
     """卦象分析器 - 解读卦象、爻辞及吉凶判断"""
 
     def __init__(self):
+        """初始化分析器，绑定八卦与64卦的惰性加载数据源。"""
         self.bagua = BAGUA
         self.hexagrams = HEXAGRAMS
 
@@ -156,6 +182,7 @@ class HexagramAnalyzer:
 
         base_info = self.get_hexagram_info(base_upper, base_lower)
 
+        # 派生四卦：变卦(爻变后之卦)、互卦(二至四/三至五爻所成)、错卦(六爻全反)、综卦(整卦颠倒)
         bi_upper = self._extract_hex_num(all_hexagrams['bian']['upper_yangs'])
         bi_lower = self._extract_hex_num(all_hexagrams['bian']['lower_yangs'])
         bi_info = self.get_hexagram_info(bi_upper, bi_lower)
@@ -241,6 +268,8 @@ class HexagramAnalyzer:
     def _extract_hex_num(self, yangs):
         """从爻信息提取卦的先天数（二进制转十进制+1）"""
         num = 0
+        # 三爻由下而上构成三位二进制：阳爻记 1、阴爻记 0，再整体 +1
+        # 得到 1-8，对应先天八卦数 乾1 兑2 离3 震4 巽5 坎6 艮7 坤8
         for yao in yangs:
             num = num * 2 + (1 if yao['symbol_short'] == '阳' else 0)
         num = num + 1
@@ -338,6 +367,7 @@ class HexagramAnalyzer:
         bi_lower_wx = self.get_bagua_info(bi_lower)['wuxing']
 
         def get_relation(a, b):
+            """判断五行 a 对 b 的生克关系：比和/我生/生我/我克/克我/未知。"""
             if a == b:
                 return '比和'
             elif wuxing_sheng.get(a) == b:

@@ -16,6 +16,7 @@ from core.database_manager import DatabaseManager
 
 
 def _get_db():
+    """返回 DatabaseManager 实例，供本模块各计算类惰性加载干支/节气等基础数据。"""
     return DatabaseManager()
 
 
@@ -115,6 +116,10 @@ class JieQiCalculator:
 
     @property
     def JIE_QI_ANGLES(self):
+        """返回二十四节气对应的黄经角度表（list[float]）。
+
+        首次访问触发数据库惰性加载；库内为空时回退空列表，避免排盘崩溃。
+        """
         _lazy_init()
         return list(JIE_QI_ANGLES) if JIE_QI_ANGLES else []
 
@@ -332,6 +337,7 @@ class GanZhiCalculator:
     """干支计算器 - 修复年柱、月柱、日柱计算逻辑"""
 
     def __init__(self):
+        """初始化干支映射表（天干/地支/六十甲子 → 序号），供年/月/日/时柱计算取用。"""
         _lazy_init()
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
@@ -419,6 +425,7 @@ class BaZiCalendar:
     """八字历法计算核心类 - 整合所有历法功能"""
 
     def __init__(self):
+        """聚合历法三大组件：真太阳时、节气、干支计算器，作为八字计算的核心入口。"""
         self.solar_time = SolarTimeCalculator()
         self.jieqi = JieQiCalculator()
         self.ganzhi = GanZhiCalculator()
@@ -503,10 +510,13 @@ class WuxingQuantifier:
     YUE_LING_WEIGHT = YUE_LING_WEIGHT
     
     def __init__(self):
+        """兼容旧接口：内部委托给 core.wuxing.WuXingAnalyzer，本类仅作薄包装。"""
         self._analyzer = self._WuXingAnalyzer()
-    
+
     def analyze(self, bazi, month_zhi=None):
+        """委托计算八字五行能量分布，签名与旧 WuxingQuantifier 保持一致。"""
         return self._analyzer.analyze(bazi, month_zhi)
-    
+
     def analyze_wangshuai(self, bazi, month_zhi=None):
+        """委托计算五行旺衰（身强/身弱/中和），对齐旧接口。"""
         return self._analyzer.analyze_wangshuai(bazi, month_zhi)

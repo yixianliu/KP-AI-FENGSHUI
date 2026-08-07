@@ -14,6 +14,7 @@ from core.database_manager import DatabaseManager
 
 
 def _get_db():
+    """返回 DatabaseManager 实例，供本模块加载大运/流年天干地支运势分析数据。"""
     return DatabaseManager()
 
 
@@ -23,6 +24,7 @@ _YUNSHI_ZHI = None
 
 
 def _lazy_init():
+    """首次调用时从数据库加载天干/地支运势分析表；之后幂等。"""
     global _YUNSHI_GAN, _YUNSHI_ZHI
     if _YUNSHI_GAN is None:
         db = _get_db()
@@ -65,6 +67,7 @@ class YunShiCalculator:
     """
     
     def __init__(self):
+        """初始化时确保历法常量已加载，并构建天干/地支/干支名→序号索引。"""
         _cal_module._lazy_init()
         self.tian_gan_map = {tg: i for i, tg in enumerate(_cal_module.TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(_cal_module.DI_ZHI)}

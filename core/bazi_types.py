@@ -46,6 +46,14 @@ STRENGTH_INFO: Dict[str, Dict[str, str]] = {
 
 
 def get_strength_info(level: str) -> Dict[str, str]:
+    """按日主强弱类别（身强/身弱/中和）取含义与用神取向。
+
+    Args:
+        level: 强弱类别代码，如 '身强'
+
+    Returns:
+        dict: {'meaning': 含义, 'purpose': 用神取向}；未知类别回退空串
+    """
     return STRENGTH_INFO.get(level, {'meaning': '', 'purpose': ''})
 
 
@@ -75,6 +83,14 @@ GEJU_INFO: Dict[str, Dict[str, str]] = {
 
 
 def get_geju_info(geju_type: str) -> Dict[str, str]:
+    """按格局类型（专旺格/从格/扶抑格/中和格）取含义、用神取向与子格局说明。
+
+    Args:
+        geju_type: 格局类型代码
+
+    Returns:
+        dict: {'meaning', 'purpose', 'subs'}；未知类型回退空串
+    """
     return GEJU_INFO.get(geju_type, {'meaning': '', 'purpose': '', 'subs': ''})
 
 
@@ -164,6 +180,15 @@ _REL_NAME = {
 
 
 def _relation(dayan: str, other: str) -> str:
+    """返回日主五行 dayan 与目标五行 other 的十神大类关系。
+
+    Args:
+        dayan: 日主五行（木/火/土/金/水）
+        other: 待判定五行
+
+    Returns:
+        str: '同我'/'生我'/'我生'/'我克'/'克我'，无关系时返回空串
+    """
     if dayan == other:
         return '同我'
     if _WUXING_GENERATED_BY.get(dayan) == other:

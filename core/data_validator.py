@@ -6,6 +6,14 @@ import logging
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 
+# 干支静态常量统一从权威源导入，避免各模块重复硬编导致索引错位。
+# 加下划线前缀是为了与下方 DataValidator 的同名类属性区分开。
+from core.ganzhi_constants import (
+    TIAN_GAN as _TIAN_GAN,
+    DI_ZHI as _DI_ZHI,
+    SIXTY_JIAZI as _SIXTY_JIAZI,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +29,15 @@ class DataValidator:
     提供多种数据验证方法，确保输入数据完整、格式正确
     """
 
-    TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
-    DI_ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
-    GAN_ZHI_PAIRS = [
-        '甲子', '乙丑', '丙寅', '丁卯', '戊辰', '己巳', '庚午', '辛未', '壬申', '癸酉',
-        '甲戌', '乙亥', '丙子', '丁丑', '戊寅', '己卯', '庚辰', '辛巳', '壬午', '癸未',
-        '甲申', '乙酉', '丙戌', '丁亥', '戊子', '己丑', '庚寅', '辛卯', '壬辰', '癸巳',
-        '甲午', '乙未', '丙申', '丁酉', '戊戌', '己亥', '庚子', '辛丑', '壬寅', '癸卯',
-        '甲辰', '乙巳', '丙午', '丁未', '戊申', '己酉', '庚戌', '辛亥', '壬子', '癸丑',
-        '甲寅', '乙卯', '丙辰', '丁巳', '戊午', '己未', '庚申', '辛酉', '壬戌', '癸亥'
-    ]
+    # 以下三张表引用 core.ganzhi_constants 的唯一定义（保留类属性形式，
+    # 是为了不破坏 DataValidator.TIAN_GAN 这类既有外部调用写法）
+    TIAN_GAN = _TIAN_GAN
+    DI_ZHI = _DI_ZHI
+    GAN_ZHI_PAIRS = _SIXTY_JIAZI
 
+    #: 允许的性别取值
     GENDER_OPTIONS = ['男', '女']
+    #: 允许的排盘类型
     PAN_TYPES = ['八字', '梅花易数']
 
     def __init__(self):
@@ -414,8 +419,9 @@ class DataValidator:
         self.reset()
         logger.info("[数据验证] 开始验证大六壬输入数据")
 
+        # 延迟导入：liuren 模块较重，且仅本方法需要
         from core.liuren import GATE_METHODS
-        ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+        ZHI = _DI_ZHI  # 复用权威地支表，不再局部硬编
 
         method = input_data.get('method', '')
         if not method:

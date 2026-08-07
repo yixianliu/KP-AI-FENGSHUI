@@ -93,6 +93,7 @@ def get_logs_dir() -> Path:
 
 
 def _is_writable(path: Path) -> bool:
+    """判断目录是否可写：尝试建目录并写入/删除临时文件，失败（权限/只读）则视为不可写。"""
     try:
         path.mkdir(parents=True, exist_ok=True)
         test = path / '.write_test'

@@ -12,6 +12,7 @@ class BaziCalculator:
     """八字计算器 - 统一入口，整合所有命理分析功能"""
 
     def __init__(self):
+        """统一入口：组装底层各分析器（四柱/五行/十神/大运流年/命理），对外提供一致接口。"""
         self.core = CoreBaZiCalculator()
         self.wuxing_analyzer = WuXingAnalyzer()
         self.shishen_analyzer = ShiShenAnalyzer()

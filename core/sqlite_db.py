@@ -37,6 +37,7 @@ def _resource_root():
 
 
 def _is_writable(path: str) -> bool:
+    """判断指定目录是否可写：尝试建目录并写入/删除临时文件。异常一律视为不可写。"""
     try:
         os.makedirs(path, exist_ok=True)
         test = os.path.join(path, '.write_test')
@@ -54,6 +55,7 @@ def _data_dir() -> str:
 
 
 def get_db_path() -> str:
+    """返回数据库文件路径（data/fengshui.db），结果带缓存（模块级 _DB_PATH）。"""
     global _DB_PATH
     if _DB_PATH is None:
         _DB_PATH = os.path.join(_data_dir(), 'fengshui.db')
@@ -61,6 +63,7 @@ def get_db_path() -> str:
 
 
 def get_schema_path() -> str:
+    """返回建库用的 schema_sqlite.sql 路径，结果带缓存（模块级 _SCHEMA_PATH）。"""
     global _SCHEMA_PATH
     if _SCHEMA_PATH is None:
         # 优先使用可写目录下的 schema（若有），否则从资源目录读取
@@ -143,6 +146,11 @@ class _Connection(sqlite3.Connection):
     """sqlite3.Connection 子类：`with conn:` 结束后在提交/回滚之余自动 close，避免连接泄漏。"""
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """退出 with 块时先提交/回滚（父类处理），再无条件 close，避免连接泄漏。
+
+        清理逻辑置于 finally，因此即便上下文内抛异常也照常关闭连接；
+        本方法不吞异常，异常会继续向上传播。
+        """
         try:
             super().__exit__(exc_type, exc_val, exc_tb)
         finally:

@@ -23,10 +23,12 @@ class HistoryFilterPanel(QWidget):
     _STRENGTH_OPTS = ['（不限）', '身强', '身弱', '中和']
 
     def __init__(self, parent=None):
+        """初始化左侧筛选面板。"""
         super().__init__(parent)
         self._build()
 
     def _build(self):
+        """构建筛选面板 UI：类型 / 姓名 / 日期范围 / 高级特征筛选及操作按钮。"""
         l = QVBoxLayout(self)
         l.setContentsMargins(16, 16, 16, 16)
         l.setSpacing(12)
@@ -147,6 +149,7 @@ class HistoryFilterPanel(QWidget):
         l.addWidget(tip)
 
     def _style_date(self, de: QDateEdit):
+        """统一设置日期选择框的边框 / 圆角等样式。"""
         de.setStyleSheet(
             f"padding:5px 8px; border:2px solid {Colors.LIUJIN}; "
             f"border-radius:{Spacing.RADIUS_SM}px; font-size:13px; background:white; "
@@ -171,12 +174,14 @@ class HistoryFilterPanel(QWidget):
         return cb
 
     def _on_date_toggle(self, state):
+        """由「按保存日期筛选」复选框 stateChanged 触发：启用/禁用起止日期框并重新筛选。"""
         enabled = state == Qt.Checked
         self.start_de.setEnabled(enabled)
         self.end_de.setEnabled(enabled)
         self._emit()
 
     def _on_reset(self):
+        """由「重置」按钮 clicked 触发：清空所有筛选项后重新发出筛选信号。"""
         self.type_cb.setCurrentText('全部')
         self.name_edit.clear()
         self.date_chk.setChecked(False)
@@ -188,6 +193,7 @@ class HistoryFilterPanel(QWidget):
         self._emit()
 
     def _emit(self):
+        """汇总当前筛选条件，映射为模型枚举后发射 filter_changed 信号。"""
         pan_type = self._MAP.get(self.type_cb.currentText(), '')
         name = self.name_edit.text().strip()
         if self.date_chk.isChecked():
@@ -205,6 +211,7 @@ class HistoryFilterPanel(QWidget):
         self.filter_changed.emit(pan_type, name, start, end, wuxing, geju, strength)
 
     def trigger_refresh(self):
+        """主动触发一次筛选（供外部在数据库就绪后刷新列表调用）。"""
         self._emit()
 
 
@@ -213,12 +220,19 @@ class HistoryListPanel(QWidget):
     load_to_bazi = Signal(dict)   # 把选中的记录 dict 抛给主窗口载入
 
     def __init__(self, db_manager, parent=None):
+        """初始化右侧列表+详情面板。
+
+        Args:
+            db_manager: 数据库管理器实例（可能为 None，表示未连接）。
+            parent: 父窗口。
+        """
         super().__init__(parent)
         self.db = db_manager               # DatabaseManager 实例（可能为 None）
         self._records = []
         self._build()
 
     def _build(self):
+        """构建列表面板 UI：工具栏、记录列表、只读详情文本框。"""
         l = QVBoxLayout(self)
         l.setContentsMargins(16, 16, 16, 16)
         l.setSpacing(12)
@@ -287,6 +301,17 @@ class HistoryListPanel(QWidget):
     # ----------------- 数据加载 -----------------
     def load(self, pan_type: str = '', name: str = '', start: str = '', end: str = '',
              wuxing: str = '', geju_type: str = '', strength: str = ''):
+        """从数据库加载符合条件的排盘记录并刷新列表（数据库异常时优雅降级提示）。
+
+        Args:
+            pan_type: 排盘类型过滤（空串表示不限）。
+            name: 姓名关键字（模糊匹配）。
+            start: 起始保存日期 'yyyy-MM-dd'。
+            end: 结束保存日期。
+            wuxing: 五行属性过滤。
+            geju_type: 格局类型过滤。
+            strength: 日主强弱过滤。
+        """
         try:
             if self.db:
                 recs = self.db.search_records(
@@ -340,6 +365,7 @@ class HistoryListPanel(QWidget):
 
     # ----------------- 交互 -----------------
     def _on_select(self, cur, _prev):
+        """由列表 currentItemChanged 触发：在详情框展示选中记录的命盘概要。"""
         if not cur:
             return
         rid = cur.data(Qt.UserRole)
@@ -348,6 +374,7 @@ class HistoryListPanel(QWidget):
             self.detail.setPlainText(self._format(rec))
 
     def _on_delete(self):
+        """由「删除选中」按钮 clicked 触发：删除当前记录并刷新列表。"""
         cur = self.list_w.currentItem()
         if not cur:
             QMessageBox.information(self, '提示', '请先选择一条记录')
@@ -360,6 +387,7 @@ class HistoryListPanel(QWidget):
             QMessageBox.warning(self, '删除失败', '删除失败，请检查数据库连接')
 
     def _on_load(self):
+        """由「载入到八字」按钮或双击列表项触发：将选中记录抛给主窗口载入。"""
         cur = self.list_w.currentItem()
         if not cur:
             return
@@ -371,6 +399,7 @@ class HistoryListPanel(QWidget):
     # ----------------- 工具 -----------------
     @staticmethod
     def _format(rec: dict) -> str:
+        """将单条记录格式化为可读的纯文本详情（基本信息 + 命盘概要）。"""
         lines = [
             f"姓名：{rec.get('name','-')}",
             f"性别：{rec.get('gender','-')}",

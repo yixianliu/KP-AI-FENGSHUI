@@ -1,3 +1,8 @@
+"""
+导出排盘结果对话框
+提供 CSV / Excel / PDF 三种导出格式选择、可选导出章节（来自 ui.export.base_exporter.CHAPTERS）
+以及导出文件名前缀；确认后通过 export_signal 抛出所选格式，交由主窗口驱动 ui/export/ 下的导出器。
+"""
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QCheckBox, QPushButton,
                              QGroupBox, QLineEdit, QRadioButton,
@@ -8,14 +13,22 @@ from ui.export.base_exporter import CHAPTERS
 
 
 class ExportDialog(QDialog):
+    """导出排盘结果对话框：选择格式 / 章节与文件名，确认后发出导出信号。"""
     export_signal = Signal(str)
 
     def __init__(self, data, parent=None):
+        """初始化导出对话框。
+
+        Args:
+            data: 排盘结果数据（dict），用于推导默认文件名。
+            parent: 父窗口（可选）。
+        """
         super().__init__(parent)
         self.data = data
         self.init_ui()
 
     def init_ui(self):
+        """构建导出对话框全部 UI：格式单选、章节勾选、文件名输入与操作按钮。"""
         self.setWindowTitle('导出排盘结果')
         self.setFixedSize(470, 520)
         self.setStyleSheet("""
@@ -210,6 +223,7 @@ class ExportDialog(QDialog):
         self.setLayout(layout)
 
     def _set_all(self, checked: bool):
+        """由「全选/全不选」按钮触发：批量设置所有章节勾选框状态。"""
         for cb in self._checks.values():
             cb.setChecked(checked)
 
@@ -218,6 +232,7 @@ class ExportDialog(QDialog):
         return [key for key, cb in self._checks.items() if cb.isChecked()]
 
     def on_export(self):
+        """由「导出」按钮 clicked 触发：确定格式、校验章节、发出 export_signal 并关闭。"""
         if self.csv_radio.isChecked():
             format_type = 'csv'
         elif self.excel_radio.isChecked():
@@ -233,6 +248,7 @@ class ExportDialog(QDialog):
         self.accept()
 
     def get_selected_format(self):
+        """返回当前选中的导出格式字符串（'csv' / 'excel' / 'pdf'）。"""
         if self.csv_radio.isChecked():
             return 'csv'
         elif self.excel_radio.isChecked():

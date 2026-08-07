@@ -8,36 +8,55 @@ from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.collapsible_card import CollapsibleCard, ai_section_header
+# 地支五行对照表复用排盘引擎的定义，展示层不再自建一份
+from core.liuren import ZHI_WX
+from core.ganzhi_constants import DI_ZHI
 
-# 五行 → 颜色（本地 hex，避免引用未定义样式属性）
+#: 五行 → 颜色（本地 hex，避免引用未定义样式属性）
 WX_COLOR = {
     '木': '#3a7d44', '火': '#c0392b', '土': '#b9770e',
     '金': '#7f8c8d', '水': '#2471a3',
 }
-# 地支五行
-ZHI_WX = {'子': '水', '亥': '水', '寅': '木', '卯': '木', '巳': '火', '午': '火',
-           '辰': '土', '戌': '土', '丑': '土', '未': '土', '申': '金', '酉': '金'}
-ZHI_ORDER = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+
+#: 地盘绘制顺序（罗盘顺时针，自北「子」起），复用权威地支表
+ZHI_ORDER = DI_ZHI
 
 
 class RotatingLabel(QLabel):
     """支持 rotation 属性的 QLabel，用于在 paintEvent 中按角度旋转绘制。"""
 
     def __init__(self, text='☯', parent=None):
+        """初始化旋转标签，默认显示太极符号，中心对齐。
+
+        Args:
+            text: 标签文本，默认太极符「☯」。
+            parent: 父控件。
+        """
         super().__init__(text, parent)
         self._angle = 0.0
         self.setAlignment(Qt.AlignCenter)
 
     def getRotation(self):
+        """返回当前旋转角度（供 Qt 的 rotation 属性读取）。"""
         return self._angle
 
     def setRotation(self, value):
+        """设置旋转角度并触发重绘（供 Qt 的 rotation 属性写入）。
+
+        Args:
+            value: 旋转角度，单位度。
+        """
         self._angle = value
         self.update()
 
     rotation = Property(float, getRotation, setRotation)
 
     def paintEvent(self, event):
+        """重写绘制：以控件中心为原点旋转坐标系后再绘制，实现太极动画。
+
+        Args:
+            event: 绘制事件。
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width() / 2, self.height() / 2)
@@ -47,13 +66,21 @@ class RotatingLabel(QLabel):
 
 
 class LiurenResultPanel(QWidget):
+    """大六壬起课结果展示面板：呈现天地盘、四课、三传、十二天将、神煞及龙虎山大师兄解读。"""
+
     def __init__(self, parent=None):
+        """初始化面板，缓存当前起课结果与 AI 解读，并构建 UI。
+
+        Args:
+            parent: 父控件。
+        """
         super().__init__(parent)
         self._current_result = {}
         self._current_ai = {}  # 最近一次 AI 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
+        """构建面板整体布局：标题栏（含「重新解读」「导出」按钮）、状态栏与滚动内容区。"""
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {Colors.BACKGROUND};
@@ -139,6 +166,7 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 空状态 ----------
     def _create_empty_state(self):
+        """创建未起课时的占位界面（太极图标 + 引导文案）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignCenter)
@@ -177,6 +205,15 @@ class LiurenResultPanel(QWidget):
 
     @staticmethod
     def _wx_chip(text, wx):
+        """生成五行标签小色块（chip），按五行配色渲染背景，直观展示地支所属五行。
+
+        Args:
+            text: 标签文字（如地支）。
+            wx: 五行名（木/火/土/金/水），决定背景色。
+
+        Returns:
+            渲染好的 QLabel。
+        """
         chip = QLabel(text)
         color = WX_COLOR.get(wx, Colors.TEXT_SECONDARY)
         chip.setStyleSheet(f"""
@@ -189,6 +226,14 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 基本信息 ----------
     def _basic_info_card(self, r):
+        """构建「基本信息」卡片：起课方式、占问、日干支、月将、占时等起课元数据。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
@@ -217,7 +262,18 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 天地盘 ----------
     def _tiandi_card(self, r):
+        """构建「天地盘」卡片：展示十二地支宫位下的天盘支与临宫天将（罗盘式布局）。
+
+        天盘为日辰加临后各宫所临地支，天将为人盘十二神将，是六壬推演的盘面基础。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         tian_pan = r.get('tian_pan', {})
+        # 预建「宫位→天将」映射，便于按地支列快速取对应天将
         tian_jiang = {t['pos']: t['jiang'] for t in r.get('tian_jiang', [])}
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -249,6 +305,16 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 四课 ----------
     def _sike_card(self, r):
+        """构建「四课」卡片：干上/干阴/支上/支阴四课，展示日干支上下神及五行关系。
+
+        四课由日干、日支分别取其上神（天盘）与下神（地盘）构成，是立三传的依据。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         si_ke = r.get('si_ke', {})
         order = [('干上（第一课）', 'gan_shang'), ('干阴（第二课）', 'gan_yin'),
                   ('支上（第三课）', 'zhi_shang'), ('支阴（第四课）', 'zhi_yin')]
@@ -262,6 +328,7 @@ class LiurenResultPanel(QWidget):
             kl.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN};")
             kl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             kl.setFixedWidth(110)
+            # 四课表达为「本神 → 天盘上神」，箭头直观体现上下神生克关系
             formula = QLabel(f"{v.get('dizhi','')} → {v.get('tianpan','')}")
             formula.setStyleSheet(f"font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_PRIMARY}; font-family: {Fonts.FAMILY_CN};")
             formula.setAlignment(Qt.AlignCenter)
@@ -274,6 +341,16 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 三传 ----------
     def _sanchuan_card(self, r):
+        """构建「三传」卡片：初传、中传、末传（即贼克/比用等取传门法得出的三传序列）。
+
+        三传揭示事态发端、过程与结局，门法（gate）说明取用哪一传法的规则。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         sc = r.get('san_chuan', {})
         gate = sc.get('gate', '')
         grid = QGridLayout()
@@ -305,6 +382,14 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 十二天将 ----------
     def _tianjiang_card(self, r):
+        """构建「十二天将」卡片：以宫位—天盘—天将三元组逐行展示人盘十二神将布局。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         layout = QGridLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -327,6 +412,14 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 神煞 ----------
     def _shensha_card(self, r):
+        """构建「神煞」卡片：展示本课所临吉凶神煞（如贵人、驿马、劫煞等）及其含义。
+
+        Args:
+            r: 起课结果字典。
+
+        Returns:
+            渲染好的 QWidget。
+        """
         sha = r.get('shen_sha', {})
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -349,6 +442,14 @@ class LiurenResultPanel(QWidget):
 
     @staticmethod
     def _muted(text):
+        """生成弱化样式的灰色提示文字（用于占位或「无内容」说明）。
+
+        Args:
+            text: 提示文字。
+
+        Returns:
+            渲染好的 QLabel。
+        """
         l = QLabel(text)
         l.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN};")
         return l
@@ -366,6 +467,7 @@ class LiurenResultPanel(QWidget):
 
     # ---------- AI 解读占位 ----------
     def _ai_placeholder(self):
+        """创建「龙虎山大师兄智能解读」卡片的占位内容，提示解读将在起课后生成。"""
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -400,6 +502,11 @@ class LiurenResultPanel(QWidget):
         self.content_layout.addWidget(self.taiji)
 
     def show_ai_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
+        """更新状态栏为「龙虎山大师兄解读中」，供业务层在发起 AI 解读时调用。
+
+        Args:
+            text: 状态提示文案，默认为六壬解读提示。
+        """
         self.status_label.setText('⏳ ' + text)
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
@@ -407,6 +514,11 @@ class LiurenResultPanel(QWidget):
         """)
 
     def display_result(self, result_data):
+        """对外入口：接收起课结果并渲染全部卡片（基本信息/天地盘/四课/三传/天将/神煞/AI 占位）。
+
+        Args:
+            result_data: 排盘引擎返回的起课结果字典。
+        """
         try:
             # 清理旧内容（含加载动画）
             if hasattr(self, 'taiji_animation'):
@@ -516,6 +628,7 @@ class LiurenResultPanel(QWidget):
         return cards
 
     def clear(self):
+        """清空面板：移除动态内容、恢复空状态占位与初始提示文案，并隐藏操作按钮。"""
         if hasattr(self, 'taiji_animation'):
             self.taiji_animation.stop()
         # 清理动态内容；empty_state 持久控件不可删除

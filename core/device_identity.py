@@ -32,6 +32,7 @@ _TOKEN_FILENAME = 'device.json'
 
 
 def _token_path() -> Path:
+    """返回设备令牌文件路径（数据目录下的 device.json）。"""
     return get_data_dir() / _TOKEN_FILENAME
 
 

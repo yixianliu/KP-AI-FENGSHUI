@@ -19,13 +19,34 @@ PAN_TYPES = [
 
 
 class InputPanel(QWidget):
+    """八字排盘输入面板（主窗口左栏）。
+
+    负责收集姓名、历法、日期、时辰、出生地、性别、流派、备注等排盘要素，
+    由 get_data() 打包成 dict 交给 core 层排盘；面板自身不做任何命理计算。
+
+    与主窗口的交互约定：
+      - submit_btn / reset_btn 由主窗口连接到「排盘」「重置」槽函数；
+      - 输入不合法时 submit_btn 自动置灰，见 _validate()。
+    """
+
     def __init__(self, parent=None):
+        """
+        Args:
+            parent: Qt 父控件。
+        """
         super().__init__(parent)
-        self.selected_hour = 6
-        self.selected_pan_type = 'bazi'
+        self.selected_hour = 6           # 时辰索引，默认 6 = 午时（11:00~13:00）
+        self.selected_pan_type = 'bazi'  # 本标签页固定为八字四柱，保留字段供下游读取
         self._build()
 
     def _build(self):
+        """构建表单界面并接线信号。
+
+        结构：外层 QScrollArea 包一个 content 容器（窗口拉窄时可滚动，避免控件被压扁），
+        内部按「标题 -> 分割线 -> 各输入行 -> 操作按钮」自上而下排列。
+        末尾创建的 lng_edit / lat_edit / day_night_switch / true_solar_switch 是历史遗留
+        的兼容字段，仍有下游代码按属性名读取，因此保留对象但设为不可见。
+        """
         self.setStyleSheet(f"background-color: {Colors.BG};")
 
         scroll = QScrollArea()
@@ -237,6 +258,14 @@ class InputPanel(QWidget):
         self._validate()
 
     def _label(self, text):
+        """生成表单左侧的定宽说明标签，使各行输入框左边缘严格对齐。
+
+        Args:
+            text: 标签文字。
+
+        Returns:
+            QLabel: 固定宽 42px 的次级灰色标签。
+        """
         l = QLabel(text)
         l.setFixedWidth(42)
         l.setStyleSheet(f"""
@@ -247,18 +276,46 @@ class InputPanel(QWidget):
         return l
 
     def _on_hour(self, i):
+        """时辰下拉框变更槽（由 hour_combo.currentIndexChanged 触发）。
+
+        选定时辰后把时间输入框同步为该时辰的起始整点，省去用户手填；用户仍可
+        自行改写分钟。改写后立即重新校验，及时更新提交按钮的可用状态。
+
+        Args:
+            i: 时辰索引，0=子时 … 11=亥时，与 HOUR_NAMES / HOUR_RANGES 对应。
+        """
         self.selected_hour = i
         s, _ = HOUR_RANGES[i]
         self.time_edit.setText(f'{s:02d}:00')
         self._validate()
 
     def _cal(self, s):
+        """历法切换槽（由 solar_btn / lunar_btn 的 clicked 触发）。
+
+        这两个按钮没有加入 QButtonGroup，故须在此手动维持互斥。
+
+        Args:
+            s: True 表示选择公历，False 表示农历。
+        """
         self.solar_btn.setChecked(s); self.lunar_btn.setChecked(not s)
 
     def _gen(self, m):
+        """性别切换槽（由 male_btn / female_btn 的 clicked 触发）。
+
+        虽然两按钮已加入 gender_grp 按钮组（默认互斥），这里仍显式设置一次，
+        以便代码主动调用时（非用户点击）也能保证两个按钮不会同时高亮。
+
+        Args:
+            m: True 表示男，False 表示女。
+        """
         self.male_btn.setChecked(m); self.female_btn.setChecked(not m)
 
     def _validate(self):
+        """实时校验输入，决定「开始排盘」按钮是否可点。
+
+        触发时机：姓名或时间输入框内容变化时。
+        通过条件：姓名非空，且时间为合法的 HH:MM（0-23 时、0-59 分）。
+        """
         name = self.name_edit.text().strip()
         t = self.time_edit.text().strip()
         if not name or not t:
@@ -267,7 +324,8 @@ class InputPanel(QWidget):
         try:
             h, m = map(int, t.split(':'))
             self.submit_btn.setEnabled(0 <= h <= 23 and 0 <= m <= 59)
-        except:
+        except ValueError:
+            # 用户尚未输完或格式不含冒号/含非数字，属正常中间态，静默禁用按钮
             self.submit_btn.setEnabled(False)
 
     def get_data(self):
@@ -299,6 +357,12 @@ class InputPanel(QWidget):
         }
 
     def clear(self):
+        """重置表单为初始状态（由主窗口「重置」按钮触发）。
+
+        日期回到今天、时辰回到午时、性别归男、历法归公历，并把「开始排盘」按钮
+        重新置灰——姓名已清空，此刻本就不满足提交条件。
+        注意：出生地与流派刻意不在重置范围内，属于用户偏好，连续排盘时无需重填。
+        """
         self.name_edit.clear()
         self.date_edit.setDate(QDate.currentDate())
         self.male_btn.setChecked(True); self.female_btn.setChecked(False)

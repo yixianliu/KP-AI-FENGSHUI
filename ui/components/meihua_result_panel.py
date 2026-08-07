@@ -13,20 +13,37 @@ class RotatingLabel(QLabel):
     """支持 rotation 属性的 QLabel，用于在 paintEvent 中按角度旋转绘制。"""
 
     def __init__(self, text='☯', parent=None):
+        """初始化旋转标签，默认显示太极符号，中心对齐。
+
+        Args:
+            text: 标签文本，默认太极符「☯」。
+            parent: 父控件。
+        """
         super().__init__(text, parent)
         self._angle = 0.0
         self.setAlignment(Qt.AlignCenter)
 
     def getRotation(self):
+        """返回当前旋转角度（供 Qt 的 rotation 属性读取）。"""
         return self._angle
 
     def setRotation(self, value):
+        """设置旋转角度并触发重绘（供 Qt 的 rotation 属性写入）。
+
+        Args:
+            value: 旋转角度，单位度。
+        """
         self._angle = value
         self.update()
 
     rotation = Property(float, getRotation, setRotation)
 
     def paintEvent(self, event):
+        """重写绘制：仅在存在旋转角度时以中心为原点旋转坐标系后绘制，否则直接绘制。
+
+        Args:
+            event: 绘制事件。
+        """
         if self._angle:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
@@ -42,11 +59,17 @@ class MeihuaResultPanel(QWidget):
     """梅花易数结果展示面板"""
 
     def __init__(self, parent=None):
+        """初始化梅花易数结果面板，缓存最近一次 AI 解读供导出复用，并构建 UI。
+
+        Args:
+            parent: 父控件。
+        """
         super().__init__(parent)
         self._current_ai = {}   # 最近一次 AI 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
+        """构建面板整体布局：标题栏（含「重新解读」「导出」按钮）、状态栏与滚动内容区。"""
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {Colors.BACKGROUND};

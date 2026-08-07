@@ -17,9 +17,11 @@
 - 天干寄宫：甲寅 乙辰 丙戊巳 丁己未 庚申 辛戌 壬亥 癸子
 """
 
+from core.ganzhi_constants import TIAN_GAN as GAN, DI_ZHI as ZHI
+
 # ===== 基础序列表 =====
-GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
-ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+# GAN / ZHI 直接复用 core.ganzhi_constants 的权威定义（见上方 import），
+# 本模块内沿用 GAN / ZHI 这两个短名，避免大面积改动既有算法代码。
 GAN_WX = {'甲': '木', '乙': '木', '丙': '火', '丁': '火', '戊': '土',
            '己': '土', '庚': '金', '辛': '金', '壬': '水', '癸': '水'}
 ZHI_WX = {'子': '水', '亥': '水', '寅': '木', '卯': '木', '巳': '火', '午': '火',
@@ -100,6 +102,18 @@ def _wuxing_ke(a, b):
 
 
 def _idx(seq, item):
+    """取元素在序列中的下标，六壬盘中大量用于地支的"宫位序号"换算。
+
+    天地盘旋转、天将顺逆布排都要把地支转成 0-11 的位置再做模 12 运算，
+    此处仅是 list.index 的简写别名。
+
+    Args:
+        seq: 序列，实际调用中恒为 ZHI（十二地支）。
+        item: 待定位的元素，即某个地支字。
+
+    Returns:
+        int: 元素下标。元素不存在时与 list.index 一致抛 ValueError。
+    """
     return seq.index(item)
 
 
@@ -107,6 +121,10 @@ class LiuRenCalculator:
     """大六壬起课计算引擎。"""
 
     def __init__(self):
+        """无状态构造：本引擎所有查表数据均为模块级常量，实例不持有任何状态。
+
+        因此可安全复用同一实例，或每次起课新建，二者等价。
+        """
         pass
 
     # ---------- 历法换算 ----------
@@ -116,6 +134,19 @@ class LiuRenCalculator:
         base_y, base_m, base_d = 1900, 1, 1
         # 用简明日序差（与世纪基准无关，仅需相对差稳定）
         def ordinal(y, m, d):
+            """公历年月日 → 连续日序号（儒略日式整数），用于求两日期相差天数。
+
+            Args:
+                y: 公历年。
+                m: 公历月，1-12。
+                d: 公历日。
+
+            Returns:
+                int: 该日的绝对日序号。绝对值本身无意义，只有两个日期
+                    相减得到的差值才有用（差值不受基准选取影响）。
+            """
+            # 把 1、2 月视作上一年的 13、14 月，使闰日恒落在"年末"，
+            # 这样闰年判断与下面的月长多项式才能统一成一条公式
             if m <= 2:
                 y -= 1
                 m += 12
@@ -255,6 +286,18 @@ class LiuRenCalculator:
     def _build_sike(self, tian_pan, gan_jigong, ri_zhi):
         """干上 / 干阴 / 支上 / 支阴（各含天地盘支与所乘天将名）。"""
         def entry(dizhi):
+            """由地盘位取出该位的一课信息（地盘支、其上天盘支、天盘支五行）。
+
+            "课"的本质就是"某地盘位上骑着哪个天盘支"，四课都用这一步构造。
+
+            Args:
+                dizhi: 地盘宫位的地支字。
+
+            Returns:
+                dict: {'dizhi': 地盘支, 'tianpan': 其上的天盘支,
+                    'wx': 天盘支的五行}。天盘中查不到该位时以自身兜底
+                    （相当于天地同位，即伏吟态）。
+            """
             tp = tian_pan.get(dizhi, dizhi)
             return {'dizhi': dizhi, 'tianpan': tp,
                     'wx': ZHI_WX.get(tp, '')}
@@ -270,6 +313,31 @@ class LiuRenCalculator:
 
     # ---------- 三传（九宗门） ----------
     def _build_sanchuan(self, method, ri_gan, ri_zhi, si_ke, tian_pan, di_pan):
+        """由四课推出三传（初传/中传/末传），即六壬断事的主干。
+
+        三传代表事情的开端、经过与结局。取三传的规则合称"九宗门"，
+        判定次第为：
+        1. 贼克法 —— 四课中若有支克日干者为"贼"（外来相侵，优先），
+           无贼则取日干所克者为"克"，据之定初传；
+        2. 比用法 —— 上一步命中多个时，取与日干阴阳同类（比和）者；
+        3. 涉害法 —— 仍不能决时，比较受克深浅取最深者；
+        4. 若四课无贼无克，则转入昴星/伏吟/返吟/别责/八专等兜底门法
+           （见 _no_zei_ke）。
+        初传定后，中末传按各门法自身规则递推（见 _build_zhong_mo）。
+
+        Args:
+            method: 取用法。'auto' 走上述自动判定；'zeike'/'biyong'/'shehai'
+                同样进入自动主路径但会标注对应门名；其余值走 _forced_gate 强制指定。
+            ri_gan: 日干。
+            ri_zhi: 日支。
+            si_ke: _build_sike 产出的四课。
+            tian_pan: 天盘映射 {地盘支: 天盘支}。
+            di_pan: 地盘十二支列表（此处保留以对齐调用签名）。
+
+        Returns:
+            tuple: ({'chu','zhong','mo','gate'}, gate)。gate 为最终采用的
+                门法代号，两处返回同一值，便于调用方按需取用。
+        """
         k1 = si_ke['gan_shang']['tianpan']
         k2 = si_ke['gan_yin']['tianpan']
         k3 = si_ke['zhi_shang']['tianpan']
@@ -283,6 +351,7 @@ class LiuRenCalculator:
 
         gate = None
         chu = None
+        # 十天干甲起，偶数位（0,2,4...）为阳干；阳日阴日的取用方向相反
         gan_yang = GAN.index(ri_gan) % 2 == 0
 
         if method in ('auto', 'zeike', 'biyong', 'shehai'):
@@ -307,6 +376,7 @@ class LiuRenCalculator:
             chu, gate = self._forced_gate(method, ri_gan, ri_zhi,
                                             si_ke, k1, k3)
 
+        # 所有门法均未定出初传时兜底取干上神，保证盘面完整不致崩溃
         if chu is None:
             chu = k1
             gate = gate or 'zeike'
@@ -390,6 +460,24 @@ class LiuRenCalculator:
         return ((k3 if gan_yang else k1), 'maoxing')
 
     def _forced_gate(self, method, ri_gan, ri_zhi, si_ke, k1, k3):
+        """用户强制指定门法时，直接按该门法的起例定初传（跳过九宗门判定）。
+
+        与 _no_zei_ke 的区别：那里是"自动判定走到无贼无克才落到兜底门法"，
+        这里是"用户在界面上点名要用某门法"，即便盘面并不成立该门法之象
+        也照排，供研习者对照不同取用法的结果。
+
+        Args:
+            method: 门法代号，见 GATE_METHODS。
+            ri_gan: 日干。
+            ri_zhi: 日支。
+            si_ke: 四课。
+            k1: 第一课干上神（天盘支）。
+            k3: 第三课支上神（天盘支）。
+
+        Returns:
+            tuple[str, str]: (初传地支, 门法代号)。method 不在支持表中时
+                回落到 (干上神, 'zeike')。
+        """
         zs = si_ke['zhi_shang']['tianpan']
         gan_yang = GAN.index(ri_gan) % 2 == 0
         # 返回 (初传, 门法) 元组，避免解包崩溃
@@ -428,6 +516,28 @@ class LiuRenCalculator:
 
     # ---------- 神煞 ----------
     def _build_shensha(self, ri_gan, ri_zhi, san_chuan, yue_jiang):
+        """汇总本课的神煞，作为断课时的吉凶佐证。
+
+        神煞是叠加在盘面上的标记，各有专断的事类：
+        - 驿马：依日支三合局取，主奔走、迁移、外出；
+        - 空亡（旬空）：日柱所在旬缺配的两个地支，落空亡者主事虚不实、
+          谋而无成，是六壬断"不成"的关键依据；
+        - 六合：日干五合之干所寄之宫，主和合、成事；
+        - 六害：日支所害之支，主暗损、疑忌；
+        - 天马：依月将三合局取，同主动象；
+        - 旺相休囚死：日干在月令下的五种气势，衡量占者自身的力量强弱
+          （旺=当令最强，相=次强，休=退气，囚=受制，死=最弱）。
+
+        Args:
+            ri_gan: 日干。
+            ri_zhi: 日支。
+            san_chuan: 三传字典，用于生成三传流转的展示串。
+            yue_jiang: 月将地支，兼作月令用于旺相休囚死判定。
+
+        Returns:
+            dict: 神煞名 -> 对应地支或结论字符串。未命中的神煞（如日支
+                不在任何三合局内的驿马）不会出现在返回值中。
+        """
         sha = {}
         # 驿马：依日支三合局
         for trio, ma in YIMA.items():
@@ -459,8 +569,11 @@ class LiuRenCalculator:
         """返回日柱所在旬的空亡二支（旬空）。"""
         g = GAN.index(ri_gan)
         z = ZHI.index(ri_zhi)
+        # 由干支序号反推该日在六十甲子中的位置：干十支十二，二者错位 2，
+        # 故 (g-z)/2 取模 6 即可定出落在六旬中的第几旬
         k = ((g - z) // 2) % 6
         seq = (g + 10 * k) % 60
+        # 每旬十组，seq//10*10 归到旬首（甲某）的位置，再取其地支
         xun_shou_zhi = ZHI[(seq // 10 * 10) % 12]
         return _KONGWANG.get(xun_shou_zhi)
 
@@ -487,6 +600,21 @@ class LiuRenCalculator:
 def liuren_divination(method='auto', question='', year=None, month=None,
                       day=None, hour=None, ri_gan=None, ri_zhi=None,
                       zhan_shi=None):
+    """模块级便捷函数：一行起一课六壬盘。
+
+    供 main_window 等调用方免去自行实例化 LiuRenCalculator，
+    形式上与 meihua.time_divination 保持一致，便于 UI 层统一调度。
+
+    Args:
+        method: 三传取用法，见 GATE_METHODS，默认 'auto' 由九宗门自动判定。
+        question: 所占之事，仅原样带回结果供展示，不参与运算。
+        year/month/day/hour: 占问的公历时间；任一缺省则取当前系统时间对应项。
+        ri_gan/ri_zhi: 手动指定日干、日支；缺省由日期换算。
+        zhan_shi: 手动指定占时地支；缺省由 hour 换算。
+
+    Returns:
+        dict: 与 LiuRenCalculator.calc 相同的结构化排盘结果。
+    """
     return LiuRenCalculator().calc(
         method=method, year=year, month=month, day=day, hour=hour,
         question=question, ri_gan=ri_gan, ri_zhi=ri_zhi, zhan_shi=zhan_shi)

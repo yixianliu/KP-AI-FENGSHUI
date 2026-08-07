@@ -30,6 +30,18 @@ DST = os.path.join(ROOT, "database", "schema_sqlite.sql")
 # 1. 语句切分（字面量感知）
 # --------------------------------------------------------------------------- #
 def split_statements(sql: str):
+    """按字面量感知的规则把整段 SQL 切分为独立语句列表。
+
+    正确处理 MySQL dump 中的行注释(--)、块注释(/* */)、反引号标识符、
+    单引号字符串（含反斜杠转义）与分号结束符，避免把字符串内的 ';' 误判为
+    语句边界。
+
+    Args:
+        sql: 原始 MySQL 方言 SQL 文本。
+
+    Returns:
+        list[str]: 去掉首尾空白后的单条语句字符串列表。
+    """
     stmts = []
     buf = []
     i, n = 0, len(sql)
@@ -92,6 +104,18 @@ def split_statements(sql: str):
 # 2. 顶层逗号分割（尊重括号 / 反引号 / 字符串）
 # --------------------------------------------------------------------------- #
 def split_top_level(s: str, sep=','):
+    """在顶层按分隔符切分，但尊重括号嵌套、反引号标识符与单引号字符串。
+
+    用于把 CREATE TABLE 的列定义体或 INSERT 值元组按逗号拆开，而不会切断
+    函数调用、字符串内部的逗号。
+
+    Args:
+        s: 待切分的文本（如括号内的列定义串）。
+        sep: 分隔符，默认为逗号。
+
+    Returns:
+        list[str]: 顶层切分后的片段（已 strip）。
+    """
     parts = []
     buf = []
     depth = 0
@@ -149,6 +173,17 @@ def split_top_level(s: str, sep=','):
 # 3. 类型映射
 # --------------------------------------------------------------------------- #
 def map_type(mysql_type: str) -> str:
+    """把 MySQL 列类型映射为 SQLite 亲和类型。
+
+    按类型基名归类：整数类→INTEGER，浮点/定点类→REAL，日期时间类、字符类、
+    JSON/枚举/集合→TEXT，二进制类→BLOB，未知兜底→TEXT。
+
+    Args:
+        mysql_type: 含可选长度/精度的 MySQL 类型声明，如 'varchar(64)'。
+
+    Returns:
+        str: SQLite 兼容的类型名（INTEGER/REAL/TEXT/BLOB）。
+    """
     t = mysql_type.lower()
     base = re.match(r'^(\w+)', t)
     base = base.group(1) if base else t
@@ -172,6 +207,19 @@ def map_type(mysql_type: str) -> str:
 # 4. CREATE TABLE 转换
 # --------------------------------------------------------------------------- #
 def convert_create_table(stmt: str):
+    """把单条 CREATE TABLE 语句转换为 SQLite 建表语句与独立索引语句。
+
+    处理要点：精确匹配最外层括号确定表体；解析列定义并做类型映射，
+    AUTO_INCREMENT→INTEGER PRIMARY KEY AUTOINCREMENT；剥离 MySQL 专有的
+    CHARACTER SET/COLLATE/COMMENT/ON UPDATE CURRENT_TIMESTAMP；将 PRIMARY KEY、
+    UNIQUE/普通 KEY、INDEX 拆成独立的 CREATE INDEX 语句；丢弃外键约束。
+
+    Args:
+        stmt: 一条 MySQL CREATE TABLE 语句。
+
+    Returns:
+        tuple: (建表 SQL, [索引 SQL 列表])；无法识别时返回 (None, [])。
+    """
     m = re.match(r'CREATE\s+TABLE\s+`([^`]+)`\s*\(', stmt, re.IGNORECASE)
     if not m:
         return None, []
@@ -329,6 +377,17 @@ def decode_mysql_string(lit: str) -> str:
 
 
 def parse_value(tok: str):
+    """把 INSERT 值文本片段解析为对应的 Python 原生对象。
+
+    NULL→None；单引号包裹→经 MySQL 转义解码后的字符串；纯数字→int/float；
+    其余按字符串兜底，保证下游能正确重新输出为 SQLite 字面量。
+
+    Args:
+        tok: 切分出的单个值 token（可能含首尾空白与引号）。
+
+    Returns:
+        解析后的 Python 对象（None/int/float/str）。
+    """
     tok = tok.strip()
     if tok.upper() == 'NULL':
         return None
@@ -344,6 +403,17 @@ def parse_value(tok: str):
 
 
 def emit_sqlite_literal(v) -> str:
+    """把 Python 值序列化为 SQLite 字面量字符串。
+
+    规则：None→NULL；bool→0/1；int→原样；float→repr；字符串→单引号翻倍
+    转义（不使用反斜杠转义，符合 SQLite 文本字面量规范）。
+
+    Args:
+        v: 任意 Python 标量（来自 parse_value 的输出）。
+
+    Returns:
+        str: 可直接拼入 SQL 的字面量文本。
+    """
     if v is None:
         return 'NULL'
     if isinstance(v, bool):
@@ -357,6 +427,18 @@ def emit_sqlite_literal(v) -> str:
 
 
 def convert_insert(stmt: str):
+    """把 MySQL INSERT 语句转换为一条或多条 SQLite INSERT 语句。
+
+    解析顶层的值元组（尊重括号嵌套与字符串），逐元组把每个值经 parse_value
+    解析后再用 SQLite 规则（emit_sqlite_literal）重新输出，从而正确保留
+    JSON 等含转义的内容。
+
+    Args:
+        stmt: 一条 MySQL INSERT ... VALUES (...) 语句。
+
+    Returns:
+        list[str]: 转换后的 SQLite INSERT 语句列表（可能多条）。
+    """
     m = _INSERT_RE.match(stmt)
     if not m:
         return []
@@ -423,6 +505,14 @@ def convert_insert(stmt: str):
 # 6. 主流程
 # --------------------------------------------------------------------------- #
 def main():
+    """脚本主流程：读取 MySQL dump，生成 SQLite schema + 数据文件并自检。
+
+    依次切分语句、转换 CREATE TABLE/INSERT，组装成带 PRAGMA 与事务的
+    schema_sqlite.sql，最后用临时 sqlite 库导入验证表与行数。
+
+    Returns:
+        None
+    """
     if not os.path.exists(SRC):
         print('ERROR: source not found: %s' % SRC)
         sys.exit(1)

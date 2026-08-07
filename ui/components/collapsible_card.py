@@ -20,6 +20,17 @@ class CollapsibleCard(QFrame):
 
     def __init__(self, title: str, icon: str = '', parent=None,
                  accent_color=None, collapsed: bool = False):
+        """
+        构建卡片骨架：标题栏（折叠箭头 + 强调色条 + 图标 + 标题）与内容容器。
+
+        Args:
+            title:        卡片标题文字。
+            icon:         标题左侧图标字符（emoji 或卦符），空串表示不显示。
+            parent:       Qt 父控件。
+            accent_color: 左侧强调色条颜色；None 时取青色 Colors.QINGHUA。
+                          约定排盘类卡片用青色、AI 解读类卡片用鎏金 Colors.LIUJIN。
+            collapsed:    是否以折叠态创建，供默认收起的次要卡片使用。
+        """
         super().__init__(parent)
         self._collapsed = collapsed
         self._accent_color = accent_color or Colors.QINGHUA
@@ -102,6 +113,7 @@ class CollapsibleCard(QFrame):
         self._main_layout.addWidget(self._content_container)
 
         # 标题栏点击事件
+        # QFrame 本身没有 clicked 信号，直接替换事件处理器是让整条标题栏可点的最简做法
         self._header.mousePressEvent = self._on_header_click
 
         if collapsed:
@@ -122,6 +134,11 @@ class CollapsibleCard(QFrame):
         self._content_layout.addWidget(widget)
 
     def _on_header_click(self, event):
+        """标题栏鼠标按下事件处理器（顶替 QFrame.mousePressEvent，非 Qt 信号槽）。
+
+        Args:
+            event: QMouseEvent；此处不区分按键，任意点击均切换折叠状态。
+        """
         self.toggle_collapsed()
 
     def toggle_collapsed(self):
@@ -137,6 +154,15 @@ class CollapsibleCard(QFrame):
             self._animate_collapse(0, content.sizeHint().height(), hide=False)
 
     def _animate_collapse(self, start: int, end: int, hide: bool):
+        """以 maximumHeight 属性动画实现内容区的展开/收起。
+
+        Args:
+            start: 动画起始高度（像素）。
+            end:   动画结束高度（像素）。
+            hide:  True 表示收起，动画结束后隐藏内容容器；False 表示展开，
+                   动画结束后须把高度上限恢复为 16777215（Qt 的最大值），
+                   否则内容日后变高会被本次动画的终值卡住而显示不全。
+        """
         content = self._content_container
         anim = QPropertyAnimation(content, b"maximumHeight")
         anim.setDuration(260)
@@ -150,6 +176,11 @@ class CollapsibleCard(QFrame):
         anim.start()
 
     def is_collapsed(self) -> bool:
+        """查询卡片当前是否处于折叠态。
+
+        Returns:
+            bool: True 表示内容区已收起。
+        """
         return self._collapsed
 
 

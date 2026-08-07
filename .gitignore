@@ -1,55 +1,57 @@
-/.trae/
-.idea
-data
-/.uploads/
-/node_modules/
-/package-lock.json
-baazi_error.log
-/logs/
-/test_env/
-config.ini
-logs
-__pycache__
-ui/__pycache__
-core/__pycache__
+# ================================================================
+# KP-AI-FENGSHUI 版本控制忽略清单
+# 分组原则：IDE 配置 / Python 缓存 / 构建产物 / 运行期数据 / 机密文件
+# ================================================================
+
+# ---- IDE 与编辑器 ----
+/.idea/
 /.vscode/
-utils/__pycache__
-ui/components/__pycache__
+/.trae/
 /.workbuddy/
 
-# ---- 构建产物（不入库） ----
+# ---- Python 缓存与虚拟环境 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+/venv/
+/test_env/
+/.pytest_cache/
+
+# ---- 构建产物（PyInstaller）----
 /dist/
 /build/
+/dist_prev/
 
-# ---- 根级字节码 ----
-*.pyc
+# ---- 运行期生成数据（数据库为二进制种子库，按需单独提交）----
+/logs/
+*.log
+/data/
+/.uploads/
 
-# ---- 误建的 Windows 保留名文件（无法常规删除，需手动清理） ----
+# ---- 前端遗留（本项目已不使用）----
+/node_modules/
+/package-lock.json
+
+# ---- 误建的 Windows 保留名文件（需用 UNC 前缀手动清理）----
 /nul
 
 # ================================================================
 # 机密文件 —— 任何情况下都不得入库
 # ================================================================
-# 中转服务环境变量：全系统唯一持有上游 AI 密钥的文件
-server/.env
+# 环境变量文件
 .env
 *.env
-!server/.env.example
 
-# 构建期生成的混淆内置配置（含 AI 密钥混淆体，非明文，但勿入库）
+# 构建期生成的混淆内置配置（含 AI 密钥混淆体）
 core/_embedded_config.py
 
-# 中转服务数据库（含设备令牌摘要与用量）
-server/data/
-server/relay.db
-relay.db
+# 本机 AI 配置（含设备指纹混淆后的 API 密钥）
+ai_config.json
+config.ini
 
-# 客户端本机设备令牌
+# 打包前 purge 生成的凭据备份（含明文密钥，绝不可入库）
+/.ai_purge_backup/
+
+# 客户端本机设备标识
 device.json
 **/device.json
-dist
-build
-docs
-tests
-api
-api

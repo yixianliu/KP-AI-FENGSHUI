@@ -24,9 +24,24 @@ _AI_SECTIONS = [
 
 
 def _to_str(v: Any) -> str:
+    """把任意排盘字段值统一转换为可写入 CSV 单元格的字符串。
+
+    排盘结果中同一字段可能是 None（未计算）、列表（如喜神/忌神多个值）
+    或标量，直接交给 csv.writer 会写出 "None" 或 "['甲', '乙']" 这类
+    脏数据，因此在写入前统一归一化。
+
+    Args:
+        v: 任意排盘字段值，可为 None、list/tuple 或标量
+
+    Returns:
+        str，None 归一为空字符串；list/tuple 用顿号连接（并过滤空元素）；
+        其余类型直接 str() 转换
+    """
     if v is None:
+        # CSV 中空值留白，避免出现字面量 "None"
         return ''
     if isinstance(v, (list, tuple)):
+        # 过滤掉 None / 空串等假值，防止出现 "甲、、乙" 这种连续分隔符
         return '、'.join(str(x) for x in v if x)
     return str(v)
 
@@ -35,7 +50,28 @@ class CsvExporter(BaseExporter):
     """CSV 导出器"""
 
     def export(self, data: Dict[str, Any], file_path: str) -> bool:
+        """把排盘结果按章节顺序逐行写入 CSV 文件。
+
+        实现 BaseExporter.export 契约。整份 CSV 采用「章节标题行 + 键值行 +
+        空行分隔」的扁平结构（而非固定表头的二维表），因为各章节字段数量
+        和含义完全不同，无法共用同一套列定义。
+        调用方通常已用 filter_export_data 过滤过 data，这里再用 has_chapter
+        做一次存在性判断，保证缺数据的章节不会输出空标题。
+
+        Args:
+            data: 排盘结果字典，可能包含 basic_info / bazi_types / bazi /
+                wuxing / shishen / dayun / liunian / yuncheng / mingli /
+                analysis / ai_analysis / meihua_data / meihua_ai /
+                liuren_data / liuren_ai / zonghe 等键
+            file_path: 目标 CSV 文件路径
+
+        Returns:
+            bool，写入成功返回 True；任何异常（路径不可写、编码失败等）
+            被捕获后打印错误并返回 False，不向上抛出
+        """
         try:
+            # newline='' 由 csv 模块自行控制换行符，否则 Windows 上每行会多出空行；
+            # utf-8-sig 写入 BOM，使 Excel 直接双击打开时不会把中文识别成乱码
             with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
 
@@ -107,6 +143,8 @@ class CsvExporter(BaseExporter):
                 if has_chapter(data, 'yunshi'):
                     dayun = data.get('dayun', {}) or {}
                     liunian = data.get('liunian', {}) or {}
+                    # 大运/流年是同一虚拟章节的两个数据键；上游偶尔会传入
+                    # 列表或字符串形式的旧结构，故先做 isinstance 兜底再取子键
                     periods = dayun.get('periods', []) if isinstance(dayun, dict) else []
                     years = liunian.get('years', []) if isinstance(liunian, dict) else []
                     writer.writerow(['大运流年'])
@@ -140,6 +178,8 @@ class CsvExporter(BaseExporter):
                     writer.writerow([])
 
                 # 神煞
+                # 神煞属于 filter_export_data 中始终保留的旧字段，不在 CHAPTERS
+                # 章节清单里，因此这里不走 has_chapter 而是直接判断列表是否为空
                 mingli = data.get('mingli', {}) or {}
                 shensha = mingli.get('shensha', [])
                 if shensha:
@@ -248,8 +288,18 @@ class CsvExporter(BaseExporter):
 
             return True
         except Exception as e:
+            # 导出属于用户主动触发的非关键路径，失败时不应让界面崩溃，
+            # 统一吞掉异常并以返回值告知调用方
             print(f"CSV 导出失败: {e}")
             return False
 
     def get_file_extension(self) -> str:
+        """返回本导出器对应的文件扩展名。
+
+        实现 BaseExporter.get_file_extension 契约，供上层拼接默认文件名
+        和文件对话框过滤器使用。
+
+        Returns:
+            str，固定为 '.csv'
+        """
         return '.csv'

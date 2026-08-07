@@ -48,6 +48,10 @@ class SecretScrubbingFilter(logging.Filter):
     """日志过滤器：对消息、参数、异常文本统一打码。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """对日志记录的消息、格式化参数、异常文本统一脱敏；脱敏异常也不阻断日志。
+
+        返回 True 表示放行该记录（脱敏只是就地改写消息内容，不丢弃日志）。
+        """
         try:
             if isinstance(record.msg, str):
                 record.msg = scrub(record.msg)

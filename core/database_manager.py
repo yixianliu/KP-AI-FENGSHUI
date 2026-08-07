@@ -12,6 +12,8 @@ from typing import Optional, Dict, List, Any
 import logging
 
 from core import sqlite_db
+# 干支静态常量的唯一权威源，用于生成十二长生等派生查找表
+from core.ganzhi_constants import DI_ZHI, ZHI_INDEX, GAN_YANG
 
 logger = logging.getLogger(__name__)
 
@@ -349,22 +351,29 @@ class DatabaseManager:
 
     # -- 十二长生查找表 --
     def init_changsheng_lookup(self):
-        """初始化十二长生查找表（天干->地支->阶段）"""
-        # 十二长生阶段名称
+        """初始化十二长生查找表（天干 -> 地支 -> 阶段名）。
+
+        算法：每个天干都有一个「长生」起始地支，阳干沿地支顺序顺行、
+        阴干逆行，依次经历十二个阶段，正好绕地支一周。
+        结果以 (gan, zhi, stage_name) 三元组批量写入 changsheng_lookup 表，
+        使用 INSERT OR IGNORE 保证可重复执行而不产生重复行。
+        """
+        # 十二长生阶段名称，索引即距离起始地支的步数
         stages = ['长生', '沐浴', '冠带', '临官', '帝旺', '衰', '病', '死', '墓', '绝', '胎', '养']
-        # 天干在地支上的十二长生起始地支（阳干顺排，阴干逆排）
+        # 各天干的「长生」起始地支
         changsheng_start = {
             '甲': '亥', '乙': '午', '丙': '寅', '丁': '酉',
             '戊': '寅', '己': '酉', '庚': '巳', '辛': '子',
             '壬': '申', '癸': '卯'
         }
-        di_zhi_order = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
-        di_zhi_map = {z: i for i, z in enumerate(di_zhi_order)}
-        
+        # 地支顺序与索引映射复用权威常量，避免本地重复硬编
+        di_zhi_order = DI_ZHI
+        di_zhi_map = ZHI_INDEX
+
         data = []
         for gan, start_zhi in changsheng_start.items():
-            gan_idx = {'甲':0, '乙':1, '丙':2, '丁':3, '戊':4, '己':5, '庚':6, '辛':7, '壬':8, '癸':9}[gan]
-            is_yang = gan_idx % 2 == 0
+            # 天干序号为偶数即阳干（甲丙戊庚壬），阳干顺行、阴干逆行
+            is_yang = gan in GAN_YANG
             start_pos = di_zhi_map[start_zhi]
             for i, stage in enumerate(stages):
                 if is_yang:
@@ -373,7 +382,8 @@ class DatabaseManager:
                     zhi_pos = (start_pos - i) % 12
                 zhi = di_zhi_order[zhi_pos]
                 data.append((gan, zhi, stage))
-        
+
+
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.executemany(

@@ -29,7 +29,20 @@ DIZHI_WUXING = {
 
 
 class ResultPanel(QWidget):
+    """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、AI 分析分隔与呈现。
+
+    由 MainWindow 在各板块的结果栈中实例化，接受排盘结果字典并渲染为可折叠卡片；
+    同时通过 display_ai_result / show_ai_loading 衔接龙虎山大师兄（AI）分析流程。
+    """
     def __init__(self, parent=None, stacked_widget=None):
+        """初始化结果面板。
+
+        Args:
+            parent: 父控件（通常为 MainWindow 的结果栈）
+            stacked_widget: 预留的堆叠控件参数，当前未使用，保留以兼容调用
+
+        初始化 AI 可用性标记与淡入动画列表，并构建 UI。
+        """
         super().__init__(parent)
         self._current_result = None
         # AI 功能可用性标记（由 MainWindow 在初始化后注入）
@@ -38,6 +51,11 @@ class ResultPanel(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """构建面板基础布局：滚动区 + 内容容器 + 顶部标题行 + 空状态。
+
+        内容容器 self.content 使用横向 Expanding 策略以填满右侧宽度；
+        顶部标题行与空状态由 _header / _empty 生成并加入 clay 垂直布局。
+        """
         self.setStyleSheet(f"background-color: {Colors.BG};")
         main = QVBoxLayout(self)
         main.setContentsMargins(0, 0, 0, 0)
@@ -119,6 +137,7 @@ class ResultPanel(QWidget):
         return hdr
 
     def _empty(self):
+        """生成未排盘时的空状态占位部件（太极图标 + 引导文案）。"""
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
@@ -796,6 +815,11 @@ class ResultPanel(QWidget):
         self._fade_in_widgets()
 
     def show_loading(self):
+        """展示排盘计算中的加载态。
+
+        清空旧内容并重建头部，隐藏刷新/复制/导出/AI 按钮，居中显示太极图标脉冲动画
+        与『正在排盘中…』提示，给用户即时的排盘进行中反馈。
+        """
         self._clear_content()
         self._rebuild_header()
 
@@ -837,6 +861,7 @@ class ResultPanel(QWidget):
         self._pulse_widget_ref = widget
 
         def toggle_pulse():
+            """脉冲定时器回调：在可见时切换图标明暗色，部件销毁则停止脉冲。"""
             w = self._pulse_widget_ref
             try:
                 if not w or not w.isVisible():
@@ -852,6 +877,7 @@ class ResultPanel(QWidget):
         self.pulse_timer.start(750)
 
     def _stop_pulse(self):
+        """停止并销毁排盘加载态的脉冲定时器，解除对脉冲部件的引用。"""
         if hasattr(self, 'pulse_timer') and self.pulse_timer:
             self.pulse_timer.stop()
             self.pulse_timer.deleteLater()
@@ -859,6 +885,7 @@ class ResultPanel(QWidget):
         self._pulse_widget_ref = None
 
     def clear(self):
+        """清空面板：停止脉冲、清除当前结果、重建空状态并隐藏操作按钮。"""
         self._stop_pulse()
         self._current_result = None
         self._clear_content()
@@ -912,12 +939,14 @@ class ResultPanel(QWidget):
         self.clay.addStretch()
 
     def _ai_pulse_widget(self, widget):
+        """为 AI 加载态的图标部件启动鎏金脉冲定时器（750ms 周期明暗交替）。"""
         # 先停止旧的脉冲定时器
         self._stop_ai_pulse()
         self._ai_pulse_state = True
         self._ai_pulse_widget_ref = widget
 
         def toggle_pulse():
+            """AI 脉冲定时器回调：可见时切换图标明暗色，部件销毁则停止脉冲。"""
             w = self._ai_pulse_widget_ref
             try:
                 if not w or not w.isVisible():
@@ -933,6 +962,7 @@ class ResultPanel(QWidget):
         self.ai_pulse_timer.start(750)
 
     def _stop_ai_pulse(self):
+        """停止并销毁 AI 加载态的脉冲定时器，解除对脉冲部件的引用。"""
         if hasattr(self, 'ai_pulse_timer') and self.ai_pulse_timer:
             self.ai_pulse_timer.stop()
             self.ai_pulse_timer.deleteLater()
@@ -1092,7 +1122,15 @@ class ResultPanel(QWidget):
 
     # AI分隔标识
     def _add_ai_section_header(self, ai_data):
+        """在原始排盘结果之后插入龙虎山大师兄（AI）分析分隔区与各分析卡片。
 
+        Args:
+            ai_data: AI 返回的分析字典，按 personality/career/marriage 等键分组渲染
+
+        以渐变分隔线 + 『龙虎山大师兄智能深度分析』标题作为 AI 内容起点，
+        随后按预设章节渲染可折叠分析卡片；若无任何条目则展示空提示。
+        末尾清理残留图形特效并延迟滚动到该分隔区（见 _scroll_to_ai_section）。
+        """
         # 分隔线
         divider = QFrame()
         divider.setFixedHeight(2)
@@ -1161,6 +1199,7 @@ class ResultPanel(QWidget):
     # ----------------- 辅助方法 -----------------
 
     def _clear_content(self):
+        """清空内容容器：先停掉所有淡入动画，再释放并删除所有子部件。"""
         # 停止并清理所有淡入动画，防止旧动画引用已删除的 widget
         if hasattr(self, '_fade_anims'):
             for anim in self._fade_anims:
@@ -1178,6 +1217,7 @@ class ResultPanel(QWidget):
                 w.deleteLater()
 
     def _safe_clear_graphics_effects(self):
+        """遍历内容部件，清除仍残留的 QGraphicsOpacityEffect，避免半透明或动画残留。"""
         for i in range(self.clay.count()):
             item = self.clay.itemAt(i)
             if not item:
@@ -1187,6 +1227,12 @@ class ResultPanel(QWidget):
                 w.setGraphicsEffect(None)
 
     def _scroll_to_ai_section(self):
+        """将滚动区定位到 AI 分析分隔标题处。
+
+        通过遍历内容部件、匹配文本包含『龙虎山大师兄』的 QLabel 实现定位
+        （_add_ai_section_header 生成的标题即为此文本）。
+        注意：此定位强依赖该文案字面量，若修改用户可见的标题文字会破坏滚动定位。
+        """
         try:
             for i in range(self.clay.count()):
                 item = self.clay.itemAt(i)
@@ -1205,6 +1251,13 @@ class ResultPanel(QWidget):
             pass
 
     def _show_ai_error(self, message: str):
+        """展示 AI 分析异常提示。
+
+        Args:
+            message: 要展示的异常/错误说明文案
+
+        清空内容并重建头部，置红状态标签，居中显示带 ⚠ 的提示并重新显示『重新分析』按钮。
+        """
         self._clear_content()
         self._rebuild_header()
         self.status_lbl.setText('龙虎山大师兄异常')

@@ -8,17 +8,36 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
 from PySide6.QtCore import Qt
 from ui.styles import Stylesheets, Colors, Fonts
 from core.liuren import GATE_METHODS, GATE_NAMES
+from core.ganzhi_constants import DI_ZHI
 
-ZHI_LIST = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+#: 占时下拉框的候选项，直接复用权威地支表（顺序即子丑寅卯……）
+ZHI_LIST = DI_ZHI
 
 
 class LiurenInputPanel(QWidget):
+    """大六壬起课输入面板（主窗口左栏）。
+
+    负责收集占问分类、占问描述、起课时间（公历/农历）、占时覆盖与九宗门取用法，
+    由 get_data() 打包为 dict 交给 core.liuren 起课；面板自身不做课式推演。
+    """
+
     def __init__(self, parent=None):
+        """
+        Args:
+            parent: Qt 父控件。
+        """
         super().__init__(parent)
+        # 三传取用法，默认 'auto'（= GATE_METHODS[0]），即由程序按九宗门顺序自动判定
         self.selected_method = 'auto'
         self._build()
 
     def _build(self):
+        """构建起课表单并接线。
+
+        版式与八字面板保持一致：QScrollArea 包裹内容容器，自上而下为
+        「标题 -> 分割线 -> 占问 -> 起课时间 -> 占时 -> 起课方式 -> 操作按钮」。
+        九宗门共九种取用法，用 QGridLayout 排成两列，窄窗口下也不会把按钮压扁。
+        """
         self.setStyleSheet(f"background-color: {Colors.BG};")
 
         scroll = QScrollArea()
@@ -136,14 +155,43 @@ class LiurenInputPanel(QWidget):
         outer.addWidget(scroll)
 
     def _label(self, text):
+        """生成表单左侧的定宽说明标签，使各行输入控件左边缘对齐。
+
+        Args:
+            text: 标签文字。
+
+        Returns:
+            QLabel: 固定宽 42px 的次级灰色标签。
+        """
         l = QLabel(text); l.setFixedWidth(42)
         l.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
         return l
 
     def _on_method(self, i):
+        """起课方式按钮点击槽（由九宗门各按钮的 clicked 触发）。
+
+        Args:
+            i: 按钮索引，与 GATE_METHODS 中的取用法一一对应。
+        """
         self.selected_method = GATE_METHODS[i]
 
     def get_data(self):
+        """汇总面板输入，生成起课参数字典。
+
+        与八字/梅花面板不同，本面板对时间采取宽容策略：时间框留空或格式不合法时
+        一律回退到系统当前时刻起课，不向上抛错——大六壬本以「即时起课」为常态，
+        弹错误框反而会打断占卜流程。
+
+        Returns:
+            dict: 包含以下键
+                method            (str): 三传取用法标识，取自 GATE_METHODS。
+                question          (str): 占问描述，可为空串。
+                question_category (str): 占问分类；选「不限」时不含此键。
+                time_str          (str): 用户输入的原始时间文本，保留以便追溯。
+                year/month/day/hour (int): 解析成功或回退当前时刻得到的起课时间。
+                calendar_type     (str): '公历' 或 '农历'。
+                zhan_shi          (str): 手动指定的占时地支；选「自动」时不含此键。
+        """
         d = {'method': self.selected_method, 'question': self.question.text().strip()}
 
         cat_idx = self.question_category.currentIndex()
@@ -160,6 +208,8 @@ class LiurenInputPanel(QWidget):
             d['day'] = parsed.day
             d['hour'] = parsed.hour
         except (ValueError, TypeError):
+            # 留空、格式不符都落到这里：改用当前时刻起课。
+            # dt 在 try 的第一行已导入成功，异常只可能来自 strptime，故此处可安全引用。
             now = dt.now()
             d['year'] = now.year
             d['month'] = now.month
@@ -174,6 +224,12 @@ class LiurenInputPanel(QWidget):
         return d
 
     def clear(self):
+        """重置面板为初始态（由「重置」按钮触发）。
+
+        取用法回到第一项后必须手动调用 _on_method(0) 同步 selected_method：
+        setChecked() 不会发出 clicked 信号，否则界面已切回自动、内部状态却还停在
+        上一次选中的取用法上，导致下一次起课用错方法。
+        """
         self.method_btns[0].setChecked(True); self._on_method(0)
         self.question.clear()
         self.question_category.setCurrentIndex(0)

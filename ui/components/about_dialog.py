@@ -21,6 +21,11 @@ class AboutDialog(QDialog):
     APP_VERSION = 'v5.0'
 
     def __init__(self, parent=None):
+        """初始化关于对话框。
+
+        Args:
+            parent: 父窗口（可选），通常为应用主窗口。
+        """
         super().__init__(parent)
         self.setWindowTitle('关于')
         self.setModal(True)
@@ -29,6 +34,7 @@ class AboutDialog(QDialog):
 
     # ======================== 主布局 ========================
     def _build_ui(self):
+        """构建主布局：顶部渐变 Header + 内容区（介绍卡 / 联系方式 / 版权）。"""
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -169,6 +175,7 @@ class AboutDialog(QDialog):
 
     # ======================== 联系方式 ========================
     def _contacts_section(self) -> QFrame:
+        """构建「联系我」卡片，含 QQ 与手机两个带联系/复制按钮的联系组件。"""
         card = ShadowCard()
         inner = QVBoxLayout(card)
         inner.setContentsMargins(24, 16, 24, 16)
@@ -212,6 +219,7 @@ class AboutDialog(QDialog):
         return card
 
     def _footer_text(self) -> QLabel:
+        """生成底部版权说明文本（版本号 + 免责声明），居中小字。"""
         lbl = QLabel(
             f'Copyright © 2024-2026 风水排盘专业工具 · {self.APP_VERSION}\n'
             '仅供学习与娱乐参考，不构成人生决策依据 · All Rights Reserved'
@@ -233,6 +241,7 @@ class ShadowCard(QFrame):
     """无框线卡片 — 纯白色底色 + 柔和阴影，无边框线。"""
 
     def __init__(self):
+        """初始化无边框阴影卡片：白底 + 柔和投影，用于区分内容区块。"""
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet(f"""
@@ -254,6 +263,12 @@ class AvatarWidget(QFrame):
     """圆形头像徽章，纯 QPainter 绘制。"""
 
     def __init__(self, text: str, size: int = 64):
+        """初始化圆形头像徽章。
+
+        Args:
+            text: 显示文字（实际仅取首字符作为徽标）。
+            size: 徽章边长（像素），默认 64。
+        """
         super().__init__()
         self.size = size
         self.setText(text)
@@ -261,9 +276,11 @@ class AvatarWidget(QFrame):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
     def setText(self, text: str):
+        """设置头像文字，仅保留首字符作为徽标（空文本回退为 '?'）。"""
         self._text = text[:1] if text else '?'
 
     def paintEvent(self, event):
+        """重绘事件：用 QPainter 绘制渐变圆底、白色细内环与居中文字。"""
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
 
@@ -302,11 +319,13 @@ class WaveDivider(QFrame):
     """波浪形分隔线。"""
 
     def __init__(self):
+        """初始化波浪分隔线组件（固定高度 22，透明背景）。"""
         super().__init__()
         self.setFixedHeight(22)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
     def paintEvent(self, event):
+        """重绘事件：绘制半透明渐变波形分隔线，衔接 Header 与下方内容。"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -347,6 +366,16 @@ class ContactButton(QWidget):
 
     def __init__(self, name: str, icon: str, value: str, link: str,
                  copy_name: str, accent_color: str):
+        """初始化单个联系方式按钮组件。
+
+        Args:
+            name: 渠道名称（如 'QQ' / '手机'），用于标题与提示。
+            icon: 图标 emoji 文本。
+            value: 号码 / 账号文本，用于展示与复制。
+            link: 点击「联系」时唤起的协议链接（如 tencent://、tel:）。
+            copy_name: 复制到剪贴板时提示用的名称。
+            accent_color: 强调色（十六进制），用于图标底色与按钮主色。
+        """
         super().__init__()
         self._value = value
         self._accent = accent_color
@@ -415,6 +444,13 @@ class ContactButton(QWidget):
         self.setToolTip(f'{name}: {value}')
 
     def _make_btn(self, text: str, accent: str, solid: bool) -> QPushButton:
+        """按强调色生成统一样式的操作按钮。
+
+        Args:
+            text: 按钮文字。
+            accent: 强调色十六进制。
+            solid: True 为实心主按钮，False 为透明描边次按钮。
+        """
         p = QPushButton(text)
         p.setCursor(Qt.PointingHandCursor)
         p.setFixedHeight(26)
@@ -433,6 +469,7 @@ class ContactButton(QWidget):
         return p
 
     def _open_link(self, url: str, name: str):
+        """由「联系」按钮 clicked 触发：用系统默认应用打开协议链接，失败则弹窗提示。"""
         try:
             QDesktopServices.openUrl(QUrl(url))
         except Exception:
@@ -441,6 +478,7 @@ class ContactButton(QWidget):
                                 f'{name}: {self._value}')
 
     def _copy(self, value: str, name: str):
+        """由「复制」按钮 clicked 触发：将 value 写入系统剪贴板并提示已复制。"""
         from PySide6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         cb.setText(value)

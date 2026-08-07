@@ -11,6 +11,11 @@ from core.hexagram_analyzer import BAGUA, HEXAGRAMS
 
 
 def _get_db():
+    """获取一个 DatabaseManager 实例。
+
+    Returns:
+        DatabaseManager: 用于访问本地 SQLite 知识库的数据库管理器实例。
+    """
     return DatabaseManager()
 
 
@@ -124,37 +129,103 @@ def _load_meihua_knowledge():
 
 # 惰性加载模块级变量
 class _LazyLoader:
+    """惰性加载包装器：首次访问时才真正执行加载函数，之后的访问直接复用缓存结果。
+
+    用于把各 `knowledge_base` 的 `def _load_xxx()` 加载函数包装成「按需加载、只加载一次」
+    的类字典对象，避免模块导入时就把整个数据库读进内存。
+    """
+
     def __init__(self, loader):
+        """构造惰性加载器。
+
+        Args:
+            loader: 无参可调用对象，返回要缓存的真实数据（通常是 dict）。
+        """
         self._loader = loader
         self._data = None
 
     def _load(self):
+        """真正执行加载函数（仅在首次时），并返回缓存的数据。
+
+        Returns:
+            加载函数返回的数据对象；首次之后返回已缓存的同一对象。
+        """
         if self._data is None:
             self._data = self._loader()
         return self._data
 
     def __getitem__(self, key):
+        """支持下标取值，等价于 `self._load()[key]`。
+
+        Args:
+            key: 要取的数据键。
+
+        Returns:
+            对应的值。
+        """
         return self._load()[key]
 
     def get(self, key, default=None):
+        """类 dict 的 get 方法，首次访问触发加载。
+
+        Args:
+            key: 数据键。
+            default: 键不存在时返回的默认值，默认 None。
+
+        Returns:
+            对应值或默认值。
+        """
         return self._load().get(key, default)
 
     def items(self):
+        """类 dict 的 items 方法，返回 (键, 值) 视图。
+
+        Returns:
+            底层数据 dict 的 items 视图。
+        """
         return self._load().items()
 
     def keys(self):
+        """类 dict 的 keys 方法，返回键视图。
+
+        Returns:
+            底层数据 dict 的 keys 视图。
+        """
         return self._load().keys()
 
     def values(self):
+        """类 dict 的 values 方法，返回值视图。
+
+        Returns:
+            底层数据 dict 的 values 视图。
+        """
         return self._load().values()
 
     def __iter__(self):
+        """支持 for 遍历，按底层数据的键迭代。
+
+        Returns:
+            底层数据 dict 的键迭代器。
+        """
         return iter(self._load())
 
     def __len__(self):
+        """支持下标取长度。
+
+        Returns:
+            int: 底层数据 dict 的键数量。
+        """
         return len(self._load())
 
     def __contains__(self, key):
+        """支持 `in` 成员判断。
+
+        Args:
+            key: 待查询的键。
+
+        Returns:
+            bool: 键是否存在。
+        """
         return key in self._load()
 
 
@@ -222,36 +293,94 @@ def _build_term_index():
 
 
 class _LazyTermIndex:
+    """术语索引的惰性加载包装器（与 _LazyLoader 相同的 dict 协议，但只构建一次术语索引）。"""
+
     def __init__(self):
+        """初始化空缓存，延迟到首次访问才调用 `_build_term_index()`。"""
         self._data = None
 
     def _load(self):
+        """首次访问时构建术语索引并缓存，之后直接复用。
+
+        Returns:
+            dict: 以术语名为键、术语元信息为值的索引字典。
+        """
         if self._data is None:
             self._data = _build_term_index()
         return self._data
 
     def __getitem__(self, key):
+        """支持下标取值，等价于 `self._load()[key]`。
+
+        Args:
+            key: 术语名。
+
+        Returns:
+            对应的术语元信息字典。
+        """
         return self._load()[key]
 
     def get(self, key, default=None):
+        """类 dict 的 get 方法，首次访问触发索引构建。
+
+        Args:
+            key: 术语名。
+            default: 不存在时返回的默认值，默认 None。
+
+        Returns:
+            术语元信息字典或默认值。
+        """
         return self._load().get(key, default)
 
     def items(self):
+        """类 dict 的 items 方法。
+
+        Returns:
+            索引字典的 (术语名, 元信息) 视图。
+        """
         return self._load().items()
 
     def keys(self):
+        """类 dict 的 keys 方法。
+
+        Returns:
+            索引字典的术语名视图。
+        """
         return self._load().keys()
 
     def values(self):
+        """类 dict 的 values 方法。
+
+        Returns:
+            索引字典的元信息视图。
+        """
         return self._load().values()
 
     def __iter__(self):
+        """支持遍历，按术语名迭代。
+
+        Returns:
+            术语名迭代器。
+        """
         return iter(self._load())
 
     def __len__(self):
+        """支持下标取长度。
+
+        Returns:
+            int: 术语总数。
+        """
         return len(self._load())
 
     def __contains__(self, key):
+        """支持 `in` 成员判断。
+
+        Args:
+            key: 待查询的术语名。
+
+        Returns:
+            bool: 该术语是否存在于索引中。
+        """
         return key in self._load()
 
 
@@ -262,6 +391,11 @@ class KnowledgeBase:
     """命理知识库 - 提供结构化的命理知识查询和检索"""
     
     def __init__(self):
+        """初始化知识库。
+
+        把各模块级惰性加载的知识集合与术语索引挂到实例属性上，
+        供实例方法按需访问（访问时才真正从数据库加载）。
+        """
         self.wuxing = WUXING_KNOWLEDGE
         self.shishen = SHISHEN_KNOWLEDGE
         self.tiangan_dizhi = TIANGAN_DIZHI_KNOWLEDGE

@@ -12,22 +12,30 @@ from core.calendar_utils import (
     TIAN_GAN as _TG_DEF,
     DI_ZHI as _DZ_DEF,
 )
+# 数据库不可用时的静态兜底，取自唯一权威源
+from core.ganzhi_constants import TIAN_GAN as _TG_FALLBACK, DI_ZHI as _DZ_FALLBACK
 
-# ---- populate lazily but synchronously at first access ----
+# ---- 干支表：首次访问时同步填充（优先库内数据，失败则用静态兜底）----
 _TG = None
 _DZ = None
 
 
 def _ensure():
+    """确保 _TG / _DZ 已就绪，幂等，可重复调用。
+
+    先触发 calendar_utils 的数据库懒加载；若库中未取到（例如首次启动
+    或数据库损坏），则退回 core.ganzhi_constants 的静态字面量，
+    保证排盘逻辑在任何情况下都不会因缺表而崩溃。
+    """
     global _TG, _DZ
     if _TG is not None:
         return
     _cal_lazy_init()
-    _TG = _TG_DEF or ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
-    _DZ = _DZ_DEF or ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+    _TG = _TG_DEF or _TG_FALLBACK
+    _DZ = _DZ_DEF or _DZ_FALLBACK
 
 
-# Initial call — eager to avoid runtime gaps
+# 模块导入时即执行一次，避免运行期出现「未初始化」的时间窗
 _ensure()
 
 
@@ -67,14 +75,17 @@ class _SimModule:
 
     @property
     def TIAN_GAN(self):
+        """返回已就绪的天干表（优先库内数据，兜底静态常量），供旧 import 透明取用。"""
         return _TG
 
     @property
     def DI_ZHI(self):
+        """返回已就绪的地支表（优先库内数据，兜底静态常量），供旧 import 透明取用。"""
         return _DZ
 
     @staticmethod
     def _lazy_init():
+        """确保天干/地支表已填充（触发 _ensure()，幂等）。"""
         _ensure()
 
     @staticmethod
@@ -93,6 +104,17 @@ class _CoreBaZiCalc:
     """Compatible BaZiCalculator delegating to calendar_utils.BaZiCalendar."""
 
     def calculate(self, year, month, day, hour, minute=0, longitude=120.0, is_lunar=False):
+        """兼容入口：把参数转交 calendar_utils.BaZiCalendar 计算四柱，并补齐 solar_date / lunar_date 字段。
+
+        Args:
+            year, month, day, hour: 公历时间
+            minute: 分钟，用于真太阳时精算
+            longitude: 经度，用于真太阳时修正
+            is_lunar: 是否农历（当前透传给底层日历器）
+
+        Returns:
+            dict: 含四柱、日主、公历/农历日期等字段的八字结果
+        """
         from core.calendar_utils import BaZiCalendar as _BC
         r = _BC().calculate_bazi(year, month, day, hour, minute, longitude)
         r.setdefault("solar_date", f"{year}-{month:02d}-{day:02d}")

@@ -96,6 +96,7 @@ DB_PATTERNS = [p[0].pattern.encode('utf-8') for p in RESIDUE_PATTERNS]
 
 
 def _rel(path: Path) -> str:
+    """把绝对路径转换为相对项目根目录的 POSIX 路径字符串（用于日志展示）。"""
     return path.relative_to(ROOT).as_posix()
 
 
@@ -216,6 +217,15 @@ def clean_seed_db(dry_run: bool) -> List[str]:
 
 
 def main() -> int:
+    """脚本入口：按 --check 选择「只检查」或「清除」模式执行凭据清理流程。
+
+    依次执行：移除凭据载体文件、清理陈旧字节码、清空调试密钥、扫描源码残留
+    的 AI 原始信息、清扫种子库运行期表。--check 模式仅报告问题并返回退出码，
+    用于 CI 门禁；默认模式会实际改写源码树与种子库。
+
+    Returns:
+        int: 0 表示干净（或检查通过）；1 表示发现残留（检查未通过）。
+    """
     parser = argparse.ArgumentParser(description='打包前清除全部 AI 原始信息')
     parser.add_argument('--check', action='store_true',
                         help='只检查不改动（CI 门禁用）')

@@ -18,12 +18,30 @@ METHODS = [
 
 
 class MeihuaInputPanel(QWidget):
+    """梅花易数起卦输入面板（主窗口左栏）。
+
+    支持 METHODS 中列出的 6 种起卦方式（时间/数字/方位/文字/铜钱/笔画）。
+    各方式所需参数差异很大，故用 QStackedWidget 承载参数区：方式按钮索引与
+    堆叠页索引一一对应，切换方式即切换参数页，避免把无关控件堆在同一屏。
+    """
+
     def __init__(self, parent=None):
+        """
+        Args:
+            parent: Qt 父控件。
+        """
         super().__init__(parent)
+        # 默认时间起卦，与 METHODS[0] 及参数堆叠页索引 0 对齐
         self.selected_method = 'time'
         self._build()
 
     def _build(self):
+        """构建起卦表单：公共输入区 + 6 个方式专属参数页。
+
+        公共区为「方式选择 -> 占问分类 -> 占问」；其后 self.params 堆叠容器按
+        METHODS 的顺序依次 addWidget 六个参数页。两者顺序必须严格一致，
+        _on_method() 才能用同一个索引同时切换内部状态与显示页面。
+        """
         self.setStyleSheet(f"background-color: {Colors.BG};")
 
         scroll = QScrollArea()
@@ -338,11 +356,27 @@ class MeihuaInputPanel(QWidget):
         outer.addWidget(scroll)
 
     def _label(self, text):
+        """生成表单左侧的定宽说明标签，使各行输入控件左边缘对齐。
+
+        Args:
+            text: 标签文字。
+
+        Returns:
+            QLabel: 固定宽 42px 的次级灰色标签。
+        """
         l = QLabel(text); l.setFixedWidth(42)
         l.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
         return l
 
     def _on_method(self, i):
+        """起卦方式切换槽（由方式按钮的 clicked 触发）。
+
+        同步 selected_method 并把参数堆叠页切到同一索引；若当前切到铜钱摇卦，
+        再惰性接线「全部自动随机」按钮。
+
+        Args:
+            i: 方式索引，与 METHODS 及 self.params 的页序一一对应。
+        """
         self.selected_method = METHODS[i][0]
         self.params.setCurrentIndex(i)
         
@@ -446,6 +480,13 @@ class MeihuaInputPanel(QWidget):
         return d
 
     def clear(self):
+        """重置面板为初始态（由「重置」按钮触发）。
+
+        方式回到第一项后必须手动调用 _on_method(0)：setChecked() 不会发出 clicked
+        信号，否则参数堆叠页与 selected_method 会停留在上一次选择的起卦方式上。
+        六爻区先整行取消勾选、再选中第一项（少阳），确保上次的摇卦结果被彻底清掉；
+        文字与数字等输入框则恢复为示例默认值，方便用户直接再起一卦。
+        """
         self.method_btns[0].setChecked(True); self._on_method(0)
         self.question.clear()
         self.question_category.setCurrentIndex(0)

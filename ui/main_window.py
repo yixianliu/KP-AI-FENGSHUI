@@ -45,7 +45,14 @@ NAV = [
 
 
 class MainWindow(QMainWindow):
+    """应用主窗口：承载八字/梅花易数/大六壬/综合建议/历史记录五大板块。
+
+    采用三层架构的 UI 层（PySide6）：通过 QSplitter 左右分栏（输入面板 + 结果面板），
+    顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与龙虎山大师兄（AI）分析。
+    负责 worker 线程生命周期、界面配置持久化与操作日志记录。
+    """
     def __init__(self):
+        """初始化主窗口：设置窗口元数据、日志、会话标识，并依次完成字体、core、UI、信号绑定与配置还原。"""
         super().__init__()
         self.module_hint = None
         self.setWindowTitle('风水排盘专业工具')
@@ -79,10 +86,17 @@ class MainWindow(QMainWindow):
         self._switch('bazi')
 
     def _init_fonts(self):
+        """设置全局默认字体（微软雅黑）与工具提示样式表。"""
         QApplication.setFont(QFont("Microsoft YaHei", 10))
         QApplication.instance().setStyleSheet(Stylesheets.TOOLTIP)
 
     def _init_core(self):
+        """初始化 core 业务层与数据库，并准备 AI 状态管理。
+
+        实例化各排盘计算器（八字/农历/真太阳时/地点/梅花/六壬等）、DatabaseManager，
+        初始化 AI worker 登记表、最近记录 ID 与三方 AI 结论缓存，
+        并探测 AI 可用性、刷新按钮状态、订阅配置热更新。
+        """
         # 持有所有正在运行的 AI worker 引用，避免被 GC 销毁
         # （QThread: Destroyed while thread is still running）
         self._active_workers = []
@@ -297,6 +311,7 @@ class MainWindow(QMainWindow):
             return False
 
     def _init_ui(self):
+        """构建主窗口整体布局：顶部导航栏 + QSplitter 左右分栏（输入栈/结果栈）+ 状态栏。"""
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
@@ -351,6 +366,11 @@ class MainWindow(QMainWindow):
         self.module_hint = None  # 预留：当前模块提示
 
     def _create_navbar(self, parent):
+        """创建顶部导航栏：Logo、胶囊式板块切换按钮组、设置与关于按钮。
+
+        Args:
+            parent: 承载导航栏的父布局（根垂直布局）
+        """
         bar = QFrame()
         bar.setFixedHeight(56)
         bar.setStyleSheet(f"""
@@ -477,6 +497,7 @@ class MainWindow(QMainWindow):
         parent.addWidget(bar)
 
     def _build_left(self):
+        """构建左侧输入面板栈：依次加入八字/梅花/六壬/综合/历史五个输入面板。"""
         self.bazi_input = InputPanel()
         self.left_stack.addWidget(self.bazi_input)
         self.meihua_input = MeihuaInputPanel()
@@ -489,6 +510,7 @@ class MainWindow(QMainWindow):
         self.left_stack.addWidget(self.history_left)
 
     def _build_right(self):
+        """构建右侧结果面板栈：依次加入八字/梅花/六壬/综合/历史五个结果面板。"""
         self.bazi_result = ResultPanel()
         self.right_stack.addWidget(self.bazi_result)
         self.meihua_result = MeihuaResultPanel()
@@ -516,6 +538,14 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([left, avail - left])
 
     def _switch(self, pid):
+        """切换当前激活板块。
+
+        Args:
+            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'/'zonghe'/'history'
+
+        同步高亮导航按钮，切换左右堆叠控件的当前页；
+        进入历史板块时加载记录、进入综合板块时刷新三方就绪状态，并记录切换操作。
+        """
         for k, b in self.nav_btns.items():
             b.setChecked(k == pid)
         idx = {'bazi': 0, 'meihua': 1, 'liuren': 2, 'zonghe': 3, 'history': 4}
@@ -534,6 +564,7 @@ class MainWindow(QMainWindow):
         self.bazi_result.display_result(result)
 
     def _connect_signals(self):
+        """绑定各输入面板与结果面板的信号到对应槽函数（提交/重置/AI分析/历史联动等）。"""
         self.bazi_input.submit_btn.clicked.connect(self._on_bazi)
         self.bazi_input.reset_btn.clicked.connect(self._on_bazi_reset)
         self.bazi_result.refresh_btn.clicked.connect(self._on_bazi)
@@ -615,6 +646,7 @@ class MainWindow(QMainWindow):
 
     # ===== 八字 =====
     def _on_bazi(self):
+        """八字『开始排盘』按钮槽：读取输入、展示加载态，并延迟调用 _do_bazi 执行排盘。"""
         try:
             data = self.bazi_input.get_data()
             task_id = str(uuid.uuid4())
@@ -625,6 +657,16 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def _do_bazi(self, data, task_id=None):
+        """执行八字排盘核心流程（由 _on_bazi 经定时器延迟调用）。
+
+        Args:
+            data: 输入面板数据（年/月/日/时/经纬度/农历标志/性别等）
+            task_id: 本次排盘任务标识（预留，用于日志与并发追踪）
+
+        流程：解析出生地经纬度 → 农历转公历（如需要）→ 计算真太阳时 →
+        调用 core 完成四柱/五行/十神/命理/大运流年/命局类型/运程总结 →
+        保存记录 → 展示结果 → 自动触发龙虎山大师兄（AI）分析。
+        """
         try:
             y, m, d, hh, mm = data['year'], data['month'], data['day'], data['hour'], data['minute']
             longitude = data['longitude']
@@ -774,6 +816,15 @@ class MainWindow(QMainWindow):
             self._logger.error("[八字] 自动AI分析启动失败: %s", e, exc_info=True)
 
     def _analysis(self, ml, ss):
+        """根据十神汇总与命理神煞生成吉凶批注列表（规则引擎，离线可跑）。
+
+        Args:
+            ml: 命理数据（含神煞 shensha）
+            ss: 十神数据（含 summary 与 total_weights）
+
+        Returns:
+            批注条目列表，每条形如 {'type': '吉'/'中'/'凶', 'text': '...'}
+        """
         a = []
         sh_summary = ss.get('summary', {})
         sh_total_weights = ss.get('total_weights', {})
@@ -907,11 +958,13 @@ class MainWindow(QMainWindow):
         )
 
     def _on_bazi_reset(self):
+        """八字『重置』按钮槽：清空输入面板与结果面板。"""
         self.bazi_input.clear()
         self.bazi_result.clear()
 
     # ===== 梅花 =====
     def _on_meihua(self):
+        """梅花易数『起卦』按钮槽：读取输入、展示加载态，并延迟调用 _do_meihua 起卦。"""
         try:
             data = self.meihua_input.get_data()
             task_id = str(uuid.uuid4())
@@ -923,6 +976,15 @@ class MainWindow(QMainWindow):
 
 
     def _do_meihua(self, data, task_id=None):
+        """执行梅花易数起卦流程（由 _on_meihua 经定时器延迟调用）。
+
+        Args:
+            data: 输入面板数据（起卦方式 method、问题、各方式对应参数）
+            task_id: 本次起卦任务标识（预留）
+
+        按 method 分发到对应起卦算法，生成本/互/变/错/综卦并交由 HexagramAnalyzer 分析，
+        展示结果、保存记录、记录操作，最后自动触发龙虎山大师兄（AI）解读。
+        """
         try:
             method = data.get('method')
             if not method:
@@ -1032,11 +1094,13 @@ class MainWindow(QMainWindow):
             self._logger.error("[梅花] 自动AI解读启动失败: %s", e, exc_info=True)
 
     def _on_meihua_reset(self):
+        """梅花易数『重置』按钮槽：清空输入面板与结果面板。"""
         self.meihua_input.clear()
         self.meihua_result.clear()
 
     # ===== 大六壬 =====
     def _on_liuren(self):
+        """大六壬『起课』按钮槽：读取输入、展示加载态，并延迟调用 _do_liuren 起课。"""
         try:
             data = self.liuren_input.get_data()
             task_id = str(uuid.uuid4())
@@ -1048,6 +1112,15 @@ class MainWindow(QMainWindow):
 
 
     def _do_liuren(self, data, task_id=None):
+        """执行大六壬起课流程（由 _on_liuren 经定时器延迟调用）。
+
+        Args:
+            data: 输入面板数据（起课方式 method、年月日时、问题、占事等）
+            task_id: 本次起课任务标识（预留）
+
+        调用 LiuRenCalculator 起课，展示结果、保存记录、记录操作，
+        最后自动触发龙虎山大师兄（AI）解读。
+        """
         try:
             method = data['method']
             q = data.get('question', '')
@@ -1097,6 +1170,7 @@ class MainWindow(QMainWindow):
             self._logger.error("[六壬] 自动AI解读启动失败: %s", e, exc_info=True)
 
     def _on_liuren_reset(self):
+        """大六壬『重置』按钮槽：清空输入面板与结果面板。"""
         self.liuren_input.clear()
         self.liuren_result.clear()
 
@@ -1267,9 +1341,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, '错误', f'综合建议生成启动失败: {e}')
 
     def _on_zonghe_progress(self, stage: str, message: str):
+        """综合建议生成进度回调：将 worker 上报的进度信息显示到状态栏。
+
+        Args:
+            stage: 进度阶段标识
+            message: 进度文案
+        """
         self.statusBar().showMessage(message)
 
     def _on_zonghe_finished(self, result: dict):
+        """综合建议生成完成回调：展示结果、解忙，并将建议作为独立记录落库。
+
+        Args:
+            result: worker 返回的结果字典（含 ai_analysis / token_usage / elapsed_seconds）
+        """
         try:
             ai_analysis = result.get('ai_analysis', {})
             self.zonghe_result.display_result(ai_analysis)
@@ -1303,6 +1388,12 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def _on_zonghe_failed(self, error_type: str, error_message: str):
+        """综合建议生成失败回调：解除忙碌态、展示错误并提示失败类型。
+
+        Args:
+            error_type: 失败类型标识
+            error_message: 失败描述（取首行作为简短提示）
+        """
         self.zonghe_input.set_busy(False)
         self.zonghe_result.show_error(error_message.split('\n')[0])
         self.statusBar().showMessage(f'综合建议生成失败: {error_type}')

@@ -40,10 +40,17 @@ class _ConnectionTestWorker(QThread):
     finished_err = Signal(str)    # 错误描述
 
     def __init__(self, profile: AIProfile, parent=None):
+        """初始化连接测试后台线程。
+
+        Args:
+            profile: 待测试的 AI 配置档（含端点、模型、密钥）。
+            parent: 父对象。
+        """
         super().__init__(parent)
         self._profile = profile
 
     def run(self):
+        """线程入口：用最小请求验证密钥可用性，结果通过信号回传主线程。"""
         try:
             from api.agnes_client import AgnesClient
             client = AgnesClient(profile=self._profile)
@@ -64,6 +71,15 @@ class SettingsDialog(QDialog):
     """龙虎山大师兄配置对话框（极简版）。"""
 
     def __init__(self, parent=None):
+        """初始化极简配置对话框：固定官方后端，仅向用户索取 API 密钥。
+
+        端点与模型在构造时即锁定为 core.ai_config 中的官方常量
+        OFFICIAL_AGNES_ENDPOINT / OFFICIAL_AGNES_MODEL，GUI 不暴露多模型与
+        端点配置项——这是刻意移除的取舍，密钥由用户填写并经设备指纹混淆落盘。
+
+        Args:
+            parent: 父窗口（可选）。
+        """
         super().__init__(parent)
         self.setWindowTitle('设置 · 龙虎山大师兄配置')
         self.setMinimumSize(520, 430)
@@ -88,6 +104,7 @@ class SettingsDialog(QDialog):
     # 布局构建
     # ============================================================
     def _build_ui(self):
+        """构建对话框布局：标题 / 说明 / 状态横幅 / 只读后端信息卡 / 密钥输入 / 按钮。"""
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
@@ -228,15 +245,18 @@ class SettingsDialog(QDialog):
     # 事件
     # ============================================================
     def _on_key_changed(self, *_):
+        """由密钥输入框 textChanged 触发：同步草稿密钥并刷新状态横幅。"""
         self._draft.api_key = self.key_edit.text().strip()
         self._refresh_status()
 
     def _on_toggle_key_visible(self, shown: bool):
+        """由「显示」按钮 toggled 触发：切换密钥明文/密文显示。"""
         self.key_edit.setEchoMode(QLineEdit.Normal if shown else QLineEdit.Password)
         self.key_toggle.setText('隐藏' if shown else '显示')
 
     # ---------- 测试连接 ----------
     def _on_test(self):
+        """由「测试连接」按钮 clicked 触发：校验后启动后台连接测试线程。"""
         self._draft.api_key = self.key_edit.text().strip()
         err = self._draft.validate()
         if err:
@@ -254,6 +274,7 @@ class SettingsDialog(QDialog):
         self._test_worker.start()
 
     def _on_test_ok(self, snippet: str):
+        """由测试线程 finished_ok 触发：展示连接成功提示与模型返回片段。"""
         self._refresh_status(f'连接成功，模型已响应：{snippet or "（空回复）"}', 'ok')
         QMessageBox.information(
             self, '连接测试',
@@ -261,6 +282,7 @@ class SettingsDialog(QDialog):
         )
 
     def _on_test_err(self, message: str):
+        """由测试线程 finished_err 触发：展示连接失败原因并提示排查。"""
         self._refresh_status(f'连接失败：{message}', 'err')
         QMessageBox.warning(
             self, '连接测试',
@@ -268,12 +290,14 @@ class SettingsDialog(QDialog):
         )
 
     def _on_test_done(self):
+        """由测试线程 finished 触发：复位测试按钮状态并释放后台线程引用。"""
         self.test_btn.setEnabled(True)
         self.test_btn.setText('测试连接')
         self._test_worker = None
 
     # ---------- 保存 ----------
     def _on_save(self):
+        """由「保存并应用」按钮 clicked 触发：校验后整体替换配置档并即时生效。"""
         self._draft.api_key = self.key_edit.text().strip()
         err = self._draft.validate()
         if err:
@@ -291,6 +315,7 @@ class SettingsDialog(QDialog):
     # 样式辅助
     # ============================================================
     def _label(self, text: str) -> QLabel:
+        """生成统一风格的信息卡标签（次级文字、无边框）。"""
         lbl = QLabel(text)
         lbl.setStyleSheet(
             f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT2}; border: none;")
@@ -322,6 +347,13 @@ class SettingsDialog(QDialog):
         """
 
     def _btn_style(self, fg, border, hover) -> str:
+        """生成统一样式的描边按钮样式表。
+
+        Args:
+            fg: 文字/边框颜色。
+            border: 默认边框颜色。
+            hover: 悬停/按下时的背景色。
+        """
         return f"""
             QPushButton {{
                 background: {Colors.CARD};

@@ -13,6 +13,7 @@ from core.database_manager import DatabaseManager
 
 
 def _get_db():
+    """返回 DatabaseManager 实例，供本模块惰性加载十神名称映射与五行映射。"""
     return DatabaseManager()
 
 
@@ -22,6 +23,7 @@ _SHISHEN_WUXING_MAP = None
 
 
 def _lazy_init():
+    """首次调用时从数据库加载十神阴阳名称表与十神五行映射；之后幂等。"""
     global _SHISHEN_DETAIL, _SHISHEN_WUXING_MAP
     if _SHISHEN_DETAIL is None:
         db = _get_db()
@@ -51,6 +53,7 @@ class ShiShenAnalyzer:
     """
     
     def __init__(self):
+        """初始化时加载十神数据，并构建天干名→序号索引供十神判定使用。"""
         _lazy_init()
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
     

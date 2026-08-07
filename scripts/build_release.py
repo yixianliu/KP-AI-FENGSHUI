@@ -32,6 +32,15 @@ GENIE_TRASH = "C:/Program Files/WorkBuddy/resources/vendor/genie-trash/win32-x64
 
 
 def run(cmd, **kw):
+    """执行子进程并打印完整命令行，使构建日志可追踪。
+
+    Args:
+        cmd: 命令及其参数组成的序列。
+        **kw: 透传给 subprocess.run 的额外关键字参数（如 cwd、check）。
+
+    Returns:
+        subprocess.CompletedProcess: 子进程运行结果。
+    """
     print(">>> " + " ".join(str(c) for c in cmd))
     return subprocess.run(cmd, **kw)
 
@@ -51,6 +60,16 @@ def _send_to_trash(path: Path) -> bool:
 
 
 def main() -> int:
+    """一键发布构建：编排「清密钥→移旧 dist→PyInstaller 打包→产物校验」。
+
+    按项目约定顺序执行四步：先 purge 移除调试密钥与种子库运行期表，再把旧
+    dist 移开（避免触发安全删除门禁），然后 PyInstaller 构建，最后
+    verify_build_security 做产物级字节扫描；任一步失败即中止并返回对应非零
+    退出码，保证产出物始终零密钥残留。
+
+    Returns:
+        int: 0 表示构建成功且校验通过；非 0 表示中途失败。
+    """
     # 放行安全删除沙箱（本项目构建流程需移动 / 重建 dist 目录）
     os.environ.setdefault("CODEBUDDY_SAFE_DELETE_SANDBOX", "0")
 

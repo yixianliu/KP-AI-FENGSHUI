@@ -196,6 +196,14 @@ class AIProfile:
         }
 
     def clone(self, new_name: Optional[str] = None) -> 'AIProfile':
+        """深拷贝出一个新配置档，并分配新的随机 id（可选重命名）。
+
+        Args:
+            new_name: 新配置档名称；为 None 时沿用原名。
+
+        Returns:
+            AIProfile: 字段相同但 id 不同、可独立编辑的新配置档。
+        """
         data = asdict(self)
         data['id'] = uuid.uuid4().hex[:12]
         if new_name:
@@ -240,6 +248,15 @@ def _device_key() -> bytes:
 
 
 def _xor(data: bytes, key: bytes) -> bytes:
+    """对字节流做循环密钥 XOR（混淆用，非加密）。
+
+    Args:
+        data: 待变换的明文/密文字节。
+        key: 派生出的混淆密钥字节。
+
+    Returns:
+        bytes: 逐字节与 key 循环异或后的结果（XOR 可逆，再算一次即还原）。
+    """
     return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
 
 
@@ -276,6 +293,11 @@ class AIConfigManager:
     _instance_lock = threading.Lock()
 
     def __init__(self, path: Optional[Path] = None):
+        """初始化中央配置管理器。
+
+        Args:
+            path: 配置文件路径；为 None 时首次访问再按应用目录解析默认值。
+        """
         self._lock = threading.RLock()
         self._path: Optional[Path] = Path(path) if path else None
         self._profiles: List[AIProfile] = []
@@ -289,6 +311,13 @@ class AIConfigManager:
     # ---------- 单例 ----------
     @classmethod
     def instance(cls) -> 'AIConfigManager':
+        """获取进程内唯一实例（双重检查锁的单例）。
+
+        使用方都应经此入口而不是自行 new，以保证全程序共享同一份配置与版本号。
+
+        Returns:
+            AIConfigManager: 全局唯一的配置管理器实例。
+        """
         if cls._instance is None:
             with cls._instance_lock:
                 if cls._instance is None:
@@ -303,6 +332,11 @@ class AIConfigManager:
 
     # ---------- 路径 ----------
     def path(self) -> Path:
+        """返回配置文件路径；首次调用时按应用目录惰性解析默认路径。
+
+        Returns:
+            Path: `ai_config.json` 的完整路径。
+        """
         if self._path is None:
             from core.path_utils import get_app_dir
             self._path = get_app_dir() / CONFIG_FILENAME
@@ -432,6 +466,7 @@ class AIConfigManager:
             self._subscribers.append(callback)
 
         def unsubscribe() -> None:
+            """取消订阅：把原 callback 从监听列表中移除（幂等，重复调用安全）。"""
             with self._lock:
                 if callback in self._subscribers:
                     self._subscribers.remove(callback)
@@ -439,6 +474,11 @@ class AIConfigManager:
         return unsubscribe
 
     def _notify(self, version: int) -> None:
+        """依次调用所有订阅者回调（已复制列表，避免回调内修改订阅表时出错）。
+
+        Args:
+            version: 触发本次通知的配置版本号，作为回调参数传给订阅者。
+        """
         with self._lock:
             subs = list(self._subscribers)
         for cb in subs:
@@ -449,6 +489,11 @@ class AIConfigManager:
 
     # ---------- 查询 ----------
     def list_profiles(self) -> List[AIProfile]:
+        """返回全部配置档的深拷贝列表（先确保已从磁盘载入最新内容）。
+
+        Returns:
+            List[AIProfile]: 所有配置档的副本，调用方修改不会污染内存状态。
+        """
         self.load()
         with self._lock:
             return [copy.deepcopy(p) for p in self._profiles]
@@ -498,6 +543,14 @@ class AIConfigManager:
         return profile
 
     def get_profile(self, profile_id: str) -> Optional[AIProfile]:
+        """按 id 查找并返回配置档的深拷贝；不存在时返回 None。
+
+        Args:
+            profile_id: 目标配置档的 id。
+
+        Returns:
+            Optional[AIProfile]: 命中的配置档副本，或 None。
+        """
         self.load()
         with self._lock:
             for p in self._profiles:
@@ -507,6 +560,11 @@ class AIConfigManager:
 
     @property
     def active_id(self) -> str:
+        """当前生效配置档的 id（先确保已载入最新内容）。
+
+        Returns:
+            str: 生效配置档 id；尚未配置时为空串。
+        """
         self.load()
         with self._lock:
             return self._active_id
@@ -544,6 +602,14 @@ class AIConfigManager:
         return self.save()
 
     def delete_profile(self, profile_id: str) -> bool:
+        """删除指定配置档；若它正被设为生效档，则自动改指第一个剩余档。
+
+        Args:
+            profile_id: 待删除配置档的 id。
+
+        Returns:
+            bool: 成功删除返回 True；id 不存在（无改动）返回 False。
+        """
         self.load()
         with self._lock:
             before = len(self._profiles)
@@ -555,6 +621,14 @@ class AIConfigManager:
         return self.save()
 
     def set_active(self, profile_id: str) -> bool:
+        """把指定配置档设为当前生效档（落盘并触发热更新）。
+
+        Args:
+            profile_id: 目标配置档的 id。
+
+        Returns:
+            bool: 设置成功（id 存在）返回 True；id 不存在返回 False。
+        """
         self.load()
         with self._lock:
             if not any(p.id == profile_id for p in self._profiles):
@@ -641,18 +715,29 @@ def get_config_manager() -> AIConfigManager:
 
 
 def get_active_profile() -> Optional[AIProfile]:
+    """便捷入口：返回当前生效配置档，未配置时返回 None。"""
     return get_config_manager().get_active()
 
 
 def is_ai_configured() -> bool:
+    """便捷入口：判断 AI 功能是否已具备可用配置。"""
     return get_config_manager().is_configured()
 
 
 def config_version() -> int:
+    """便捷入口：返回当前配置版本号（读取时可能触发外部改动重载）。"""
     return get_config_manager().version
 
 
 def subscribe(callback: Callable[[int], None]) -> Callable[[], None]:
+    """便捷入口：注册配置变更监听者，返回取消订阅的函数。
+
+    Args:
+        callback: 接收版本号 (int) 的回调。
+
+    Returns:
+        Callable[[], None]: 用于取消订阅的函数。
+    """
     return get_config_manager().subscribe(callback)
 
 

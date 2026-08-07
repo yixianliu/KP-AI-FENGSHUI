@@ -3,10 +3,11 @@
 """
 import datetime
 
-# 天干地支常量（原从 core.baazi 导入，R1 已删除该模块，此处直接定义）
-TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
-DI_ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
+# 天干地支常量统一取自 core.ganzhi_constants（唯一权威源）；
+# 保留本模块的同名再导出，兼容 `from core.meihua import TIAN_GAN` 的旧写法。
+from core.ganzhi_constants import TIAN_GAN, DI_ZHI
 
+#: 六爻自下而上的名称，索引 0 为最下方的初爻
 YAO_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
 
 
@@ -14,6 +15,7 @@ class MeiHuaCalculator:
     """梅花易数计算器 - 实现多种起卦方式"""
 
     def __init__(self):
+        """初始化时构建天干支名→序号索引，供起卦后干支换算与取用。"""
         self.tian_gan_map = {tg: i for i, tg in enumerate(TIAN_GAN)}
         self.di_zhi_map = {dz: i for i, dz in enumerate(DI_ZHI)}
 
@@ -307,6 +309,7 @@ class MeiHuaCalculator:
         # 根据6次摇卦构建上下卦（下3爻为下卦，上3爻为上卦）
         # 每爻映射为数值：老阴=0, 少阴=1, 少阳=2, 老阳=3
         def _yao_to_num(yao_type):
+            """把摇卦得到的爻类型映射为数值：老阴=0、少阴=1、少阳=2、老阳=3。"""
             return {'老阴': 0, '少阴': 1, '少阳': 2, '老阳': 3}[yao_type]
         
         lower_nums = [_yao_to_num(six_lines[0]), _yao_to_num(six_lines[1]), _yao_to_num(six_lines[2])]

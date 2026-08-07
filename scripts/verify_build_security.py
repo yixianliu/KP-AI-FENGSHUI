@@ -122,6 +122,21 @@ def iter_scan_targets(dist: Path):
 
 
 def scan(dist: Path, env_path: Path) -> int:
+    """对构建产物做二进制级密钥残留扫描，返回是否通过。
+
+    校验标准（与发布约定一致）：唯一机密是用户 GUI 填写的 API 密钥，凡以
+    s-k- 连字符形式的密钥前缀、明文 Bearer 密钥、非官方上游端点、非发布模型名
+    （pro 变体）以及已废弃的凭据烧录模块名，一律视为泄漏；官方固定后端
+    （端点与公开模型名）属公开产品常量，放行。先读 .env 中的历史机密值断言其
+    绝不出现在产物，再跑通用正则，最后做文件名级检查并区分设计上分发的非机密。
+
+    Args:
+        dist: 产物目录（默认 dist）。
+        env_path: 机密来源 .env 路径。
+
+    Returns:
+        int: 0 通过；1 发现机密残留；2 产物目录不存在等环境错误。
+    """
     if not dist.exists():
         print(f'[错误] 产物目录不存在: {dist}')
         return 2
@@ -216,6 +231,11 @@ def scan(dist: Path, env_path: Path) -> int:
 
 
 def main() -> int:
+    """解析命令行参数（--dist / --env）并委托 scan 执行产物级校验。
+
+    Returns:
+        int: 透传 scan 的退出码（0 通过，1 泄漏，2 环境错误）。
+    """
     parser = argparse.ArgumentParser(description='打包产物密钥残留校验')
     parser.add_argument('--dist', default='dist', help='产物目录，默认 dist')
     parser.add_argument('--env', default='server/.env',

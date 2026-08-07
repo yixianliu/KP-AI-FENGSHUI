@@ -7,6 +7,7 @@ from core.database_manager import DatabaseManager
 
 
 def _get_db():
+    """返回 DatabaseManager 实例，供地点模块加载 city_coords 城市坐标表。"""
     return DatabaseManager()
 
 
@@ -14,6 +15,7 @@ class LocationDB:
     """地点数据库"""
 
     def __init__(self):
+        """初始化时从数据库加载全部城市坐标，缓存为 dict（城市名→(经度, 纬度)）。"""
         # 从数据库加载城市坐标数据
         db = _get_db()
         self.cities = db.get_city_coords()

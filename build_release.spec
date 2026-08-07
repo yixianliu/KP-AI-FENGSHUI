@@ -54,6 +54,7 @@ a = Analysis(
         'core.bazi_calculator',
         'core.bazi_types',
         'core.calendar_utils',
+        'core.ganzhi_constants',
         'core.data_validator',
         'core.data_integration',
         'core.geju_analyzer',

@@ -26,10 +26,16 @@ class StorageLogHandler(logging.Handler):
     """将日志记录写入本地 SQLite 数据库的 system_logs 表。"""
 
     def __init__(self, level=logging.WARNING):
+        """构造日志处理器；level 以下级别日志将被忽略，_failed 标记后端是否已进入降级态。"""
         super().__init__(level)
         self._failed = False
 
     def emit(self, record: logging.LogRecord):
+        """将一条日志记录结构化写入 system_logs 表。
+
+        后端不可用时静默置 _failed 降级，避免递归写日志或阻断业务；
+        本处理器自身产生的日志（record.name 为模块名）直接跳过，防止死循环。
+        """
         if self._failed:
             return
         try:
