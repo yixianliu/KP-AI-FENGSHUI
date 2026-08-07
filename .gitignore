@@ -56,3 +56,4 @@ config.ini
 device.json
 **/device.json
 tests
+api
