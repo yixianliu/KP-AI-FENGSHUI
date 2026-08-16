@@ -118,7 +118,18 @@ class _CoreBaZiCalc:
         from core.calendar_utils import BaZiCalendar as _BC
         r = _BC().calculate_bazi(year, month, day, hour, minute, longitude)
         r.setdefault("solar_date", f"{year}-{month:02d}-{day:02d}")
-        r.setdefault("lunar_date", f"{year}年{month}月{day}日")
+
+        # 正确计算农历日期：使用 lunarcalendar 库进行公历→农历转换
+        try:
+            from lunarcalendar import converter
+            import datetime
+            solar_dt = datetime.datetime(year, month, day, hour, minute)
+            lunar_result = converter.Converter().Solar2Lunar(solar_dt)
+            r.setdefault("lunar_date", f"{lunar_result.year}年{lunar_result.month}月{lunar_result.day}日")
+        except Exception:
+            # 降级处理：转换失败时回退到占位符
+            r.setdefault("lunar_date", f"{year}年{month}月{day}日")
+
         return r
 
     def analyze_shier_shen(self, bazhi):

@@ -1,4 +1,4 @@
-"""
+﻿"""
 数据整合模块 - 全面收集、清洗、统一和关联所有分析相关数据
 
 功能：
@@ -7,7 +7,7 @@
 3. 收集历史分析记录
 4. 数据清洗和格式统一
 5. 建立数据关联关系
-6. 生成完整的分析数据集供AI模型使用
+6. 生成完整的分析数据集供智能分析使用
 """
 import json
 import logging
@@ -342,6 +342,8 @@ class DataIntegrator:
 
         if analysis_type == 'bazi':
             parts = self._build_bazi_prompt_parts()
+        elif analysis_type == 'liuren':
+            parts = self._build_liuren_prompt_parts()
         else:
             parts = self._build_meihua_prompt_parts()
 
@@ -569,7 +571,78 @@ class DataIntegrator:
 
         return parts
 
-    def get_integrated_data(self) -> Dict[str, Any]:
+    def _build_liuren_prompt_parts(self) -> List[str]:
+        """构建大六壬分析提示词（独立分支，避免误用梅花易数提示词导致数据缺失）。
+
+        早期实现中 build_comprehensive_prompt 仅有 bazi/meihua 两个分支，
+        liuren 会落入 else（meihua）分支，而梅花提示词读取 base/hu/bian 结构，
+        六壬的 si_ke/san_chuan/tian_jiang 数据全部被忽略，AI 拿不到课体信息，
+        只能返回『课体未成，事机未现，无所指归』之类的空泛套话。
+        此处补齐六壬专属提示词，并显式要求模型基于真实课体数据作答。
+        """
+        parts = []
+        chart = self.raw_data.get('chart', {}) or {}
+        input_data = self.cleaned_data.get('input', {})
+
+        parts.append("=" * 70)
+        parts.append("【占问信息】")
+        parts.append("=" * 70)
+        parts.append(f"所占之事：{chart.get('question') or input_data.get('question', '')}")
+        parts.append(f"起课方式：{chart.get('method_name', '')}")
+        parts.append(f"占问时间：{chart.get('time', '')}")
+
+        parts.append("\n" + "=" * 70)
+        parts.append("【日干支与月将】")
+        parts.append("=" * 70)
+        parts.append(f"日干：{chart.get('ri_gan', '')}")
+        parts.append(f"日支：{chart.get('ri_zhi', '')}")
+        parts.append(f"日干五行：{chart.get('ri_gan_wx', '')}")
+        parts.append(f"月将：{chart.get('yue_jiang', '')}")
+        parts.append(f"占时：{chart.get('zhan_shi', '')}")
+
+        parts.append("\n" + "=" * 70)
+        parts.append("【四课】")
+        parts.append("=" * 70)
+        si_ke = chart.get('si_ke', {}) or {}
+        for label, key in (('干上神', 'gan_shang'), ('干阴', 'gan_yin'),
+                           ('支上神', 'zhi_shang'), ('支阴', 'zhi_yin')):
+            v = si_ke.get(key)
+            if isinstance(v, dict):
+                parts.append(f"  {label}：{v.get('tianpan', '')}")
+            elif v:
+                parts.append(f"  {label}：{v}")
+
+        parts.append("\n" + "=" * 70)
+        parts.append("【三传】")
+        parts.append("=" * 70)
+        sc = chart.get('san_chuan', {}) or {}
+        parts.append(f"初传：{sc.get('chu', '')}")
+        parts.append(f"中传：{sc.get('zhong', '')}")
+        parts.append(f"末传：{sc.get('mo', '')}")
+        if sc.get('gate'):
+            parts.append(f"门法：{sc.get('gate')}")
+
+        parts.append("\n" + "=" * 70)
+        parts.append("【天将与神煞】")
+        parts.append("=" * 70)
+        tj = chart.get('tian_jiang', []) or []
+        if tj:
+            parts.append("天将：")
+            for t in tj:
+                parts.append(f"  {t}")
+        ss = chart.get('shen_sha', {}) or {}
+        if ss:
+            parts.append(f"神煞：{ss}")
+
+        parts.append("\n" + "=" * 70)
+        parts.append("【排盘说明】")
+        parts.append("=" * 70)
+        parts.append("以上为完整的大六壬课体数据（四课、三传、天将、神煞均已齐备），"
+                      "请严格基于这些真实数据进行专业六壬解读；"
+                      "禁止输出『课体未成、事机未现、无所指归』等空泛套话，"
+                      "若数据确有明显矛盾请具体指出并给出合理推断。")
+
+        return parts
         """获取整合后的完整数据集"""
         return {
             'raw': self.raw_data,

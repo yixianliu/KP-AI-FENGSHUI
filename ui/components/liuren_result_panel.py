@@ -1,13 +1,14 @@
-"""
+﻿"""
 大六壬起课结果展示面板
-展示：基本信息 / 天地盘 / 四课 / 三传（门法）/ 十二天将 / 神煞 / AI 解读。
+展示：基本信息 / 天地盘 / 四课 / 三传（门法）/ 十二天将 / 神煞 / 智能 解读。
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QPushButton, QGridLayout, QSizePolicy)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from ui.components.collapsible_card import CollapsibleCard, ai_section_header
+from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
+                                          highlight_label, probability_stats_widget)
 # 地支五行对照表复用排盘引擎的定义，展示层不再自建一份
 from core.liuren import ZHI_WX
 from core.ganzhi_constants import DI_ZHI
@@ -66,17 +67,17 @@ class RotatingLabel(QLabel):
 
 
 class LiurenResultPanel(QWidget):
-    """大六壬起课结果展示面板：呈现天地盘、四课、三传、十二天将、神煞及龙虎山大师兄解读。"""
+    """大六壬起课结果展示面板：呈现天地盘、四课、三传、十二天将、神煞及KP模型解读。"""
 
     def __init__(self, parent=None):
-        """初始化面板，缓存当前起课结果与 AI 解读，并构建 UI。
+        """初始化面板，缓存当前起课结果与 智能 解读，并构建 UI。
 
         Args:
             parent: 父控件。
         """
         super().__init__(parent)
         self._current_result = {}
-        self._current_ai = {}  # 最近一次 AI 解读结果，供导出复用
+        self._current_智能 = {}  # 最近一次 智能 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
@@ -109,11 +110,11 @@ class LiurenResultPanel(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        self.ai_analyze_btn = QPushButton('🤖 重新解读')
-        self.ai_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
-        self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
-        self.ai_analyze_btn.setVisible(False)
-        header_layout.addWidget(self.ai_analyze_btn)
+        self.smart_analyze_btn = QPushButton('🤖 重新解读')
+        self.smart_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
+        self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
+        self.smart_analyze_btn.setVisible(False)
+        header_layout.addWidget(self.smart_analyze_btn)
 
         self.export_btn = QPushButton('📤 导出')
         self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
@@ -465,44 +466,33 @@ class LiurenResultPanel(QWidget):
             # 底层 C++ 对象已被销毁，忽略
             pass
 
-    # ---------- AI 解读占位 ----------
-    def _ai_placeholder(self):
-        """创建「龙虎山大师兄智能解读」卡片的占位内容，提示解读将在起课后生成。"""
+    # ---------- 智能 解读占位 ----------
+    def _placeholder(self):
+        """创建「KP模型智能解读」卡片的占位内容，提示解读将在起课后生成。"""
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        layout.addWidget(self._muted('龙虎山大师兄智能解读将在起课后自动生成，或点击右上角「重新解读」。'))
+        layout.addWidget(self._muted('龙虎山大师兄分析预测将在起课后自动生成，或点击右上角「重新解读」。'))
         return w
 
     # ---------- 对外入口 ----------
-    def show_loading(self):
-        """显示加载状态"""
-        self.status_label.setText('⏳ 正在起课分析，请稍候')
+    def show_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
+        """显示加载状态：太极动画 + 状态栏文案。
+
+        Args:
+            text: 状态栏提示文案，默认「龙虎山大师兄正在解读六壬玄机…」；
+                  传入「起课中」类文案时会自动覆盖为起课加载状态。
+        """
+        self.status_label.setText('⏳ ' + text)
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
             font-family: {Fonts.FAMILY_CN};
         """)
-        self.title_label.setText('大六壬起课结果')
         self._safe_set_visible(self.empty_state, False)
-        self.ai_analyze_btn.setVisible(False)
-        if hasattr(self, 'export_btn'):
-            self.export_btn.setVisible(False)
-        # 加载动画
-        self.taiji = RotatingLabel('☯')
-        self.taiji.setStyleSheet(f"font-size: 80px; color: {Colors.PRIMARY};")
-        self.taiji.setFixedSize(120, 120)
-        self.taiji_animation = QPropertyAnimation(self.taiji, b"rotation")
-        self.taiji_animation.setDuration(3000)
-        self.taiji_animation.setStartValue(0)
-        self.taiji_animation.setEndValue(360)
-        self.taiji_animation.setEasingCurve(QEasingCurve.Linear)
-        self.taiji_animation.setLoopCount(-1)
-        self.taiji_animation.start()
-        self.content_layout.addWidget(self.taiji)
-
-    def show_ai_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
-        """更新状态栏为「龙虎山大师兄解读中」，供业务层在发起 AI 解读时调用。
+        self.smart_analyze_btn.setVisible(False)
+        self.export_btn.setVisible(False)
+        """更新状态栏为「龙虎山大师兄解读中」，供业务层在发起 大师兄 解读时调用。
 
         Args:
             text: 状态提示文案，默认为六壬解读提示。
@@ -514,7 +504,7 @@ class LiurenResultPanel(QWidget):
         """)
 
     def display_result(self, result_data):
-        """对外入口：接收起课结果并渲染全部卡片（基本信息/天地盘/四课/三传/天将/神煞/AI 占位）。
+        """对外入口：接收起课结果并渲染全部卡片（基本信息/天地盘/四课/三传/天将/神煞/智能 占位）。
 
         Args:
             result_data: 排盘引擎返回的起课结果字典。
@@ -552,26 +542,30 @@ class LiurenResultPanel(QWidget):
                 self._create_result_card('十二天将', '🐉', self._tianjiang_card(result_data)))
             self.content_layout.addWidget(
                 self._create_result_card('神煞', '✨', self._shensha_card(result_data)))
-            # AI 占位
+            # 智能 占位
             self.content_layout.addWidget(
-                self._create_result_card('龙虎山大师兄智能解读', '🧙', self._ai_placeholder(), highlight=True))
+                self._create_result_card('龙虎山大师兄分析预测', '🧙', self._placeholder(), highlight=True))
 
-            self.ai_analyze_btn.setVisible(True)
-            self.ai_analyze_btn.setEnabled(True)
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
         except Exception as e:
             import traceback
             traceback.print_exc()
 
-    def display_ai_analysis_result(self, ai_analysis):
-        """将 AI 结构化解读渲染到「AI 智能解读」卡片。"""
+    def display_ai_analysis_result(self, smart_analysis):
+        """显示智能分析结果（别名方法，兼容调用方使用 display_ai_analysis_result 的情况）"""
+        self.display_analysis_result(smart_analysis)
+
+    def display_analysis_result(self, smart_analysis):
+        """将 智能 结构化解读渲染到「智能 智能解读」卡片。"""
         try:
-            if not ai_analysis:
+            if not smart_analysis:
                 self.status_label.setText('⚠ 龙虎山大师兄解读为空')
                 return
-            # 用 AI 内容替换最后一个 AI 卡片
+            # 用 智能 内容替换最后一个 智能 卡片
             if hasattr(self, 'taiji_animation'):
                 self.taiji_animation.stop()
-            # 移除 AI 占位卡片（最后一个），重建为解读内容
+            # 移除 智能 占位卡片（最后一个），重建为解读内容
             if self.content_layout.count():
                 last = self.content_layout.itemAt(self.content_layout.count() - 1)
                 w = last.widget()
@@ -579,44 +573,85 @@ class LiurenResultPanel(QWidget):
                     w.deleteLater()
                     self.content_layout.removeWidget(w)
 
-            # 构建 AI 结果容器：金色分隔标题 + 各子项折叠卡片（与八字/梅花面板一致）
-            cards = self._ai_body(ai_analysis)
+            # 构建 智能 结果容器：金色分隔标题 + 各子项折叠卡片（与八字/梅花面板一致）
+            cards = self._body(smart_analysis)
             container = QWidget()
             cv = QVBoxLayout(container)
             cv.setContentsMargins(0, 0, 0, 0)
             cv.setSpacing(12)
-            cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
+            # 设置最大宽度约束，防止内容超出滚动区域
+            cv_container_max = QWidget()
+            cv_container_max_layout = QVBoxLayout(cv_container_max)
+            cv_container_max_layout.setContentsMargins(0, 0, 0, 0)
+            cv_container_max_layout.setSpacing(0)
+            cv_container_max.setMaximumWidth(800)
+            cv_container_max_layout.addWidget(ai_section_header('龙虎山大师兄分析预测'))
+
+            key_points = smart_analysis.get('key_points')
+            if isinstance(key_points, (list, tuple)):
+                kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
+            elif isinstance(key_points, str):
+                kp_text = key_points
+            else:
+                kp_text = ''
+            if kp_text and kp_text.strip():
+                cv_container_max_layout.addWidget(highlight_label('【重点提示】\n' + kp_text.strip(), Colors.LIUJIN))
+
             for c in cards:
-                cv.addWidget(c)
+                cv_container_max_layout.addWidget(c)
+
+            cv.addWidget(cv_container_max)
             self.content_layout.addWidget(container)
             self.status_label.setText('✓ 龙虎山大师兄解读完成')
             self.status_label.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY}; color: {Colors.SUCCESS};
                 font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD};
             """)
-            self.ai_analyze_btn.setVisible(True)
-            self.ai_analyze_btn.setEnabled(True)
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
         except Exception as e:
             import traceback
             traceback.print_exc()
 
-    def _ai_body(self, ai):
-        """返回 AI 各子项的折叠卡片列表（与八字/梅花面板一致）。"""
+    def _body(self, ai):
+        """返回 智能 各子项的折叠卡片列表（与八字/梅花面板一致）。
+
+        字段契约以 core.analysis_storage._JSON_SCHEMAS['liuren'] 为准：
+        final_verdict / analysis / scenario_advice / historical_cases /
+        probability_stats / timing / disclaimer。
+        注意：ke_overview / si_ke_analysis 等为历史废弃键，AI 已不再产出，必须移除；
+        其中『综合建议』对应 AI 的 scenario_advice（而非 final_verdict），否则会误把
+        空泛的总体断语当建议展示（曾出现『课体未成，事机未现，无所指归』占位语）。
+        """
         cards = []
         sections = [
-            ('课体总览', '📜', Colors.QINGHUA, ai.get('ke_overview')),
-            ('四课精解', '📖', Colors.LIUJIN, ai.get('si_ke_analysis')),
-            ('三传推演', '⚡', Colors.ZHUSHA, ai.get('san_chuan_analysis')),
-            ('天将神煞', '🐉', Colors.SUCCESS, ai.get('tian_jiang_analysis')),
-            ('综合建议', '✨', Colors.QINGHUA, ai.get('final_verdict')),
+            ('总体判断', '🎯', Colors.QINGHUA, ai.get('final_verdict')),
+            ('课体分析', '☯', Colors.LIUJIN, ai.get('analysis')),
+            ('综合建议', '✨', Colors.ZHUSHA, ai.get('scenario_advice')),
+            ('应期时机', '⏳', Colors.SUCCESS, ai.get('timing')),
+            ('历史案例', '📚', Colors.QINGHUA, ai.get('historical_cases')),
+            ('概率统计', '📊', Colors.LIUJIN, ai.get('probability_stats')),
+            ('免责声明', '⚠', Colors.TEXT_TERTIARY, ai.get('disclaimer')),
         ]
         for title, icon, color, text in sections:
-            if not text:
+            if text is None:
                 continue
-            # AI 返回的字段可能是字符串数组（如四课/三传精解），统一 join 成字符串
-            if isinstance(text, list):
-                text = '\n'.join(str(t) for t in text)
-            body = QLabel(text)
+            # 概率统计需要可视化展示（标签+进度条+说明），不走纯文本
+            if title == '概率统计':
+                items = text if isinstance(text, (list, tuple)) else [str(text)]
+                items = [str(x) for x in items if x and str(x).strip()]
+                if not items:
+                    continue
+                card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+                card.set_content(probability_stats_widget(items, color))
+                cards.append(card)
+                continue
+            # AI 返回字段可能为字符串列表（如课体分析 / 三传精解），统一 join 成可读文本
+            if isinstance(text, (list, tuple)):
+                text = '\n'.join(str(t) for t in text if t)
+            if not str(text).strip():
+                continue
+            body = QLabel(str(text))
             body.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
                 font-family: {Fonts.FAMILY_CN}; line-height: 1.7;
@@ -641,7 +676,7 @@ class LiurenResultPanel(QWidget):
         if self.content_layout.indexOf(self.empty_state) == -1:
             self.content_layout.addWidget(self.empty_state)
         self._safe_set_visible(self.empty_state, True)
-        self.ai_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setVisible(False)
         self.status_label.setText('请完善左侧起课参数')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_TERTIARY};
@@ -650,7 +685,7 @@ class LiurenResultPanel(QWidget):
         self._current_result = {}
 
     def get_liuren_data_for_ai(self):
-        """供 AI 管道消费的结构化取数。"""
+        """供 智能 管道消费的结构化取数。"""
         r = getattr(self, '_current_result', {}) or {}
         if not r:
             return {}
@@ -694,13 +729,13 @@ class LiurenResultPanel(QWidget):
             QMessageBox.warning(self, '导出失败', '暂无可导出的起课结果')
             return
 
-        # 组装导出数据：liuren_data = 起课结果, liuren_ai = 龙虎山大师兄解读
+        # 组装导出数据：liuren_data = 起课结果, liuren_智能 = KP模型解读
         export_data = {
             'liuren_data': dict(rd),
             'basic_info': {'pan_type': '大六壬'},
         }
-        ai = getattr(self, '_current_ai', None)
-        if ai and isinstance(ai, dict):
+        智能 = getattr(self, '_current_ai', None)
+        if 智能 and isinstance(智能, dict):
             export_data['liuren_ai'] = ai
 
         dialog = ExportDialog(export_data, parent=self)

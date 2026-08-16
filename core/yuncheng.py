@@ -1,9 +1,9 @@
-"""
+﻿"""
 运程总结模块 - 根据八字排盘结果自动生成综合运程分析
 
 覆盖维度：事业 / 财运 / 健康 / 感情
 规则引擎：从已算出的结构化信号（十神权重、五行旺衰、用神喜忌、格局）
-推导；可选经 AI 润色为流畅文案（analyze_with_ai）。
+推导；可选经 智能 润色为流畅文案（analyze_with_ai）。
 
 设计原则：
 - 完全离线可跑（规则引擎），不依赖任何外部接口；
@@ -226,14 +226,14 @@ class YunChengAnalyzer:
             str: 拼接好的财运分析段落。
         """
         ys, xs, js = self._yong(yong)
-        cai = self._lvl(weights, '财星')    # 财运
+        c智能 = self._lvl(weights, '财星')    # 财运
         bi = self._lvl(weights, '比劫')     # 合作 / 分财 / 竞争
         shi = self._lvl(weights, '食伤')   # 生财之源（财之原神）
         parts = [f'日主{rizhu}（五行属{wx or "？"}），{self._strength_desc(strength)}。']
 
-        if cai == '旺':
+        if c智能 == '旺':
             parts.append('财星透力，财源广进、善抓机会，然亦易财来财去，宜理财有度、忌投机冒进。')
-        elif cai == '弱':
+        elif c智能 == '弱':
             parts.append('财星偏弱，求财须务实耕耘、积小成大，不宜高风险搏杀；身弱财旺反为财累。')
         else:
             parts.append('财星中和，财运平稳，量入为出可渐丰。')
@@ -336,7 +336,7 @@ class YunChengAnalyzer:
             str: 拼接好的感情分析段落；rizhu 为空时仅输出通用部分。
         """
         ys, xs, js = self._yong(yong)
-        cai = self._lvl(weights, '财星')    # 男命妻星
+        c智能 = self._lvl(weights, '财星')    # 男命妻星
         guan = self._lvl(weights, '官杀')  # 女命夫星
         shi = self._lvl(weights, '食伤')   # 女命克官（情关）/ 子女
         bi = self._lvl(weights, '比劫')     # 争夫 / 分缘
@@ -346,9 +346,9 @@ class YunChengAnalyzer:
             # 以日主阴阳粗判男女命取向（与界面 gender 互补参考）
             yang = (('甲', '丙', '戊', '庚', '壬').count(rizhu) > 0)
             if yang:
-                if cai == '旺':
+                if c智能 == '旺':
                     parts.append('财星得力，异性缘佳、易得伴侣扶持；身强财旺更利婚稳。')
-                elif cai == '弱':
+                elif c智能 == '弱':
                     parts.append('财星偏弱，姻缘须主动经营、晚成更宜；忌因财失和。')
                 else:
                     parts.append('财星中和，感情平稳，贵在用心经营。')
@@ -432,10 +432,10 @@ class YunChengAnalyzer:
         return tags
 
     # ----------------------------------------------------------------
-    # 可选：AI 润色（离线不调用；调用方自行决定是否启用）
+    # 可选：智能 润色（离线不调用；调用方自行决定是否启用）
     # ----------------------------------------------------------------
     def build_ai_prompt(self, result: Dict[str, Any]) -> str:
-        """将结构化信号整理为给 AI 的提示词，便于生成流畅运程散文。"""
+        """将结构化信号整理为给 智能 的提示词，便于生成流畅运程散文。"""
         bazi = result.get('bazi', {})
         wuxing = result.get('wuxing_detail') or result.get('wuxing')
         shishen = result.get('shishen')
@@ -467,5 +467,5 @@ class YunChengAnalyzer:
             text = (resp or {}).get('content', '').strip()
             return text or None
         except Exception as e:
-            print(f'运程 AI 润色失败（回落规则文案）：{e}')
+            print(f'运程 智能 润色失败（回落规则文案）：{e}')
             return None

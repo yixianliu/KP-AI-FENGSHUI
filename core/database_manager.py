@@ -750,77 +750,6 @@ class DatabaseManager:
             print(f"更新排盘AI分析结果失败: {e}")
             return False
 
-    def search_records(self, user_id: int, pan_type: str = '', name: str = '',
-                        start_date: str = '', end_date: str = '',
-                        wuxing: str = '', geju_type: str = '', strength: str = '',
-                        limit: int = 200) -> List[Dict[str, Any]]:
-        """
-        按条件检索用户的排盘记录
-
-        Args:
-            user_id: 用户ID
-            pan_type: 排盘类型过滤（'' 表示不限制）
-            name: 姓名关键字（模糊匹配，'' 表示不限制）
-            start_date: 起始日期 'YYYY-MM-DD'（按保存时间，'' 表示不限制）
-            end_date: 结束日期 'YYYY-MM-DD'（'' 表示不限制）
-            wuxing: 五行属性关键字（按 bazi_types.wuxing_summary 模糊匹配，'' 不限制）
-            geju_type: 格局类型精确匹配（bazi_types.geju_type，'' 不限制）
-            strength: 日主强弱精确匹配（bazi_types.strength，'' 不限制）
-            limit: 返回数量上限
-
-        Returns:
-            排盘记录列表（已解析 result_json）
-        """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                sql = (
-                    "SELECT id, name, gender, birth_date, birth_time, "
-                    "city, pan_type, result_json, created_at "
-                    "FROM pan_records WHERE user_id = ?"
-                )
-                params: list = [user_id]
-                if pan_type:
-                    sql += " AND pan_type = ?"
-                    params.append(pan_type)
-                if name:
-                    sql += " AND name LIKE ?"
-                    params.append(f"%{name}%")
-                if start_date:
-                    sql += " AND DATE(created_at) >= ?"
-                    params.append(start_date)
-                if end_date:
-                    sql += " AND DATE(created_at) <= ?"
-                    params.append(end_date)
-                # 高级筛选（五行/格局/日主强弱）均从 result_json 提取，
-                # 为避免依赖 SQLite 的 JSON1 扩展，在 Python 侧完成过滤。
-                sql += " ORDER BY created_at DESC LIMIT ?"
-                params.append(limit)
-
-                cursor.execute(sql, params)
-                records = cursor.fetchall()
-                result = []
-                for record in records:
-                    try:
-                        parsed = json.loads(record['result_json'])
-                    except (json.JSONDecodeError, KeyError, TypeError):
-                        parsed = {}
-                    bt = parsed.get('bazi_types', {}) or {}
-                    if wuxing and wuxing not in str(bt.get('wuxing_summary', '')):
-                        continue
-                    if geju_type and bt.get('geju_type') != geju_type:
-                        continue
-                    if strength and bt.get('strength') != strength:
-                        continue
-                    rec = dict(record)
-                    rec['result'] = parsed
-                    del rec['result_json']
-                    result.append(rec)
-                return result
-        except Exception as e:
-            print(f"检索排盘记录失败: {e}")
-            return []
-
     def get_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
         """
         根据ID获取单条排盘记录
@@ -855,31 +784,6 @@ class DatabaseManager:
         except Exception as e:
             print(f"获取排盘记录失败: {e}")
             return None
-
-    def delete_record(self, record_id: int, user_id: int) -> bool:
-        """
-        删除排盘记录
-
-        Args:
-            record_id: 记录ID
-            user_id: 用户ID（用于权限验证）
-
-        Returns:
-            是否删除成功
-        """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "DELETE FROM pan_records WHERE id = ? AND user_id = ?",
-                    (record_id, user_id)
-                )
-                affected = cursor.rowcount
-                connection.commit()
-                return affected > 0
-        except Exception as e:
-            print(f"删除排盘记录失败: {e}")
-            return False
 
     def init_database(self):
         """

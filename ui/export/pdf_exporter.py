@@ -1,4 +1,4 @@
-"""
+﻿"""
 PDF 导出器（reportlab）
 将排盘结果排版为结构化 PDF 报告：命盘信息、命局类型、四柱八字、
 五行分析、十神分析、大运流年（含起运）、运程总结（事业/财运/健康/感情）、
@@ -50,15 +50,20 @@ _C_MUTED = colors.HexColor('#8A7F6B')
 
 # AI 字段 -> 中文标题
 _AI_SECTIONS = [
+    # 与 core.analysis_storage._JSON_SCHEMAS 对齐（三种类型的并集，仅保留列表型字段；
+    # final_verdict / disclaimer 为段落型，由各自面板/导出分支单独处理）。
     ('personality', '性格特质'),
     ('career', '事业财运'),
-    ('marriage', '婚姻感情'),
+    ('relationships', '婚姻感情'),
     ('health', '健康注意'),
-    ('pattern_analysis', '格局分析'),
-    ('wuxing_balance', '五行平衡分析'),
-    ('shishen_analysis', '十神分析'),
-    ('improvement_plan', '改善方案'),
-    ('suggestions', '综合建议'),
+    ('four_pillars_detail', '四柱详细解读'),
+    ('analysis', '卦象/课体分析'),
+    ('hexagram_interpretations', '卦爻解释'),
+    ('timing', '应期时机'),
+    ('scenario_advice', '场景化建议'),
+    ('advice', '行动建议'),
+    ('historical_cases', '历史案例'),
+    ('probability_stats', '概率统计'),
 ]
 
 
@@ -174,7 +179,7 @@ class PdfExporter(BaseExporter):
                 leftMargin=18 * mm, rightMargin=18 * mm,
                 topMargin=16 * mm, bottomMargin=16 * mm,
                 title='八字排盘分析报告',
-                author='KP-龙虎山大师兄',
+                author='龙虎山大师兄',
             )
             # story 是 reportlab 的「流式内容」列表，各章节按顺序往里追加
             # Flowable，最后由 doc.build 一次性完成分页与渲染
@@ -527,7 +532,7 @@ class PdfExporter(BaseExporter):
         story.append(ListFlowable(items, bulletType='bullet', start='•', leftIndent=12))
 
     def _build_ai(self, story, data):
-        """渲染「九、龙虎山大师兄智能深度分析」章节：AI 生成的各维度解读。
+        """渲染「九、龙虎山大师兄分析预测」章节：AI 生成的各维度解读。
 
         按 _AI_SECTIONS 固定顺序遍历，使报告章节次序不受 AI 返回字段顺序影响。
 
@@ -542,12 +547,18 @@ class PdfExporter(BaseExporter):
         ai = data.get('ai_analysis', {}) or {}
         if not ai:
             return
-        self._section_title(story, '九、龙虎山大师兄智能深度分析')
+        self._section_title(story, '九、龙虎山大师兄分析预测')
         # AI 有时会返回结构完整但各项均为空数组的结果，
         # 用该标志位在末尾补一句提示，避免读者以为是导出出错
         any_content = False
         for key, title in _AI_SECTIONS:
             items = ai.get(key, []) or []
+            # 防御：个别字段可能为字符串（如旧缓存数据），统一包成单元素列表，
+            # 避免逐字符写入 bullet。
+            if isinstance(items, str):
+                items = [items] if items.strip() else []
+            elif not isinstance(items, (list, tuple)):
+                items = [items] if items else []
             if not items:
                 continue
             any_content = True
@@ -671,7 +682,7 @@ class PdfExporter(BaseExporter):
         z = data.get('zonghe', {}) or {}
         if not z:
             return
-        self._section_title(story, '十、综合建议（龙虎山大师兄融合）')
+        self._section_title(story, '十、综合建议（大师兄融合）')
         # 顺序即「先摆三方结论 -> 再校验矛盾 -> 后给定论和方案」的推理链条，不可随意调换
         sections = [
             ('tri_method_overview', '三方概览'),

@@ -1,4 +1,4 @@
-"""
+﻿"""
 梅花易数起卦结果展示面板
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from ui.components.collapsible_card import CollapsibleCard, ai_section_header
+from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
+                                          highlight_label, probability_stats_widget)
 
 
 class RotatingLabel(QLabel):
@@ -59,13 +60,13 @@ class MeihuaResultPanel(QWidget):
     """梅花易数结果展示面板"""
 
     def __init__(self, parent=None):
-        """初始化梅花易数结果面板，缓存最近一次 AI 解读供导出复用，并构建 UI。
+        """初始化梅花易数结果面板，缓存最近一次 智能 解读供导出复用，并构建 UI。
 
         Args:
             parent: 父控件。
         """
         super().__init__(parent)
-        self._current_ai = {}   # 最近一次 AI 解读结果，供导出复用
+        self._current_智能 = {}   # 最近一次 智能 解读结果，供导出复用
         self.init_ui()
 
     def init_ui(self):
@@ -100,11 +101,11 @@ class MeihuaResultPanel(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        self.ai_analyze_btn = QPushButton('🤖 重新解读')
-        self.ai_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
-        self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
-        self.ai_analyze_btn.setVisible(False)
-        header_layout.addWidget(self.ai_analyze_btn)
+        self.smart_analyze_btn = QPushButton('🤖 重新解读')
+        self.smart_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
+        self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
+        self.smart_analyze_btn.setVisible(False)
+        header_layout.addWidget(self.smart_analyze_btn)
 
         self.export_btn = QPushButton('📤 导出')
         self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
@@ -629,8 +630,8 @@ class MeihuaResultPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        self.ai_analyze_btn.setVisible(True)
-        # 起卦结果出来后即可导出（即使暂无 AI 解读）
+        self.smart_analyze_btn.setVisible(True)
+        # 起卦结果出来后即可导出（即使暂无 智能 解读）
         if hasattr(self, 'export_btn'):
             self.export_btn.setVisible(True)
 
@@ -743,10 +744,10 @@ class MeihuaResultPanel(QWidget):
             sug_card = self._create_result_card('行动建议', '💡', sug_widget)
             self.content_layout.addWidget(sug_card)
 
-        ai_placeholder = QFrame()
-        ai_placeholder.setVisible(False)
-        ai_placeholder.setObjectName('ai_result_placeholder')
-        self.content_layout.addWidget(ai_placeholder)
+        smart_placeholder = QFrame()
+        smart_placeholder.setVisible(False)
+        smart_placeholder.setObjectName('smart_result_placeholder')
+        self.content_layout.addWidget(smart_placeholder)
 
         self.content_layout.addStretch()
 
@@ -801,7 +802,7 @@ class MeihuaResultPanel(QWidget):
             font-family: {Fonts.FAMILY_CN};
         """)
 
-        self.ai_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setVisible(False)
         if hasattr(self, 'export_btn'):
             self.export_btn.setVisible(False)
 
@@ -851,15 +852,15 @@ class MeihuaResultPanel(QWidget):
         widget.setMinimumHeight(400)
         return widget
 
-    def show_ai_loading(self, message: str = '龙虎山大师兄正在解读卦象玄机…'):
-        """显示AI分析加载状态"""
+    def show_loading(self, message: str = '龙虎山大师兄正在解读卦象玄机…'):
+        """显示智能分析加载状态"""
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        self.ai_analyze_btn.setVisible(False)
-        self.ai_analyze_btn.setEnabled(False)
+        self.smart_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setEnabled(False)
 
         self.status_bar.setStyleSheet(f"""
             QFrame {{
@@ -877,12 +878,12 @@ class MeihuaResultPanel(QWidget):
             font-weight: {Fonts.WEIGHT_BOLD};
         """)
 
-        loading_widget = self._create_ai_loading_widget(message)
+        loading_widget = self._create_loading_widget(message)
         self.content_layout.addWidget(loading_widget)
         self.content_layout.addStretch()
 
-    def _create_ai_loading_widget(self, message: str) -> QWidget:
-        """创建AI分析加载控件"""
+    def _create_loading_widget(self, message: str) -> QWidget:
+        """创建智能分析加载控件"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignCenter)
@@ -916,50 +917,81 @@ class MeihuaResultPanel(QWidget):
         widget.setMinimumHeight(400)
         return widget
 
-    def display_ai_analysis_result(self, ai_data: dict):
-        """显示AI分析结果（适配analysis_pipeline输出格式）
+    def display_ai_analysis_result(self, smart_data: dict):
+        """显示智能分析结果（别名方法，兼容调用方使用 display_ai_analysis_result 的情况）"""
+        self.display_analysis_result(smart_data)
+
+    def display_analysis_result(self, smart_data: dict):
+        """显示智能分析结果（适配analysis_pipeline输出格式）
 
         关键修复：
         1) 不再完全依赖 placeholder 机制（display_result 创建的占位 QFrame），
            改为兼容两种情况：placeholder 存在 / 已被消费。
-        2) 防御性处理：AI 返回为空、字段类型异常时给出兜底提示，避免右侧空白。
-        3) 完成后滚动到 AI 区域，让用户第一眼看到 AI 解读内容。
+        2) 防御性处理：智能 返回为空、字段类型异常时给出兜底提示，避免右侧空白。
+        3) 完成后滚动到 智能 区域，让用户第一眼看到 智能 解读内容。
         """
         # 0) 防御性检查
-        if not ai_data or not isinstance(ai_data, dict):
-            self._show_ai_error('龙虎山大师兄未返回有效内容，请重试')
+        if not smart_data or not isinstance(smart_data, dict):
+            self._show_error('龙虎山大师兄未返回有效内容，请重试')
             return
 
-        # 缓存 AI 解读，供导出按钮复用
-        self._current_ai = ai_data
+        # 缓存 智能 解读，供导出按钮复用
+        self._current_智能 = smart_data
 
         rd = getattr(self, '_current_result', {}) or {}
 
         # 1) 先恢复原始面板（不重建占位）
         self.display_result(rd)
 
-        sections = [
-            ('gua_overview', '卦象概述', '📋', Colors.PRIMARY),
-            ('situation_analysis', '事态分析', '🌟', Colors.HIGHLIGHT),
-            ('good_omens', '吉兆机遇', '🍀', Colors.SUCCESS),
-            ('bad_omens', '凶兆隐患', '⚠️', Colors.DANGER),
-            ('action_advice', '行动建议', '💡', Colors.PRIMARY),
+        # 字段契约以 core.analysis_storage._JSON_SCHEMAS['meihua'] 为准：
+        #   - 段落型（字符串）：final_verdict / disclaimer
+        #   - 列表型（字符串列表）：analysis / hexagram_interpretations /
+        #     scenario_advice / historical_cases / probability_stats / advice
+        # 注意：gua_overview / situation_analysis 等为历史废弃键，AI 已不再产出，必须移除，
+        # 否则只能看到『总结判断』而丢失全部卦象与建议详情（表现为总结过于简单）。
+        paragraph_fields = [
+            ('final_verdict', '总结判断', '🎯', Colors.QINGHUA),
+            ('disclaimer', '免责声明', '⚠', Colors.TEXT_TERTIARY),
+        ]
+        list_fields = [
+            ('analysis', '卦象分析', '☯', Colors.PRIMARY),
+            ('hexagram_interpretations', '卦爻解释', '📖', Colors.HIGHLIGHT),
+            ('advice', '行动建议', '💡', Colors.PRIMARY),
+            ('scenario_advice', '场景化建议', '🎯', Colors.HIGHLIGHT),
+            ('historical_cases', '历史案例', '📚', Colors.SUCCESS),
+            ('probability_stats', '概率统计', '📊', Colors.DANGER),
         ]
 
-        # 2) 构建 AI 内容容器：金色分隔标题 + 各子项折叠卡片（与八字面板 AI 区一致）
+        # 2) 构建 智能 内容容器：金色分隔标题 + 各子项折叠卡片（与八字面板 智能 区一致）
         container = QWidget()
         cv = QVBoxLayout(container)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(12)
-        cv.addWidget(ai_section_header('龙虎山大师兄智能深度解读'))
+        cv.addWidget(ai_section_header('龙虎山大师兄分析预测'))
 
-        has_ai_content = False
-        for key, title, icon, color in sections:
-            items = ai_data.get(key, []) or []
+        # 重点提示（高亮标注最重要结论）：key_points 为 '\n' 分隔的多段短句
+        key_points = smart_data.get('key_points')
+        if isinstance(key_points, (list, tuple)):
+            kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
+        elif isinstance(key_points, str):
+            kp_text = key_points
+        else:
+            kp_text = ''
+        if kp_text and kp_text.strip():
+            cv.addWidget(highlight_label('【重点提示】\n' + kp_text.strip(), Colors.LIUJIN))
+
+        has_content = False
+
+        def _build_section_card(title, icon, color, items):
+            """根据字段值（字符串或列表）构建一节折叠卡片，健壮处理类型。"""
+            if isinstance(items, str):
+                items = [items] if items.strip() else []
+            elif isinstance(items, (list, tuple)):
+                items = [str(x) for x in items if x is not None and str(x).strip()]
+            else:
+                items = [str(items)] if items else []
             if not items:
-                continue
-            has_ai_content = True
-
+                return None
             section_widget = QFrame()
             section_widget.setStyleSheet(f"""
                 QFrame {{
@@ -970,21 +1002,11 @@ class MeihuaResultPanel(QWidget):
             section_layout = QVBoxLayout(section_widget)
             section_layout.setContentsMargins(12, 10, 12, 10)
             section_layout.setSpacing(8)
-
-            title_label = QLabel(f'{icon} {title}')
-            title_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {color};
-                font-family: {Fonts.FAMILY_CN};
-            """)
-            section_layout.addWidget(title_label)
-
             for idx, item in enumerate(items):
                 item_layout = QHBoxLayout()
                 item_layout.setSpacing(10)
 
-                num_label = QLabel(f'{idx+1}')
+                num_label = QLabel(f'{idx + 1}')
                 num_label.setStyleSheet(f"""
                     background: {color}; color: white;
                     font-size: 11px; font-weight: {Fonts.WEIGHT_BOLD};
@@ -1006,51 +1028,47 @@ class MeihuaResultPanel(QWidget):
                 item_layout.addWidget(num_label)
                 item_layout.addWidget(text_label, 1)
                 section_layout.addLayout(item_layout)
-
             card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
             card.set_content(section_widget)
-            cv.addWidget(card)
+            return card
 
-        final_verdict = ai_data.get('final_verdict', '')
-        if final_verdict:
-            has_ai_content = True
-            verdict_widget = QFrame()
-            verdict_widget.setStyleSheet(f"""
-                QFrame {{
-                    background-color: rgba(91, 143, 168, 0.08);
-                    border: 1px solid {Colors.PRIMARY_LIGHT};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                }}
-            """)
-            verdict_layout = QVBoxLayout(verdict_widget)
-            verdict_layout.setContentsMargins(16, 12, 16, 12)
-            verdict_layout.setSpacing(6)
+        # 段落型字段（整体一节，不拆分）
+        for key, title, icon, color in paragraph_fields:
+            val = smart_data.get(key)
+            if isinstance(val, (list, tuple)):
+                val = '\n'.join(str(x) for x in val if x)
+            if not val or not str(val).strip():
+                continue
+            has_content = True
+            card = _build_section_card(title, icon, color, [str(val)])
+            if card:
+                cv.addWidget(card)
 
-            verdict_title = QLabel('🎯 总结判断')
-            verdict_title.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {Colors.PRIMARY};
-                font-family: {Fonts.FAMILY_CN};
-            """)
+        # 列表型字段
+        for key, title, icon, color in list_fields:
+            items = smart_data.get(key)
+            # 概率统计需要可视化展示（标签+进度条+说明），不走纯文本列表
+            if key == 'probability_stats':
+                if isinstance(items, (list, tuple)):
+                    items = [str(x) for x in items if x and str(x).strip()]
+                elif isinstance(items, str):
+                    items = [items] if items.strip() else []
+                else:
+                    items = []
+                if not items:
+                    continue
+                has_content = True
+                card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+                card.set_content(probability_stats_widget(items, color))
+                cv.addWidget(card)
+                continue
+            card = _build_section_card(title, icon, color, items)
+            if card:
+                has_content = True
+                cv.addWidget(card)
 
-            verdict_text = QLabel(str(final_verdict))
-            verdict_text.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_PRIMARY};
-                font-family: {Fonts.FAMILY_SERIF};
-                line-height: 1.8;
-            """)
-            verdict_text.setWordWrap(True)
-
-            verdict_layout.addWidget(verdict_title)
-            verdict_layout.addWidget(verdict_text)
-            card = CollapsibleCard('🎯 总结判断', '🎯', accent_color=Colors.QINGHUA, collapsed=False)
-            card.set_content(verdict_widget)
-            cv.addWidget(card)
-
-        # 没有任何 AI 内容的兜底提示
-        if not has_ai_content:
+        # 没有任何 智能 内容的兜底提示
+        if not has_content:
             tip = QLabel('龙虎山大师兄未返回有效条目，请点击「重新解读」重试')
             tip.setStyleSheet(
                 f"color:{Colors.TEXT3}; font-size:{Fonts.SIZE_BODY}; "
@@ -1060,11 +1078,11 @@ class MeihuaResultPanel(QWidget):
             tip.setWordWrap(True)
             cv.addWidget(tip)
 
-        # 3) 构造 AI 结果容器（金色分隔标题 + 各子项折叠卡片）
-        ai_card = container
+        # 3) 构造 智能 结果容器（金色分隔标题 + 各子项折叠卡片）
+        smart_card = container
 
         # 4) 兼容两种插入位置：占位符存在则替换占位符，否则插入到 stretch 之前
-        placeholder = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
+        placeholder = self.content_widget.findChild(QFrame, 'smart_result_placeholder')
         inserted = False
         if placeholder is not None:
             placeholder_idx = None
@@ -1074,7 +1092,7 @@ class MeihuaResultPanel(QWidget):
                     placeholder_idx = i
                     break
             if placeholder_idx is not None:
-                self.content_layout.insertWidget(placeholder_idx, ai_card)
+                self.content_layout.insertWidget(placeholder_idx, smart_card)
                 placeholder.setParent(None)
                 placeholder.deleteLater()
                 inserted = True
@@ -1087,11 +1105,11 @@ class MeihuaResultPanel(QWidget):
                     stretch_idx = i
                     break
             if stretch_idx >= 0:
-                self.content_layout.insertWidget(stretch_idx, ai_card)
+                self.content_layout.insertWidget(stretch_idx, smart_card)
             else:
-                self.content_layout.addWidget(ai_card)
+                self.content_layout.addWidget(smart_card)
 
-        # 5) 更新状态栏与 AI 按钮
+        # 5) 更新状态栏与 智能 按钮
         self.status_bar.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(90, 143, 110, 0.08);
@@ -1108,17 +1126,17 @@ class MeihuaResultPanel(QWidget):
             font-weight: {Fonts.WEIGHT_BOLD};
         """)
 
-        self.ai_analyze_btn.setVisible(True)
-        self.ai_analyze_btn.setEnabled(True)
-        self.ai_analyze_btn.setText('🔄 重新解读')
+        self.smart_analyze_btn.setVisible(True)
+        self.smart_analyze_btn.setEnabled(True)
+        self.smart_analyze_btn.setText('🔄 重新解读')
 
-        # 6) 滚动到 AI 区域
-        QTimer.singleShot(50, self._scroll_to_ai_section_meihua)
+        # 6) 滚动到 智能 区域
+        QTimer.singleShot(50, self._scroll_to_section_meihua)
 
-    # ----------------- 辅助方法：AI 面板相关 -----------------
+    # ----------------- 辅助方法：智能 面板相关 -----------------
 
-    def _show_ai_error(self, message: str):
-        """AI 失败/数据异常时的兜底显示（梅花易数版）"""
+    def _show_error(self, message: str):
+        """智能 失败/数据异常时的兜底显示（梅花易数版）"""
         try:
             # 重新构建原始面板
             rd = getattr(self, '_current_result', {}) or {}
@@ -1141,9 +1159,9 @@ class MeihuaResultPanel(QWidget):
             font-family: {Fonts.FAMILY_CN};
             font-weight: {Fonts.WEIGHT_BOLD};
         """)
-        self.ai_analyze_btn.setVisible(True)
-        self.ai_analyze_btn.setEnabled(True)
-        self.ai_analyze_btn.setText('🔄 重新解读')
+        self.smart_analyze_btn.setVisible(True)
+        self.smart_analyze_btn.setEnabled(True)
+        self.smart_analyze_btn.setText('🔄 重新解读')
         tip = QLabel(f'⚠ {message}')
         tip.setStyleSheet(
             f"color:{Colors.TEXT2}; font-size:{Fonts.SIZE_BODY}; "
@@ -1153,10 +1171,10 @@ class MeihuaResultPanel(QWidget):
         tip.setWordWrap(True)
         self.content_layout.addWidget(tip)
 
-    def _scroll_to_ai_section_meihua(self):
-        """滚动到 AI 解读区域"""
+    def _scroll_to_section_meihua(self):
+        """滚动到 智能 解读区域"""
         try:
-            target = self.content_widget.findChild(QFrame, 'ai_result_placeholder')
+            target = self.content_widget.findChild(QFrame, 'smart_result_placeholder')
             if target is not None:
                 self.content_area.ensureWidgetVisible(target)
                 return
@@ -1168,7 +1186,7 @@ class MeihuaResultPanel(QWidget):
             pass
 
     def get_hexagram_data_for_ai(self) -> dict:
-        """获取用于AI分析的卦象数据"""
+        """获取用于智能分析的卦象数据"""
         rd = getattr(self, '_current_result', {})
         if not rd:
             return {}
@@ -1263,10 +1281,10 @@ class MeihuaResultPanel(QWidget):
             font-family: {Fonts.FAMILY_CN};
         """)
 
-        self.ai_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setVisible(False)
         if hasattr(self, 'export_btn'):
             self.export_btn.setVisible(False)
-        self._current_ai = {}
+        self._current_智能 = {}
 
     def _on_export_click(self):
         """导出梅花起卦结果（复用 ExportDialog 与三导出器）。"""
@@ -1284,8 +1302,8 @@ class MeihuaResultPanel(QWidget):
             'meihua_data': dict(rd),
             'basic_info': {'pan_type': '梅花易数'},
         }
-        ai = getattr(self, '_current_ai', None)
-        if ai and isinstance(ai, dict):
+        智能 = getattr(self, '_current_ai', None)
+        if 智能 and isinstance(ai, dict):
             export_data['meihua_ai'] = ai
 
         dialog = ExportDialog(export_data, parent=self)

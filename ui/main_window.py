@@ -1,5 +1,5 @@
 """
-风水排盘专业工具 v5.0 - 精美国风主窗口
+风水排盘专业工具 v5.0.3 - 精美国风主窗口
 QSplitter左右分栏28%/72% · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -16,8 +16,6 @@ from ui.components.meihua_input import MeihuaInputPanel
 from ui.components.meihua_result_panel import MeihuaResultPanel
 from ui.components.liuren_input import LiurenInputPanel
 from ui.components.liuren_result_panel import LiurenResultPanel
-from ui.components.comprehensive_panel import ComprehensiveInputPanel, ComprehensiveResultPanel
-from ui.components.history_panel import HistoryFilterPanel, HistoryListPanel
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
@@ -39,13 +37,11 @@ NAV = [
     {'id': 'bazi', 'name': '八字排盘', 'icon': '☯'},
     {'id': 'meihua', 'name': '梅花易数', 'icon': '⚊'},
     {'id': 'liuren', 'name': '大六壬', 'icon': '☵'},
-    {'id': 'zonghe', 'name': '综合建议', 'icon': '☰'},
-    {'id': 'history', 'name': '历史记录', 'icon': '📜'},
 ]
 
 
 class MainWindow(QMainWindow):
-    """应用主窗口：承载八字/梅花易数/大六壬/综合建议/历史记录五大板块。
+    """应用主窗口：承载八字 / 梅花易数 / 大六壬三大板块。
 
     采用三层架构的 UI 层（PySide6）：通过 QSplitter 左右分栏（输入面板 + 结果面板），
     顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与龙虎山大师兄（AI）分析。
@@ -117,10 +113,7 @@ class MainWindow(QMainWindow):
         self._last_bazi_record_id = None
         self._last_meihua_record_id = None
         self._last_liuren_record_id = None
-        # 三方 AI 分析结论缓存（供『综合建议』融合使用）
-        self._last_ai_results = {'bazi': None, 'meihua': None, 'liuren': None}
-        self._last_ai_meta = {'name': '', 'gender': ''}
-        # 最近一次八字输入（含出生日期/地点），供『综合建议』落库时使用
+        # 最近一次八字输入（含出生日期/地点）
         self._last_bazi_input = None
         # ===== R4: AI 降级检测 + 配置热更新订阅 =====
         self._ai_available = self._check_ai_availability()
@@ -164,7 +157,7 @@ class MainWindow(QMainWindow):
             panel = getattr(self, attr, None)
             if panel is None:
                 continue
-            btn = getattr(panel, 'ai_analyze_btn', None)
+            btn = getattr(panel, 'smart_analyze_btn', None)
             if btn is not None and not self._ai_available:
                 # 仅在不可用时强制隐藏；可用时交由面板自身的展示逻辑控制
                 btn.setVisible(False)
@@ -284,7 +277,7 @@ class MainWindow(QMainWindow):
             if left > 0 and right > 0 and hasattr(self, 'splitter'):
                 QTimer.singleShot(0, lambda: self.splitter.setSizes([left, right]))
             mod = s.get('current_module')
-            if mod in ('bazi', 'meihua', 'liuren', 'history'):
+            if mod in ('bazi', 'meihua', 'liuren'):
                 # _switch 已在 __init__ 末尾调用默认 'bazi'，如需切换覆盖之
                 if mod != 'bazi':
                     self._switch(mod)
@@ -361,7 +354,7 @@ class MainWindow(QMainWindow):
         # 状态栏
         sb = QStatusBar()
         sb.setStyleSheet(Stylesheets.STATUS)
-        sb.showMessage('风水排盘专业工具 v5.0 · 精美国风 · 龙虎山大师兄自动分析')
+        sb.showMessage('风水排盘专业工具 v5.0.3 · 精美国风 · 龙虎山大师兄自动分析')
         self.setStatusBar(sb)
         self.module_hint = None  # 预留：当前模块提示
 
@@ -497,30 +490,22 @@ class MainWindow(QMainWindow):
         parent.addWidget(bar)
 
     def _build_left(self):
-        """构建左侧输入面板栈：依次加入八字/梅花/六壬/综合/历史五个输入面板。"""
+        """构建左侧输入面板栈：依次加入八字/梅花/六壬三个输入面板。"""
         self.bazi_input = InputPanel()
         self.left_stack.addWidget(self.bazi_input)
         self.meihua_input = MeihuaInputPanel()
         self.left_stack.addWidget(self.meihua_input)
         self.liuren_input = LiurenInputPanel()
         self.left_stack.addWidget(self.liuren_input)
-        self.zonghe_input = ComprehensiveInputPanel()
-        self.left_stack.addWidget(self.zonghe_input)
-        self.history_left = HistoryFilterPanel()
-        self.left_stack.addWidget(self.history_left)
 
     def _build_right(self):
-        """构建右侧结果面板栈：依次加入八字/梅花/六壬/综合/历史五个结果面板。"""
+        """构建右侧结果面板栈：依次加入八字/梅花/六壬三个结果面板。"""
         self.bazi_result = ResultPanel()
         self.right_stack.addWidget(self.bazi_result)
         self.meihua_result = MeihuaResultPanel()
         self.right_stack.addWidget(self.meihua_result)
         self.liuren_result = LiurenResultPanel()
         self.right_stack.addWidget(self.liuren_result)
-        self.zonghe_result = ComprehensiveResultPanel()
-        self.right_stack.addWidget(self.zonghe_result)
-        self.history_right = HistoryListPanel(self.db_manager)
-        self.right_stack.addWidget(self.history_right)
 
     def _apply_splitter_ratio(self):
         """按约 34%/66% 初始化左右分栏尺寸，并尊重最小/最大宽度约束。
@@ -541,45 +526,29 @@ class MainWindow(QMainWindow):
         """切换当前激活板块。
 
         Args:
-            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'/'zonghe'/'history'
+            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'
 
-        同步高亮导航按钮，切换左右堆叠控件的当前页；
-        进入历史板块时加载记录、进入综合板块时刷新三方就绪状态，并记录切换操作。
+        同步高亮导航按钮，切换左右堆叠控件的当前页，并记录切换操作。
         """
         for k, b in self.nav_btns.items():
             b.setChecked(k == pid)
-        idx = {'bazi': 0, 'meihua': 1, 'liuren': 2, 'zonghe': 3, 'history': 4}
+        idx = {'bazi': 0, 'meihua': 1, 'liuren': 2}
         self.left_stack.setCurrentIndex(idx.get(pid, 0))
         self.right_stack.setCurrentIndex(idx.get(pid, 0))
-        if pid == 'history' and hasattr(self, 'history_right'):
-            self.history_right.load()
-        if pid == 'zonghe' and hasattr(self, 'zonghe_input'):
-            self._update_zonghe_status()
         self._log_op('switch_module', pid)
 
-    def _on_load_history_record(self, rec):
-        """把历史记录载入到八字结果面板"""
-        self._switch('bazi')
-        result = rec.get('result', {}) or {}
-        self.bazi_result.display_result(result)
-
     def _connect_signals(self):
-        """绑定各输入面板与结果面板的信号到对应槽函数（提交/重置/AI分析/历史联动等）。"""
+        """绑定各输入面板与结果面板的信号到对应槽函数（提交/重置/AI分析等）。"""
         self.bazi_input.submit_btn.clicked.connect(self._on_bazi)
         self.bazi_input.reset_btn.clicked.connect(self._on_bazi_reset)
         self.bazi_result.refresh_btn.clicked.connect(self._on_bazi)
-        self.bazi_result.ai_analyze_btn.clicked.connect(self._on_bazi_ai_analyze)
+        self.bazi_result.smart_analyze_btn.clicked.connect(self._on_bazi_ai_analyze)
         self.meihua_input.submit_btn.clicked.connect(self._on_meihua)
         self.meihua_input.reset_btn.clicked.connect(self._on_meihua_reset)
-        self.meihua_result.ai_analyze_btn.clicked.connect(self._on_meihua_ai_analyze)
+        self.meihua_result.smart_analyze_btn.clicked.connect(self._on_meihua_ai_analyze)
         self.liuren_input.submit_btn.clicked.connect(self._on_liuren)
         self.liuren_input.reset_btn.clicked.connect(self._on_liuren_reset)
-        self.liuren_result.ai_analyze_btn.clicked.connect(self._on_liuren_ai_analyze)
-        # 综合建议面板
-        self.zonghe_input.generate_clicked.connect(self._on_zonghe_generate)
-        # 历史记录面板联动
-        self.history_left.filter_changed.connect(self.history_right.load)
-        self.history_right.load_to_bazi.connect(self._on_load_history_record)
+        self.liuren_result.smart_analyze_btn.clicked.connect(self._on_liuren_ai_analyze)
 
     def _show_settings_dialog(self):
         """打开 AI 模型配置对话框（保存后热生效，无需重启）。"""
@@ -1214,6 +1183,13 @@ class MainWindow(QMainWindow):
     def _on_liuren_ai_finished(self, result: dict):
         """大六壬AI分析完成"""
         try:
+            # 检查分析是否成功
+            if not result.get('success', False):
+                error_type = result.get('error_type', 'unknown')
+                error_msg = result.get('error_message', '未知错误')
+                self._on_liuren_ai_failed(error_type, error_msg)
+                return
+
             ai_analysis = result.get('ai_analysis', {})
             self.liuren_result.display_ai_analysis_result(ai_analysis)
             # 缓存 AI 结论供大六壬面板导出复用
@@ -1221,24 +1197,6 @@ class MainWindow(QMainWindow):
                 self.liuren_result._current_ai = dict(ai_analysis or {})
             except Exception:
                 pass
-
-            # 缓存结论供『综合建议』融合使用
-            try:
-                inp = self.liuren_input.get_data()
-                question = inp.get('question', '')
-                rd = getattr(self.liuren_result, '_current_result', None) or {}
-                ri_gan = rd.get('ri_gan', '')
-                ri_zhi = rd.get('ri_zhi', '')
-                sc = rd.get('san_chuan') or {}
-                lr_summary = f"日干支{ri_gan}{ri_zhi}；三传 {sc.get('chu','')}→{sc.get('zhong','')}→{sc.get('mo','')}"
-                self._last_ai_results['liuren'] = {
-                    'analysis': ai_analysis,
-                    'summary': lr_summary,
-                    'question': question,
-                }
-                self._update_zonghe_status()
-            except Exception as e:
-                self._logger.warning(f"[综合建议] 缓存六壬结论失败: {e}")
 
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
@@ -1264,8 +1222,8 @@ class MainWindow(QMainWindow):
     def _on_liuren_ai_failed(self, error_type: str, error_message: str):
         """大六壬AI分析失败"""
         self.liuren_result.display_result(getattr(self.liuren_result, '_current_result', {}))
-        self.liuren_result.ai_analyze_btn.setVisible(True)
-        self.liuren_result.ai_analyze_btn.setEnabled(True)
+        self.liuren_result.smart_analyze_btn.setVisible(True)
+        self.liuren_result.smart_analyze_btn.setEnabled(True)
         self.statusBar().showMessage(f'龙虎山大师兄解读失败: {error_type}')
 
         error_titles = {
@@ -1282,121 +1240,6 @@ class MainWindow(QMainWindow):
         short_msg = msg_lines[0] if msg_lines else error_message
 
         QMessageBox.warning(self, title, short_msg)
-
-    # ===== 综合建议（融合三方） =====
-
-    def _update_zonghe_status(self):
-        """刷新综合建议页的三方就绪状态。"""
-        if not hasattr(self, 'zonghe_input'):
-            return
-        self.zonghe_input.refresh_status({
-            'bazi': self._last_ai_results.get('bazi') is not None,
-            'meihua': self._last_ai_results.get('meihua') is not None,
-            'liuren': self._last_ai_results.get('liuren') is not None,
-        })
-
-    def _on_zonghe_generate(self):
-        """生成融合三方结论的综合建议"""
-        try:
-            bazi = self._last_ai_results.get('bazi')
-            meihua = self._last_ai_results.get('meihua')
-            liuren = self._last_ai_results.get('liuren')
-            if not bazi or not meihua or not liuren:
-                QMessageBox.information(
-                    self, '提示',
-                    '请先分别完成「八字排盘」「梅花易数」「大六壬」的龙虎山大师兄分析，'
-                    '再生成综合建议。'
-                )
-                return
-
-            parts = {
-                'bazi': bazi['analysis'],
-                'meihua': meihua['analysis'],
-                'liuren': liuren['analysis'],
-            }
-            meta = {
-                'name': self._last_ai_meta.get('name', ''),
-                'gender': self._last_ai_meta.get('gender', ''),
-                'question': (meihua.get('question') or liuren.get('question') or ''),
-                'bazi_summary': bazi.get('summary', ''),
-                'meihua_summary': meihua.get('summary', ''),
-                'liuren_summary': liuren.get('summary', ''),
-            }
-
-            self.zonghe_result.show_loading('龙虎山大师兄正在统筹三方结论，生成综合建议…')
-            self.zonghe_input.set_busy(True)
-            self.statusBar().showMessage('综合建议生成中…')
-
-            task_id = str(uuid.uuid4())
-            payload = {'parts': parts, 'meta': meta}
-            self._zonghe_worker = AiAnalysisWorker('comprehensive', {}, payload, task_id)
-            self._zonghe_worker.progress_updated.connect(self._on_zonghe_progress)
-            self._zonghe_worker.analysis_finished.connect(self._on_zonghe_finished)
-            self._zonghe_worker.analysis_failed.connect(self._on_zonghe_failed)
-            self._register_worker(self._zonghe_worker)
-            self._zonghe_worker.start()
-        except Exception as e:
-            self.statusBar().showMessage(f'综合建议生成启动失败: {e}')
-            traceback.print_exc()
-            QMessageBox.critical(self, '错误', f'综合建议生成启动失败: {e}')
-
-    def _on_zonghe_progress(self, stage: str, message: str):
-        """综合建议生成进度回调：将 worker 上报的进度信息显示到状态栏。
-
-        Args:
-            stage: 进度阶段标识
-            message: 进度文案
-        """
-        self.statusBar().showMessage(message)
-
-    def _on_zonghe_finished(self, result: dict):
-        """综合建议生成完成回调：展示结果、解忙，并将建议作为独立记录落库。
-
-        Args:
-            result: worker 返回的结果字典（含 ai_analysis / token_usage / elapsed_seconds）
-        """
-        try:
-            ai_analysis = result.get('ai_analysis', {})
-            self.zonghe_result.display_result(ai_analysis)
-            self.zonghe_input.set_busy(False)
-            token_usage = result.get('token_usage', 0)
-            elapsed = result.get('elapsed_seconds', 0)
-            self.statusBar().showMessage(
-                f'综合建议生成完成 · 消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
-            )
-
-            # 落库：综合建议作为一条独立记录（pan_type='综合建议'）持久化，
-            # 便于在历史记录中检索查看。无登录用户时 _save_pan_record 会优雅跳过。
-            try:
-                bi = self._last_bazi_input or {}
-                record_data = {
-                    'name': bi.get('name') or self._last_ai_meta.get('name', ''),
-                    'gender': bi.get('gender') or self._last_ai_meta.get('gender', ''),
-                    'year': bi.get('year', ''),
-                    'month': bi.get('month', 0),
-                    'day': bi.get('day', 0),
-                    'hour': bi.get('hour', 0),
-                    'minute': bi.get('minute', 0),
-                    'location': bi.get('location') or bi.get('city', ''),
-                }
-                self._save_pan_record(record_data, ai_analysis, '综合建议',
-                                      ai_result=ai_analysis)
-            except Exception as e:
-                self._logger.warning(f"[综合建议] 落库失败（不影响展示）: {e}")
-        except Exception as e:
-            self.statusBar().showMessage(f'显示综合建议失败: {e}')
-            traceback.print_exc()
-
-    def _on_zonghe_failed(self, error_type: str, error_message: str):
-        """综合建议生成失败回调：解除忙碌态、展示错误并提示失败类型。
-
-        Args:
-            error_type: 失败类型标识
-            error_message: 失败描述（取首行作为简短提示）
-        """
-        self.zonghe_input.set_busy(False)
-        self.zonghe_result.show_error(error_message.split('\n')[0])
-        self.statusBar().showMessage(f'综合建议生成失败: {error_type}')
 
     # ===== AI分析 =====
 
@@ -1442,27 +1285,15 @@ class MainWindow(QMainWindow):
     def _on_bazi_ai_finished(self, result: dict):
         """八字AI分析完成"""
         try:
+            # 检查分析是否成功
+            if not result.get('success', False):
+                error_type = result.get('error_type', 'unknown')
+                error_msg = result.get('error_message', '未知错误')
+                self._on_bazi_ai_failed(error_type, error_msg)
+                return
+
             ai_analysis = result.get('ai_analysis', {})
             self.bazi_result.display_ai_result(ai_analysis)
-
-            # 缓存结论供『综合建议』融合使用
-            try:
-                inp = self.bazi_input.get_data()
-                self._last_ai_meta['name'] = inp.get('name', '')
-                self._last_ai_meta['gender'] = inp.get('gender', '')
-                rd = getattr(self.bazi_result, '_current_result', None) or {}
-                bz = rd.get('bazi') or {}
-                bazi_summary = f"{bz.get('year_pillar','')} {bz.get('month_pillar','')} " \
-                               f"{bz.get('day_pillar','')} {bz.get('hour_pillar','')}" \
-                               f"（日主{bz.get('rizhu','')}）"
-                self._last_ai_results['bazi'] = {
-                    'analysis': ai_analysis,
-                    'summary': bazi_summary,
-                    'question': '',
-                }
-                self._update_zonghe_status()
-            except Exception as e:
-                self._logger.warning(f"[综合建议] 缓存八字结论失败: {e}")
 
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
@@ -1488,8 +1319,8 @@ class MainWindow(QMainWindow):
     def _on_bazi_ai_failed(self, error_type: str, error_message: str):
         """八字AI分析失败"""
         self.bazi_result.display_result(getattr(self.bazi_result, '_current_result', {}))
-        self.bazi_result.ai_analyze_btn.setVisible(True)
-        self.bazi_result.ai_analyze_btn.setEnabled(True)
+        self.bazi_result.smart_analyze_btn.setVisible(True)
+        self.bazi_result.smart_analyze_btn.setEnabled(True)
         self.statusBar().showMessage(f'龙虎山大师兄分析失败: {error_type}')
 
         error_titles = {
@@ -1548,25 +1379,15 @@ class MainWindow(QMainWindow):
     def _on_meihua_ai_finished(self, result: dict):
         """梅花易数AI分析完成"""
         try:
+            # 检查分析是否成功
+            if not result.get('success', False):
+                error_type = result.get('error_type', 'unknown')
+                error_msg = result.get('error_message', '未知错误')
+                self._on_meihua_ai_failed(error_type, error_msg)
+                return
+
             ai_analysis = result.get('ai_analysis', {})
             self.meihua_result.display_ai_analysis_result(ai_analysis)
-
-            # 缓存结论供『综合建议』融合使用
-            try:
-                inp = self.meihua_input.get_data()
-                question = inp.get('question', '')
-                rd = getattr(self.meihua_result, '_current_result', None) or {}
-                base = rd.get('ben_gua') or {}
-                bian = rd.get('bian_gua') or {}
-                mh_summary = f"本卦{base.get('name','')} / 变卦{bian.get('name','')}"
-                self._last_ai_results['meihua'] = {
-                    'analysis': ai_analysis,
-                    'summary': mh_summary,
-                    'question': question,
-                }
-                self._update_zonghe_status()
-            except Exception as e:
-                self._logger.warning(f"[综合建议] 缓存梅花结论失败: {e}")
 
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
@@ -1592,8 +1413,8 @@ class MainWindow(QMainWindow):
     def _on_meihua_ai_failed(self, error_type: str, error_message: str):
         """梅花易数AI分析失败"""
         self.meihua_result.display_result(getattr(self.meihua_result, '_current_result', {}))
-        self.meihua_result.ai_analyze_btn.setVisible(True)
-        self.meihua_result.ai_analyze_btn.setEnabled(True)
+        self.meihua_result.smart_analyze_btn.setVisible(True)
+        self.meihua_result.smart_analyze_btn.setEnabled(True)
         self.statusBar().showMessage(f'龙虎山大师兄解读失败: {error_type}')
 
         error_titles = {

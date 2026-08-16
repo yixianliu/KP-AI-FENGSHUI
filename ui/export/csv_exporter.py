@@ -1,4 +1,4 @@
-"""
+﻿"""
 CSV 导出器
 支持按"可选章节"导出：基本信息 / 命局类型 / 四柱八字 / 五行分析 /
 十神分析 / 大运流年（含起运）/ 运程总结（事业/财运/健康/感情）/
@@ -11,15 +11,20 @@ import csv
 
 # AI 字段 -> 中文标题（与 PDF/Excel 导出保持一致）
 _AI_SECTIONS = [
+    # 与 core.analysis_storage._JSON_SCHEMAS 对齐（三种类型的并集，仅保留列表型字段；
+    # final_verdict / disclaimer 为段落型，由各自面板/导出分支单独处理）。
     ('personality', '性格特质'),
     ('career', '事业财运'),
-    ('marriage', '婚姻感情'),
+    ('relationships', '婚姻感情'),
     ('health', '健康注意'),
-    ('pattern_analysis', '格局分析'),
-    ('wuxing_balance', '五行平衡分析'),
-    ('shishen_analysis', '十神分析'),
-    ('improvement_plan', '改善方案'),
-    ('suggestions', '综合建议'),
+    ('four_pillars_detail', '四柱详细解读'),
+    ('analysis', '卦象/课体分析'),
+    ('hexagram_interpretations', '卦爻解释'),
+    ('timing', '应期时机'),
+    ('scenario_advice', '场景化建议'),
+    ('advice', '行动建议'),
+    ('historical_cases', '历史案例'),
+    ('probability_stats', '概率统计'),
 ]
 
 
@@ -199,9 +204,11 @@ class CsvExporter(BaseExporter):
                 # AI 智能分析
                 if has_chapter(data, 'ai_analysis'):
                     ai = data.get('ai_analysis', {}) or {}
-                    writer.writerow(['龙虎山大师兄智能深度分析'])
+                    writer.writerow(['龙虎山大师兄分析预测'])
                     for key, title in _AI_SECTIONS:
                         items = ai.get(key, []) or []
+                        if isinstance(items, str):
+                            items = [items] if items.strip() else []
                         for it in items:
                             writer.writerow([title, _to_str(it)])
                     writer.writerow([])
@@ -233,6 +240,8 @@ class CsvExporter(BaseExporter):
                         writer.writerow(['— 龙虎山大师兄梅花解读 —'])
                         for key, title in _AI_SECTIONS:
                             items = mh_ai.get(key, []) or []
+                            if isinstance(items, str):
+                                items = [items] if items.strip() else []
                             for it in items:
                                 writer.writerow([title, _to_str(it)])
                         if mh_ai.get('final_verdict'):
@@ -262,6 +271,8 @@ class CsvExporter(BaseExporter):
                         writer.writerow(['— 龙虎山大师兄六壬解读 —'])
                         for key, title in _AI_SECTIONS:
                             items = lr_ai.get(key, []) or []
+                            if isinstance(items, str):
+                                items = [items] if items.strip() else []
                             for it in items:
                                 writer.writerow([title, _to_str(it)])
                         if lr_ai.get('final_verdict'):
@@ -271,7 +282,7 @@ class CsvExporter(BaseExporter):
                 # 综合建议（融合三方结论）
                 if has_chapter(data, 'zonghe'):
                     z = data.get('zonghe', {}) or {}
-                    writer.writerow(['综合建议（龙虎山大师兄融合）'])
+                    writer.writerow(['综合建议（大师兄融合）'])
                     _ZONGHE_SECTIONS = [
                         ('tri_method_overview', '三方概览'),
                         ('consistency_check', '矛盾与印证'),

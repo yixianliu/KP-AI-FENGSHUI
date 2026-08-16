@@ -1,4 +1,4 @@
-"""
+﻿"""
 导出基类
 定义导出器的统一接口
 """
@@ -17,7 +17,7 @@ CHAPTERS: List[tuple] = [
     ('yunshi', '大运流年'),
     ('yuncheng', '运程总结'),
     ('analysis', '吉凶批注'),
-    ('ai_analysis', '龙虎山大师兄智能分析'),
+    ('ai_analysis', '龙虎山大师兄分析预测'),
     ('meihua', '梅花易数'),
     ('liuren', '大六壬起课'),
     ('zonghe', '综合建议'),

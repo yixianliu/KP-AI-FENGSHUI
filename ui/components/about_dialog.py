@@ -1,12 +1,12 @@
-"""
-关于对话框 v4.0 — 无框线现代扁平设计
+﻿"""
+关于对话框 v5.0.3 — 增强视觉交互效果
 =====================================
-包含：头像徽章 · 开发者介绍 · 社交联系方式 · 关闭按钮
+包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色
 """
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QFrame, QWidget, QMessageBox,
-                               QGraphicsDropShadowEffect)
-from PySide6.QtCore import Qt, QUrl
+                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
+from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
                            QLinearGradient, QPen, QPainterPath, QDesktopServices)
 
@@ -14,11 +14,17 @@ from ui.styles import Colors, Fonts, Spacing
 
 
 class AboutDialog(QDialog):
-    """关于 / 联系我对话框（无框线现代扁平版 v4）。"""
+    """关于 / 联系我对话框（增强交互版 v5）。"""
 
     QQ = '1153602036'
     PHONE = '19258585274'
-    APP_VERSION = 'v5.0'
+    APP_VERSION = 'v5.0.3'
+
+    # 卡片动画延迟参数
+    _STAGGER_DELAY = 80      # 每张卡片延迟 ms
+    _STAGGER_BASE = 120      # 首张基础延迟 ms
+    _FADE_DURATION = 450     # 淡入动画时长 ms
+    _WAVE_STAGGER = 60       # 波浪延迟 ms
 
     def __init__(self, parent=None):
         """初始化关于对话框。
@@ -30,7 +36,24 @@ class AboutDialog(QDialog):
         self.setWindowTitle('关于')
         self.setModal(True)
         self.setMinimumSize(480, 520)
+        self._cards = []  # 需要入场动画的卡片列表
         self._build_ui()
+
+    def showEvent(self, event):
+        """重写 showEvent：在对话框可见后依次触发动画。"""
+        super().showEvent(event)
+        self._start_staggered_animations()
+
+    def _start_staggered_animations(self):
+        """依次触发行级卡片淡入动画（opacity）。"""
+        for i, (card, base_delay) in enumerate(self._cards):
+            delay = base_delay + i * self._STAGGER_DELAY
+            anim = QPropertyAnimation(card, b"windowOpacity")
+            anim.setDuration(self._FADE_DURATION)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.InOutQuad)
+            QTimer.singleShot(delay, anim.start)
 
     # ======================== 主布局 ========================
     def _build_ui(self):
@@ -39,7 +62,7 @@ class AboutDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ---- 顶部渐变 Header ----
+        # ---- 顶部渐变 Header（含头像动画） ----
         header = self._header()
         root.addWidget(header)
 
@@ -50,12 +73,14 @@ class AboutDialog(QDialog):
         body_layout.setContentsMargins(28, 24, 28, 24)
         body_layout.setSpacing(16)
 
-        # 介绍卡片
+        # 介绍卡片（入场动画）
         intro = self._intro_card()
+        self._cards.append((intro, self._STAGGER_BASE))
         body_layout.addWidget(intro)
 
         # 联系方式
         contacts = self._contacts_section()
+        self._cards.append((contacts, self._STAGGER_BASE + self._STAGGER_DELAY))
         body_layout.addWidget(contacts)
 
         # 底部版权（stretch=0）
@@ -67,7 +92,7 @@ class AboutDialog(QDialog):
 
     # ======================== 顶部 Header ========================
     def _header(self) -> QWidget:
-        """渐变 Header + 头像 + 波浪。"""
+        """渐变 Header + 呼吸光环头像 + 波浪。"""
         bar = QFrame()
         bar.setFixedHeight(160)
         bar.setStyleSheet(f"""
@@ -91,7 +116,8 @@ class AboutDialog(QDialog):
 
         clayout.addSpacing(28)
 
-        avatar = AvatarWidget('风', size=72)
+        # 带呼吸光环的头像
+        avatar = HaloAvatarWidget('风', size=72)
         clayout.addWidget(avatar)
         clayout.addSpacing(16)
 
@@ -157,7 +183,7 @@ class AboutDialog(QDialog):
         inner.addWidget(lbl)
 
         text = QLabel(
-            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与龙虎山大师兄深度融合的'
+            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与龙虎山大师兄分析预测深度融合的'
             '桌面端专业命理分析工具。\n\n'
             '通过严谨的命理算法计算，结合龙虎山大师兄的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
         )
@@ -238,32 +264,69 @@ class AboutDialog(QDialog):
 # ======================== 装饰组件 ========================
 
 class ShadowCard(QFrame):
-    """无框线卡片 — 纯白色底色 + 柔和阴影，无边框线。"""
+    """无框线卡片 — 纯白色底色 + 柔和阴影，悬停时阴影加深 + 背景微变。"""
 
     def __init__(self):
         """初始化无边框阴影卡片：白底 + 柔和投影，用于区分内容区块。"""
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet(f"""
+        self._hovered = False
+
+        # 单一阴影效果（通过动画切换 blurRadius）
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setBlurRadius(14)
+        self._shadow.setXOffset(0)
+        self._shadow.setYOffset(3)
+        self._shadow.setColor(QColor(0, 0, 0, 28))
+        self.setGraphicsEffect(self._shadow)
+
+        # 阴影动画（blurRadius 平滑过渡）
+        self._shadow_anim = QPropertyAnimation(self._shadow, b"blurRadius")
+        self._shadow_anim.setDuration(200)
+        self._shadow_anim.setEasingCurve(QEasingCurve.OutQuad)
+
+        self._normal_style = f"""
             QFrame {{
                 background: {Colors.CARD};
                 border: none;
                 border-radius: {Spacing.RADIUS};
             }}
-        """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(14)
-        shadow.setXOffset(0)
-        shadow.setYOffset(3)
-        shadow.setColor(QColor(0, 0, 0, 28))
-        self.setGraphicsEffect(shadow)
+        """
+        self._hover_style = f"""
+            QFrame {{
+                background: {Colors.CARD_HOVER};
+                border: none;
+                border-radius: {Spacing.RADIUS};
+            }}
+        """
+        self.setStyleSheet(self._normal_style)
+
+    def enterEvent(self, event):
+        """悬停时加深阴影并变背景。"""
+        self._hovered = True
+        self.setStyleSheet(self._hover_style)
+        # 动画 blurRadius 14 -> 22
+        self._shadow_anim.setStartValue(14)
+        self._shadow_anim.setEndValue(22)
+        self._shadow_anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """离开时恢复阴影和背景。"""
+        self._hovered = False
+        self.setStyleSheet(self._normal_style)
+        # 动画 blurRadius 22 -> 14
+        self._shadow_anim.setStartValue(22)
+        self._shadow_anim.setEndValue(14)
+        self._shadow_anim.start()
+        super().leaveEvent(event)
 
 
-class AvatarWidget(QFrame):
-    """圆形头像徽章，纯 QPainter 绘制。"""
+class HaloAvatarWidget(QFrame):
+    """圆形头像徽章 — 带呼吸光环效果。"""
 
     def __init__(self, text: str, size: int = 64):
-        """初始化圆形头像徽章。
+        """初始化带呼吸光环的圆形头像徽章。
 
         Args:
             text: 显示文字（实际仅取首字符作为徽标）。
@@ -275,12 +338,38 @@ class AvatarWidget(QFrame):
         self.setFixedSize(size, size)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        # 呼吸光环动画（opacity 循环）
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(1.0)
+        self.setGraphicsEffect(self._opacity_effect)
+
+        self._breathe_anim = QPropertyAnimation(self._opacity_effect, b"opacity")
+        self._breathe_anim.setDuration(2000)  # 2秒一个周期
+        self._breathe_anim.setStartValue(0.5)
+        self._breathe_anim.setEndValue(1.0)
+        self._breathe_anim.setEasingCurve(QEasingCurve.InOutSine)
+        self._breathe_anim.setLoopCount(-1)  # 无限循环
+        self._breathe_anim.start()
+
+        # 悬停状态
+        self._hovered = False
+
     def setText(self, text: str):
         """设置头像文字，仅保留首字符作为徽标（空文本回退为 '?'）。"""
         self._text = text[:1] if text else '?'
 
+    def enterEvent(self, event):
+        """悬停时光环变亮。"""
+        self._hovered = True
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """离开时光环恢复。"""
+        self._hovered = False
+        super().leaveEvent(event)
+
     def paintEvent(self, event):
-        """重绘事件：用 QPainter 绘制渐变圆底、白色细内环与居中文字。"""
+        """重绘事件：绘制带光环的渐变圆底、白色细内环与居中文字。"""
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
 
@@ -297,7 +386,13 @@ class AvatarWidget(QFrame):
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(cx, cy, r, r)
 
-        # 白色细内环（更淡）
+        # 光环（悬停时更亮）
+        halo_color = QColor(74, 122, 144, 80 if self._hovered else 50)
+        pen_halo = QPen(halo_color, 2)
+        painter.setPen(pen_halo)
+        painter.drawEllipse(cx, cy, r + 4, r + 4)
+
+        # 白色细内环
         pen = QPen(QColor(255, 255, 255, 50), 1.5)
         painter.setPen(pen)
         painter.drawEllipse(cx, cy, r - 3, r - 3)
@@ -444,7 +539,7 @@ class ContactButton(QWidget):
         self.setToolTip(f'{name}: {value}')
 
     def _make_btn(self, text: str, accent: str, solid: bool) -> QPushButton:
-        """按强调色生成统一样式的操作按钮。
+        """按强调色生成统一样式的操作按钮（含 hover 变色 + 点击缩放动画）。
 
         Args:
             text: 按钮文字。
@@ -454,19 +549,58 @@ class ContactButton(QWidget):
         p = QPushButton(text)
         p.setCursor(Qt.PointingHandCursor)
         p.setFixedHeight(26)
+
+        if solid:
+            base_style = (
+                f"background:{accent};"
+                f"border-radius:8px;font-size:11px;padding:0 14px;"
+                f"font-family:{Fonts.BODY}, 'Microsoft YaHei', sans-serif;"
+            )
+            hover_style = f"background:{accent}DD;"
+        else:
+            base_style = (
+                f"background:transparent;color:{Colors.TEXT2};"
+                f"border:none;border-radius:8px;font-size:11px;padding:0 14px;"
+                f"font-family:{Fonts.BODY}, 'Microsoft YaHei', sans-serif;"
+            )
+            hover_style = (
+                f"color:{accent};background:{Colors.HOVER};"
+            )
+
         p.setStyleSheet(f"""
             QPushButton {{
-                {"background:" + accent if solid else "background:transparent;color:" + Colors.TEXT2 + ";border: none;"}
-                border-radius: 8px;
-                font-size: 11px;
-                padding: 0 14px;
-                font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+                {base_style}
             }}
             QPushButton:hover {{
-                {"background:" + accent + "DD" if solid else "color:" + accent + ";background:" + Colors.HOVER + ";border: none;"}
+                {hover_style}
             }}
         """)
+
+        # 点击微缩放反馈（通过动画实现）
+        self._add_click_feedback(p)
         return p
+
+    def _add_click_feedback(self, btn: QPushButton):
+        """为按钮添加点击时的微缩放视觉反馈（press 缩小 pressed 恢复）。"""
+        # 用 minimumWidth 属性做缩放手感（动画 80ms，OutCubic 缓动）
+        anim = QPropertyAnimation(btn, b"minimumWidth")
+        anim.setDuration(80)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def do_press():
+            btn.setProperty("original_width", btn.minimumWidth() if btn.minimumWidth() > 0 else btn.width())
+            anim.setStartValue(btn.property("original_width") or btn.width())
+            anim.setEndValue(max(1, int((btn.property("original_width") or btn.width()) * 0.92)))
+            anim.start()
+
+        def do_release():
+            orig = btn.property("original_width") or btn.width()
+            anim.setStartValue(btn.minimumWidth())
+            anim.setEndValue(orig)
+            anim.start()
+
+        btn.pressed.connect(do_press)
+        btn.released.connect(do_release)
 
     def _open_link(self, url: str, name: str):
         """由「联系」按钮 clicked 触发：用系统默认应用打开协议链接，失败则弹窗提示。"""
@@ -482,5 +616,11 @@ class ContactButton(QWidget):
         from PySide6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         cb.setText(value)
-        QMessageBox.information(self.parentWidget() or self, '已复制',
-                                f'{name} 已复制到剪贴板\n\n{value}')
+        # 使用实例化方式确保文本正确显示
+        msg = QMessageBox(self.parentWidget() or self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle('已复制')
+        msg.setText(f'{name} 已复制到剪贴板')
+        msg.setInformativeText(value)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec()

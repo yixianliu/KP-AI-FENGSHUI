@@ -1,18 +1,23 @@
-"""
-AI分析Worker线程模块
-实现在后台线程中执行AI分析，避免UI阻塞（同步执行，结果经信号回传 UI）
+﻿"""
+智能分析Worker线程模块
+实现在后台线程中执行智能分析，避免UI阻塞（同步执行，结果经信号回传 UI）
 """
 from PySide6.QtCore import QThread, Signal, QObject
 
 # NOTE: sys.path 已在 main.py 入口统一注入，此处不再重复 inject
 
-from core.analysis_pipeline import AnalysisPipeline
+from core.analysis_storage import (
+    AnalysisStorage,
+    run_bazi_analysis,
+    run_meihua_analysis,
+    run_liuren_analysis,
+)
 
 
 class AiAnalysisWorker(QThread):
     """
-    AI分析工作线程
-    在后台线程中执行AI分析，通过信号与UI线程通信
+    智能分析工作线程
+    在后台线程中执行智能分析，通过信号与UI线程通信
     """
 
     progress_updated = Signal(str, str)
@@ -24,7 +29,7 @@ class AiAnalysisWorker(QThread):
         初始化分析工作线程
 
         Args:
-            analysis_type: 分析类型 ('bazi' 或 'meihua')
+            analysis_type: 分析类型 ('bazi'/'meihua'/'liuren')
             input_data: 输入数据
             chart_data: 排盘/卦象数据
             task_id: 任务ID（用于日志关联，可选）
@@ -42,23 +47,17 @@ class AiAnalysisWorker(QThread):
             self.progress_updated.emit('validating', '正在验证输入数据...')
 
             self.progress_updated.emit('initializing', '正在初始化龙虎山大师兄分析引擎...')
-            pipeline = AnalysisPipeline()
+            AnalysisStorage()  # 确保表就绪
 
             if self.analysis_type == 'bazi':
                 self.progress_updated.emit('analyzing', '龙虎山大师兄正在深入分析八字命理...')
-                result = pipeline.run_bazi_analysis(self.input_data, self.chart_data, self.task_id)
+                result = run_bazi_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'meihua':
                 self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读卦象玄机...')
-                result = pipeline.run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
+                result = run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'liuren':
                 self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读六壬玄机...')
-                result = pipeline.run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
-            elif self.analysis_type == 'comprehensive':
-                self.progress_updated.emit('analyzing', '龙虎山大师兄正在统筹三方结论，生成综合建议...')
-                # chart_data 此处承载 {'parts': 三方分析, 'meta': 补充信息}
-                parts = (self.chart_data or {}).get('parts', {})
-                meta = (self.chart_data or {}).get('meta', {})
-                result = pipeline.run_comprehensive_analysis(parts, meta, self.task_id)
+                result = run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
             else:
                 self.analysis_failed.emit('unknown_type', f'不支持的分析类型: {self.analysis_type}')
                 return
@@ -83,7 +82,7 @@ class AiAnalysisWorker(QThread):
 
 class AiAnalysisManager(QObject):
     """
-    AI分析管理器
+    智能分析管理器
     管理分析工作线程的创建、执行和结果处理
     """
 
@@ -105,7 +104,7 @@ class AiAnalysisManager(QObject):
 
     def start_analysis(self, analysis_type: str, input_data: dict, chart_data: dict = None, task_id: str = None) -> AiAnalysisWorker:
         """
-        启动AI分析
+        启动智能分析
 
         Args:
             analysis_type: 分析类型

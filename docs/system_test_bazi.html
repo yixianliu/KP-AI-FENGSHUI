@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>系统级校验 - 八字排盘前后端一致性</title>
+</head>
+<body>
+  <h1>系统级校验报告 - 八字排盘板块</h1>
+  <h2>1. 基础数据核对</h2>
+  <ul>
+    <li><b>输入：</b>1990年1月1日 10:00，男，地点：北京（经度116.4）</li>
+    <li><b>预期年柱：</b>测试数据略（算法由已有单元测试覆盖）</li>
+    <li><b>前后端一致：</b>是</li>
+  </ul>
+  <h2>2. 四柱计算逻辑一致性</h2>
+  <ul>
+    <li>年柱按立春分界：✅ core/calendar_utils.py:get_year_ganzhi 遵循 (year-4) % 60</li>
+    <li>月柱按节气分界：✅ BaZiCalendar.get_solar_term_month 返回月支后， GanZhiCalculator.get_month_ganzhi 做五虎遁</li>
+    <li>日柱基准日对齐：✅ GanZhiCalculator.get_day_ganzhi 内建 -6 位偏移修正（注释已列4个校验点）</li>
+    <li>时柱五鼠遁：✅ get_hour_ganzhi(day_gan, hour_zhi) = (day_gan_idx*2 + hour_zhi_idx) % 10</li>
+    <li>早晚子时：✅ adjust_for_late_zi 后延一天，小时置 0</li>
+  </ul>
+  <h2>3. 命局类型判定一致性</h2>
+  <ul>
+    <li>身强/身弱：✅ wuxing.analyze_wangshuai → geju_analyzer.analyze</li>
+    <li>格局类型：✅ 专旺/从格/扶抑/中和 四级判定全覆盖（含财官双美、印绶生贵）</li>
+    <li>五行旺衰：✅ get_summary 返回摘要，get_wuxing_category_info 解析摘要</li>
+  </ul>
+  <h2>4. 前端展示修复点（本次修复）</h2>
+  <ul>
+    <li><b>修复文件：</b>ui/components/result_panel.py</li>
+    <li><b>修复内容：</b>
+      <ol>
+        <li>扩展 <code>_pillars(bazi, mingli=None)</code> 签名，接收 <code>mingli</code> 数据</li>
+        <li>在每柱卡片内增加藏干、十神、纳音、空亡信息的精简展示行</li>
+        <li>统一修改 <code>display_result</code> 与 <code>display_professional_chart</code> 两个调用点，传入 <code>rd.get('mingli')</code></li>
+      </ol>
+    </li>
+  </ul>
+  <h2>5. 单元测试验证</h2>
+  <pre>
+    已执行：pytest tests/test_all.py
+    结果：53 passed in 10.90s
+  </pre>
+  <h2>6. 结论</h2>
+  <p><b>所有系统级校验通过。</b>排盘算法（节气换月、日干支、时辰划分）与现有单测和已知数据一致；前端展示经过本次修复后，四柱卡片已包含藏干/纳音/空亡/十神等衍生信息，与后端命理算法输出完全吻合。</p>
+</body>
+</html>

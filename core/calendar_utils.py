@@ -457,8 +457,9 @@ class BaZiCalendar:
         solar_hour = solar_dt.hour + solar_dt.minute / 60
         hour_zhi, hour_zhi_idx = self.solar_time.get_hour_zhi(solar_hour)
         
+        # 使用真太阳时的完整日期/时间做晚子时调整，避免经度修正跨日时日期仍用原始公历
         year_adj, month_adj, day_adj, hour_adj, minute_adj = self.adjust_for_late_zi(
-            year, month, day, solar_dt.hour, solar_dt.minute
+            solar_dt.year, solar_dt.month, solar_dt.day, solar_dt.hour, solar_dt.minute
         )
         
         dt_for_jieqi = datetime(year_adj, month_adj, day_adj, hour_adj, minute_adj)

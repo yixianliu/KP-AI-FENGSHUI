@@ -9,8 +9,10 @@
 4. 完善五行均衡分析逻辑
 """
 
+import threading
 from core.database_manager import DatabaseManager
 
+# 懒加载数据库数据
 # 懒加载数据库数据
 _db = None
 _TIAN_GAN_WUXING = None
@@ -18,19 +20,27 @@ _DI_ZHI_WUXING = None
 _DI_ZHI_HIDDEN_GAN = None
 _DI_ZHI_HIDDEN_GAN_DETAIL = None
 _YUE_LING_WEIGHT = None
+_ensure_db_lock = threading.Lock()
 
 
 def _ensure_db():
-    """确保数据库连接并加载数据"""
+    """确保数据库连接并加载数据。
+
+    线程安全：全局 `_ensure_db_lock` 保证多线程首次并发访问时
+    仅由一个线程完成 DatabaseManager 初始化与查询，其余线程等待后读缓存。
+    """
     global _db, _TIAN_GAN_WUXING, _DI_ZHI_WUXING
     global _DI_ZHI_HIDDEN_GAN, _DI_ZHI_HIDDEN_GAN_DETAIL, _YUE_LING_WEIGHT
     if _db is None:
-        _db = DatabaseManager()
-        _TIAN_GAN_WUXING = _db.get_tian_gan_wuxing()
-        _DI_ZHI_WUXING = _db.get_di_zhi_wuxing()
-        _DI_ZHI_HIDDEN_GAN_DETAIL = _db.get_di_zhi_hidden_gan()
-        _DI_ZHI_HIDDEN_GAN = _db.get_di_zhi_hidden_gan_simple()
-        _YUE_LING_WEIGHT = _db.get_yue_ling_weight()
+        with _ensure_db_lock:
+            # 二次检查：等待锁的线程可能在阻塞期间发现 _db 已被前一线程初始化
+            if _db is None:
+                _db = DatabaseManager()
+                _TIAN_GAN_WUXING = _db.get_tian_gan_wuxing()
+                _DI_ZHI_WUXING = _db.get_di_zhi_wuxing()
+                _DI_ZHI_HIDDEN_GAN_DETAIL = _db.get_di_zhi_hidden_gan()
+                _DI_ZHI_HIDDEN_GAN = _db.get_di_zhi_hidden_gan_simple()
+                _YUE_LING_WEIGHT = _db.get_yue_ling_weight()
 
 
 def get_tian_gan_wuxing():

@@ -133,8 +133,8 @@ class YunShiCalculator:
             periods.append({
                 'period': i + 1,
                 'ganzhi': ganzhi,
-                'start_age': round(start_age, 1),
-                'end_age': round(start_age + 9, 1),
+                'start_age': int(start_age),
+                'end_age': int(start_age + 9),
                 'start_year': start_year,
                 'end_year': start_year + 9,
                 'direction': direction,

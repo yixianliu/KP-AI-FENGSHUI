@@ -1,4 +1,4 @@
-"""
+﻿"""
 Excel 导出器
 支持按"可选章节"导出：基本信息 / 命局类型 / 四柱八字 / 五行分析 /
 十神分析 / 大运流年（含起运）/ 运程总结（事业/财运/健康/感情）/
@@ -19,15 +19,20 @@ except ImportError:
 
 # AI 字段 -> 中文标题（与 PDF 导出保持一致）
 _AI_SECTIONS = [
+    # 与 core.analysis_storage._JSON_SCHEMAS 对齐（三种类型的并集，仅保留列表型字段；
+    # final_verdict / disclaimer 为段落型，由各自面板/导出分支单独处理）。
     ('personality', '性格特质'),
     ('career', '事业财运'),
-    ('marriage', '婚姻感情'),
+    ('relationships', '婚姻感情'),
     ('health', '健康注意'),
-    ('pattern_analysis', '格局分析'),
-    ('wuxing_balance', '五行平衡分析'),
-    ('shishen_analysis', '十神分析'),
-    ('improvement_plan', '改善方案'),
-    ('suggestions', '综合建议'),
+    ('four_pillars_detail', '四柱详细解读'),
+    ('analysis', '卦象/课体分析'),
+    ('hexagram_interpretations', '卦爻解释'),
+    ('timing', '应期时机'),
+    ('scenario_advice', '场景化建议'),
+    ('advice', '行动建议'),
+    ('historical_cases', '历史案例'),
+    ('probability_stats', '概率统计'),
 ]
 
 
@@ -447,7 +452,7 @@ class ExcelExporter(BaseExporter):
             row += 1
 
     def _add_ai_section(self, ws, start_row, ai: dict):
-        """写入「龙虎山大师兄智能深度分析」区块：AI 生成的各维度解读。
+        """写入「龙虎山大师兄分析预测」区块：AI 生成的各维度解读。
 
         按 _AI_SECTIONS 固定顺序遍历，使区块次序不受 AI 返回字段顺序影响；
         每个维度先占一行小标题，其下每个条目单独成行并在 A 列打项目符号。
@@ -461,7 +466,7 @@ class ExcelExporter(BaseExporter):
             None
         """
         ws.merge_cells(f'A{start_row}:B{start_row}')
-        title_cell = ws.cell(row=start_row, column=1, value='龙虎山大师兄智能深度分析')
+        title_cell = ws.cell(row=start_row, column=1, value='龙虎山大师兄分析预测')
         title_cell.font = self.styles['header']
         title_cell.alignment = self.styles['center']
         title_cell.fill = self.styles['fill_gold']
@@ -470,6 +475,12 @@ class ExcelExporter(BaseExporter):
         row = start_row + 1
         for key, title in _AI_SECTIONS:
             items = ai.get(key, []) or []
+            # 防御：个别字段可能为字符串（如旧缓存数据），统一包成单元素列表，
+            # 避免逐字符写入单元格。
+            if isinstance(items, str):
+                items = [items] if items.strip() else []
+            elif not isinstance(items, (list, tuple)):
+                items = [items] if items else []
             if not items:
                 continue
             self._cell(ws, row, 1, title, align='left')
@@ -520,7 +531,7 @@ class ExcelExporter(BaseExporter):
             None
         """
         ws.merge_cells(f'A{start_row}:B{start_row}')
-        title_cell = ws.cell(row=start_row, column=1, value='综合建议（龙虎山大师兄融合）')
+        title_cell = ws.cell(row=start_row, column=1, value='综合建议（大师兄融合）')
         title_cell.font = self.styles['header']
         title_cell.alignment = self.styles['center']
         title_cell.fill = self.styles['fill_gold']

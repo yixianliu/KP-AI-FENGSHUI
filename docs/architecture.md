@@ -48,7 +48,7 @@ database/base.sql  ──▶  scripts/convert_mysql_to_sqlite.py  ──▶  dat
 | 目录 | 职责 |
 |---|---|
 | `core/` | 排盘计算、存储层、分析流水线、校验、知识库 |
-| `ui/` | 主控窗口、输入/结果/历史/设置/登录/关于对话框、AI worker、CSV/Excel/PDF 导出 |
+| `ui/` | 主控窗口、输入/结果/设置/登录/关于对话框、AI worker、CSV/Excel/PDF 导出（三大板块：八字 / 梅花 / 六壬，无历史记录） |
 | `api/` | AI 外部接口 |
 | `scripts/` | `convert_mysql_to_sqlite.py`（Schema 生成，重要）、`agnes_test_client.py`、`_smoke_analysis.py` |
 | `tests/` | `test_all.py`（统一测试入口，15 用例） |

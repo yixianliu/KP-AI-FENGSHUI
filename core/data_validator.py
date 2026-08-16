@@ -1,4 +1,4 @@
-"""
+﻿"""
 数据验证模块
 负责验证输入数据的完整性、格式正确性和业务规则约束
 """
@@ -507,17 +507,17 @@ class DataValidator:
         analysis_type: str = 'bazi'
     ) -> bool:
         """
-        验证AI分析结果数据完整性
+        验证智能分析结果数据完整性
 
         Args:
-            analysis_data: AI分析结果数据
+            analysis_data: 智能分析结果数据
             analysis_type: 分析类型 ('bazi' 或 'meihua')
 
         Returns:
             是否验证通过
         """
         self.reset()
-        logger.info(f"[数据验证] 开始验证AI分析结果（{analysis_type}）")
+        logger.info(f"[数据验证] 开始验证智能分析结果（{analysis_type}）")
 
         if analysis_type == 'bazi':
             required_fields = ['personality', 'career', 'marriage', 'health', 'suggestions',
@@ -549,9 +549,9 @@ class DataValidator:
 
         passed = len(self.errors) == 0
         if passed:
-            logger.info("[数据验证] AI分析结果验证通过")
+            logger.info("[数据验证] 智能分析结果验证通过")
         else:
-            logger.error(f"[数据验证] AI分析结果验证失败，共{len(self.errors)}个错误")
+            logger.error(f"[数据验证] 智能分析结果验证失败，共{len(self.errors)}个错误")
 
         return passed
 

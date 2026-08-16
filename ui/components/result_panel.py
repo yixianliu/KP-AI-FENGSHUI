@@ -1,4 +1,4 @@
-"""
+﻿"""
 右侧结果面板 v5.0 - 精美国风 · 可折叠卡片 · 清晰排版 · 流畅动画
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
@@ -6,7 +6,11 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, Q
                              QDialog, QSizePolicy)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from ui.components.collapsible_card import CollapsibleCard
+from ui.components.collapsible_card import (CollapsibleCard,
+                                          probability_stats_widget,
+                                          conclusion_block, suggestion_block,
+                                          risk_aware_label)
+from ui.components.timeline import fortune_timeline_widget
 
 # 天干五行颜色映射
 TIANGAN_WUXING = {
@@ -29,10 +33,10 @@ DIZHI_WUXING = {
 
 
 class ResultPanel(QWidget):
-    """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、AI 分析分隔与呈现。
+    """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、智能 分析分隔与呈现。
 
     由 MainWindow 在各板块的结果栈中实例化，接受排盘结果字典并渲染为可折叠卡片；
-    同时通过 display_ai_result / show_ai_loading 衔接龙虎山大师兄（AI）分析流程。
+    同时通过 display_result / show_loading 衔接龙虎山大师兄分析流程。
     """
     def __init__(self, parent=None, stacked_widget=None):
         """初始化结果面板。
@@ -41,12 +45,12 @@ class ResultPanel(QWidget):
             parent: 父控件（通常为 MainWindow 的结果栈）
             stacked_widget: 预留的堆叠控件参数，当前未使用，保留以兼容调用
 
-        初始化 AI 可用性标记与淡入动画列表，并构建 UI。
+        初始化 智能 可用性标记与淡入动画列表，并构建 UI。
         """
         super().__init__(parent)
         self._current_result = None
-        # AI 功能可用性标记（由 MainWindow 在初始化后注入）
-        self._ai_available = True
+        # 智能 功能可用性标记（由 MainWindow 在初始化后注入）
+        self._available = True
         self._fade_anims = []
         self.init_ui()
 
@@ -105,13 +109,13 @@ class ResultPanel(QWidget):
             self.status_lbl.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
         hdr.addWidget(self.status_lbl)
 
-        # AI分析按钮
-        if not hasattr(self, 'ai_analyze_btn') or self.ai_analyze_btn is None:
-            self.ai_analyze_btn = QPushButton('🤖 重新分析')
-            self.ai_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
-            self.ai_analyze_btn.setCursor(Qt.PointingHandCursor)
-            self.ai_analyze_btn.setVisible(False)
-        hdr.addWidget(self.ai_analyze_btn)
+        # 智能分析按钮
+        if not hasattr(self, 'smart_analyze_btn') or self.smart_analyze_btn is None:
+            self.smart_analyze_btn = QPushButton('🤖 重新分析')
+            self.smart_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
+            self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
+            self.smart_analyze_btn.setVisible(False)
+        hdr.addWidget(self.smart_analyze_btn)
 
         # 功能按钮
         if not hasattr(self, 'refresh_btn') or self.refresh_btn is None:
@@ -194,18 +198,41 @@ class ResultPanel(QWidget):
             return info[1]
         return Colors.TEXT
 
-    def _pillars(self, bazi):
-        """四柱展示 - 增强版"""
+    def _pillars(self, bazi, mingli=None):
+        """四柱展示 - 增强版（含藏干、纳音、空亡、十神）"""
+        mingli = mingli or {}
+
+        # 把 mingli 里的衍生数据整理成按柱名索引，方便渲染时直接取用
+        hidden_stems_map = {}
+        for item in mingli.get('hidden_stems', {}).get('hidden_stems', []):
+            if isinstance(item, dict):
+                hidden_stems_map[item.get('pillar')] = item.get('hidden_stems', [])
+        nayin_map = {}
+        for item in mingli.get('nayin', []):
+            if isinstance(item, dict):
+                nayin_map[item.get('pillar')] = item
+        kongwang_info = mingli.get('kongwang', {})
+        affected_pillars = {}
+        for item in kongwang_info.get('affected_pillars', []):
+            if isinstance(item, dict):
+                affected_pillars[item.get('pillar')] = item
+        shishen_map = {}
+        for item in mingli.get('shishen', {}).get('details', []):
+            if isinstance(item, dict):
+                shishen_map[item.get('pillar')] = item.get('gan_shishen', '')
+
         w = QWidget()
         w.setStyleSheet("background: transparent;")
-        gl = QGridLayout(w)
-        gl.setContentsMargins(10, 6, 10, 6)
-        gl.setHorizontalSpacing(14)
-        gl.setVerticalSpacing(14)
+        hl = QHBoxLayout(w)
+        hl.setContentsMargins(10, 6, 10, 6)
+        hl.setSpacing(16)
+        hl.setAlignment(Qt.AlignCenter)
 
         for idx, (name, p) in enumerate([('年柱', bazi['year_pillar']), ('月柱', bazi['month_pillar']),
                                           ('日柱', bazi['day_pillar']), ('时柱', bazi['hour_pillar'])]):
             is_day = name == '日柱'
+
+            # 整柱横向排列：天干·地支 左右并排
             c = QFrame()
             if is_day:
                 c.setStyleSheet(f"""
@@ -213,7 +240,7 @@ class ResultPanel(QWidget):
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #FFFBF0, stop:1 #FFF5E0);
                         border: 2px solid {Colors.LIUJIN};
-                        border-radius: {Spacing.RADIUS};
+                        border-radius: {Spacing.RADIUS_LG};
                     }}
                 """)
             else:
@@ -221,7 +248,7 @@ class ResultPanel(QWidget):
                     QFrame {{
                         background: {Colors.CARD};
                         border: 1.5px solid {Colors.BORDER};
-                        border-radius: {Spacing.RADIUS};
+                        border-radius: {Spacing.RADIUS_LG};
                     }}
                     QFrame:hover {{
                         border-color: {Colors.QINGHUA_LIGHT};
@@ -229,119 +256,241 @@ class ResultPanel(QWidget):
                 """)
 
             cl = QVBoxLayout(c)
-            cl.setContentsMargins(14, 12, 14, 12)
-            cl.setSpacing(4)
+            cl.setContentsMargins(16, 12, 16, 12)
+            cl.setSpacing(8)
             cl.setAlignment(Qt.AlignCenter)
 
+            # 柱名（如“年柱”）
             nl = QLabel(name)
             nl_color = Colors.LIUJIN if is_day else Colors.TEXT3
             nl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {nl_color}; font-family: {Fonts.BODY}; font-weight: {Fonts.W_MEDIUM};")
             nl.setAlignment(Qt.AlignCenter)
 
-            # 天干
+            # 五行标签（如“金·火”）
             gan_char = p[0]
-            gan_color = self._get_wuxing_color(gan_char, is_gan=True)
-            gan = QLabel(gan_char)
-            gan.setStyleSheet(f"font-size: 28px; font-weight: {Fonts.W_BOLD}; color: {gan_color}; font-family: {Fonts.TITLE};")
-            gan.setAlignment(Qt.AlignCenter)
-
-            # 分隔
-            line = QFrame()
-            line.setFixedHeight(1.5)
-            line.setFixedWidth(20)
-            line.setStyleSheet(f"background-color: {Colors.DIVIDER}; border-radius: 1px;")
-
-            # 地支
-            zhi_char = p[1]
-            zhi_color = self._get_wuxing_color(zhi_char, is_gan=False)
-            zhi = QLabel(zhi_char)
-            zhi.setStyleSheet(f"font-size: 28px; font-weight: {Fonts.W_BOLD}; color: {zhi_color}; font-family: {Fonts.TITLE};")
-            zhi.setAlignment(Qt.AlignCenter)
-
-            # 五行标签
-            wx_gan = TIANGAN_WUXING.get(gan_char, ('', Colors.TEXT3))[0]
-            wx_zhi = DIZHI_WUXING.get(zhi_char, ('', Colors.TEXT3))[0]
-            wx_label = QLabel(f'{wx_gan}·{wx_zhi}')
+            wx_gan = TIANGAN_WUXING.get(gan_char, ('', ''))[0]
+            wx_zhi = DIZHI_WUXING.get(p[1], ('', ''))[0]
+            wx_label = QLabel(f'{wx_gan}·{wx_zhi}' if wx_gan or wx_zhi else '')
             wx_label.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
             wx_label.setAlignment(Qt.AlignCenter)
 
-            cl.addWidget(nl)
-            cl.addWidget(gan)
-            cl.addWidget(line)
-            cl.addWidget(zhi)
-            cl.addWidget(wx_label)
+            # 天干·地支 圆角色块 + 白色文字
+            row_gv = QHBoxLayout()
+            row_gv.setSpacing(6)
+            row_gv.setAlignment(Qt.AlignCenter)
 
-            row, col = divmod(idx, 2)
-            gl.addWidget(c, row, col)
+            gan_color = self._get_wuxing_color(gan_char, is_gan=True)
+            gan_chip = QLabel(gan_char)
+            gan_chip.setStyleSheet(f"""
+                background: {gan_color};
+                color: white;
+                font-size: 22px;
+                font-weight: {Fonts.W_BOLD};
+                font-family: {Fonts.TITLE};
+                border-radius: {Spacing.RADIUS_SM};
+                padding: 6px 10px;
+                min-width: 36px;
+                min-height: 36px;
+            """)
+            gan_chip.setAlignment(Qt.AlignCenter)
+
+            dot = QLabel('·')
+            dot.setStyleSheet(f"font-size: 14px; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+            dot.setAlignment(Qt.AlignCenter)
+
+            zhi_char = p[1]
+            zhi_color = self._get_wuxing_color(zhi_char, is_gan=False)
+            zhi_chip = QLabel(zhi_char)
+            zhi_chip.setStyleSheet(f"""
+                background: {zhi_color};
+                color: white;
+                font-size: 22px;
+                font-weight: {Fonts.W_BOLD};
+                font-family: {Fonts.TITLE};
+                border-radius: {Spacing.RADIUS_SM};
+                padding: 6px 10px;
+                min-width: 36px;
+                min-height: 36px;
+            """)
+            zhi_chip.setAlignment(Qt.AlignCenter)
+
+            row_gv.addWidget(gan_chip)
+            row_gv.addWidget(dot)
+            row_gv.addWidget(zhi_chip)
+
+            # 藏干 + 十神 + 纳音 + 空亡：水平圆角小标签
+            detail_widget = QWidget()
+            detail_widget.setStyleSheet("background: transparent;")
+            detail_row = QHBoxLayout(detail_widget)
+            detail_row.setContentsMargins(0, 0, 0, 0)
+            detail_row.setSpacing(4)
+            detail_row.setAlignment(Qt.AlignCenter)
+
+            hidden = hidden_stems_map.get(name, [])
+            if hidden:
+                hidden_str = ' '.join(f'{h[0]}' for h in hidden[:3])
+                tag = QLabel(f'藏:{hidden_str}')
+                tag.setStyleSheet(
+                    f"background: {Colors.HOVER}; color: {Colors.TEXT2}; "
+                    f"border-radius: {Spacing.RADIUS_SM}; padding: 2px 8px; "
+                    f"font-size: {Fonts.SZ_MICRO}; font-family: {Fonts.BODY};"
+                )
+                detail_row.addWidget(tag)
+
+            pillar_shishen = shishen_map.get(name, '')
+            if pillar_shishen:
+                tag2 = QLabel(pillar_shishen)
+                tag2.setStyleSheet(
+                    f"background: {Colors.QINGHUA_GLOW}; color: {Colors.QINGHUA}; "
+                    f"border-radius: {Spacing.RADIUS_SM}; padding: 2px 8px; "
+                    f"font-size: {Fonts.SZ_MICRO}; font-family: {Fonts.BODY};"
+                )
+                detail_row.addWidget(tag2)
+
+            nayin_item = nayin_map.get(name, {})
+            if nayin_item:
+                tag3 = QLabel(nayin_item.get('nayin', ''))
+                tag3.setStyleSheet(
+                    f"background: {Colors.LIUJIN_GLOW}; color: {Colors.LIUJIN}; "
+                    f"border-radius: {Spacing.RADIUS_SM}; padding: 2px 8px; "
+                    f"font-size: {Fonts.SZ_MICRO}; font-family: {Fonts.BODY};"
+                )
+                detail_row.addWidget(tag3)
+
+            kw = affected_pillars.get(name, {})
+            if kw:
+                tag4 = QLabel(f"空:{kw.get('kongwang_type', '')}")
+                tag4.setStyleSheet(
+                    f"background: {Colors.DIVIDER}; color: {Colors.TEXT3}; "
+                    f"border-radius: {Spacing.RADIUS_SM}; padding: 2px 8px; "
+                    f"font-size: {Fonts.SZ_MICRO}; font-family: {Fonts.BODY};"
+                )
+                detail_row.addWidget(tag4)
+
+            # 把 row_gv layout 包成 widget 再加到 cl
+            row_gv_widget = QWidget()
+            row_gv_widget.setStyleSheet("background: transparent;")
+            row_gv_widget.setLayout(row_gv)
+
+            cl.addWidget(nl)
+            cl.addWidget(row_gv_widget)
+            cl.addWidget(wx_label)
+            cl.addWidget(detail_widget)
+
+            hl.addWidget(c, 1)
         return w
 
     def _wuxing(self, wx, rizhu_wx=None):
-        """五行分析 - 增强版进度条（高亮日主五行）"""
+        """五行分析 - 强化可读性
+        每行：【圆角彩色标签】 + 【大号百分比数字】 + 【宽圆角渐变进度条】 + 【旺/中/弱标注】
+        日主五行额外以鎏金高亮并标注『日主』字样。
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(12, 10, 12, 10)
         l.setSpacing(12)
 
         els = [
-            ('金', wx.get('金', 0), Colors.METAL, Colors.METAL_LIGHT),
-            ('木', wx.get('木', 0), Colors.WOOD, Colors.WOOD_LIGHT),
-            ('水', wx.get('水', 0), Colors.WATER, Colors.WATER_LIGHT),
-            ('火', wx.get('火', 0), Colors.FIRE, Colors.FIRE_LIGHT),
-            ('土', wx.get('土', 0), Colors.EARTH, Colors.EARTH_LIGHT),
+            ('金', wx.get('金', 0), Colors.METAL, Colors.METAL_LIGHT, Colors.METAL_DARK),
+            ('木', wx.get('木', 0), Colors.WOOD, Colors.WOOD_LIGHT, Colors.WOOD_DARK),
+            ('水', wx.get('水', 0), Colors.WATER, Colors.WATER_LIGHT, Colors.WATER_DARK),
+            ('火', wx.get('火', 0), Colors.FIRE, Colors.FIRE_LIGHT, Colors.FIRE_DARK),
+            ('土', wx.get('土', 0), Colors.EARTH, Colors.EARTH_LIGHT, Colors.EARTH_DARK),
         ]
-        total = sum(v for _, v, _, _ in els) or 1
+        total = sum(v for _, v, _, _, _ in els) or 1
 
-        for name, val, c1, c2 in els:
+        for name, val, c_main, c_light, c_dark in els:
             is_rizhu = bool(rizhu_wx) and name == rizhu_wx
-            row = QHBoxLayout()
-            row.setSpacing(10)
+            pct = int(round(val / total * 100)) if total > 0 else 0
+            strength = '旺' if pct >= 30 else ('中' if pct >= 15 else '弱')
 
-            # 五行标签（日主五行以鎏金黄高亮并标注『日』）
-            tag = QLabel(f'{name}·日' if is_rizhu else name)
-            tag.setFixedWidth(34 if is_rizhu else 26)
-            tag.setFixedHeight(22)
+            # 整行容器
+            row = QWidget()
+            row.setStyleSheet("background: transparent;")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(10)
+
+            # ---- 彩色圆角标签 ----
+            tag_text = f'{name} · 日主' if is_rizhu else name
+            tag = QLabel(tag_text)
+            tag.setFixedHeight(26)
             tag.setAlignment(Qt.AlignCenter)
-            tag.setStyleSheet(f"""
-                background: {Colors.LIUJIN if is_rizhu else c1};
-                color: white;
-                font-size: 11px;
-                font-weight: {Fonts.W_MEDIUM};
-                border-radius: 4px;
-                font-family: {Fonts.BODY};
-            """)
+            if is_rizhu:
+                tag.setStyleSheet(f"""
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 {Colors.LIUJIN_DARK}, stop:0.5 {Colors.LIUJIN}, stop:1 {Colors.LIUJIN_LIGHT});
+                    color: white;
+                    font-size: 11px;
+                    font-weight: {Fonts.W_BOLD};
+                    border-radius: 13px;
+                    padding: 0 12px;
+                    font-family: {Fonts.BODY};
+                """)
+            else:
+                tag.setStyleSheet(f"""
+                    background: {c_main};
+                    color: white;
+                    font-size: 11px;
+                    font-weight: {Fonts.W_MEDIUM};
+                    border-radius: 13px;
+                    padding: 0 12px;
+                    font-family: {Fonts.BODY};
+                """)
+            rl.addWidget(tag)
 
-            # 进度条
+            # ---- 大号百分比数字 ----
+            pct_lbl = QLabel(f'{pct}%')
+            pct_lbl.setFixedWidth(48)
+            pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            pct_lbl.setStyleSheet(
+                f"font-size: 18px; color: {Colors.LIUJIN if is_rizhu else Colors.TEXT}; "
+                f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.MONO};"
+            )
+            rl.addWidget(pct_lbl)
+
+            # ---- 宽圆角渐变进度条 ----
             bar = QProgressBar()
-            bar.setValue(int(val))
+            bar.setRange(0, 100)
+            bar.setValue(pct)
             bar.setTextVisible(False)
-            bar.setFixedHeight(14)
-            pct = int(val / total * 100) if total > 0 else 0
+            bar.setFixedHeight(18)
             bar.setStyleSheet(f"""
                 QProgressBar {{
                     border: none;
-                    border-radius: 7px;
-                    background: {Colors.BG};
+                    border-radius: 9px;
+                    background: {Colors.BG_DARK};
                 }}
                 QProgressBar::chunk {{
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {c1}, stop:1 {c2});
-                    border-radius: 7px;
+                        stop:0 {c_dark}, stop:0.5 {c_main}, stop:1 {c_light});
+                    border-radius: 9px;
                 }}
             """)
+            rl.addWidget(bar, 1)
 
-            # 数值
-            vl = QLabel(f'{val} ({pct}%)')
-            vl.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT if is_rizhu else Colors.TEXT2}; "
-                             f"font-weight: {Fonts.W_MEDIUM if is_rizhu else Fonts.W_NORMAL}; "
-                             f"font-family: {Fonts.MONO};")
-            vl.setFixedWidth(60)
-            vl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            # ---- 旺/中/弱标注 ----
+            st_lbl = QLabel(f'{strength}')
+            st_lbl.setFixedWidth(32)
+            st_lbl.setAlignment(Qt.AlignCenter)
+            if strength == '旺':
+                st_sheet = f"background: {Colors.SUCCESS_LIGHT}; color: {Colors.SUCCESS};"
+            elif strength == '弱':
+                st_sheet = f"background: {Colors.DANGER_LIGHT}; color: {Colors.DANGER};"
+            else:
+                st_sheet = f"background: {Colors.WARNING_LIGHT}; color: {Colors.WARNING};"
+            st_lbl.setStyleSheet(f"""
+                {st_sheet}
+                font-size: 10px;
+                font-weight: {Fonts.W_BOLD};
+                border-radius: 10px;
+                padding: 0 6px;
+                font-family: {Fonts.BODY};
+            """)
+            rl.addWidget(st_lbl)
 
-            row.addWidget(tag)
-            row.addWidget(bar, 1)
-            row.addWidget(vl)
-            l.addLayout(row)
+            l.addWidget(row)
         return w
 
     def _annotations(self, data):
@@ -488,141 +637,8 @@ class ResultPanel(QWidget):
         row.addLayout(vb)
         return row
 
-    def _yunshi(self, dayun, liunian):
-        """大运流年展示"""
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(20)
+    # 大运流年展示已迁移至 ui/components/timeline.py::fortune_timeline_widget
 
-        # 大运展示
-        periods = dayun.get('periods', [])
-        direction = dayun.get('direction', '')
-        if periods:
-            direction_title = QLabel(f'大运方向：{direction}')
-            direction_title.setStyleSheet(
-                f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
-                f"color:{Colors.LIUJIN}; font-family:{Fonts.BODY}; padding-bottom:8px;"
-            )
-            l.addWidget(direction_title)
-
-            # 起运（修复后：真实出生->节气天数 ÷ 3）
-            qiyun_text = dayun.get('qiyun_text')
-            if qiyun_text:
-                qiyun_title = QLabel(f'起运：{qiyun_text}')
-                qiyun_title.setStyleSheet(
-                    f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
-                    f"color:{Colors.TEXT2}; font-family:{Fonts.BODY}; padding-bottom:8px;"
-                )
-                l.addWidget(qiyun_title)
-
-            for i, period in enumerate(periods[:5], 1):
-                period_w = QWidget()
-                period_w.setStyleSheet("background: transparent;")
-                period_l = QHBoxLayout(period_w)
-                period_l.setSpacing(12)
-
-                # 期数
-                num = QLabel(f'{period["period"]}')
-                num.setStyleSheet(f"""
-                    background: {Colors.LIUJIN}; color: white;
-                    font-size:11px; font-weight:{Fonts.W_MEDIUM};
-                    border-radius:10px; min-width:20px; min-height:20px;
-                    font-family:{Fonts.BODY};
-                """)
-                num.setAlignment(Qt.AlignCenter)
-                num.setFixedSize(20, 20)
-
-                # 干支
-                ganzhi = QLabel(period['ganzhi'])
-                ganzhi.setStyleSheet(f"""
-                    background: {Colors.QINGHUA}; color: white;
-                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
-                    border-radius:{Spacing.RADIUS_SM}; padding:4px 12px;
-                    font-family:{Fonts.BODY}; min-width:60px;
-                """)
-                ganzhi.setAlignment(Qt.AlignCenter)
-
-                # 年龄范围
-                age = QLabel(f'{period["start_age"]}-{period["end_age"]}岁')
-                age.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; min-width:70px;")
-
-                # 年份范围
-                years = QLabel(f'{period["start_year"]}-{period["end_year"]}年')
-                years.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
-
-                # 分析
-                analysis = QLabel(period.get('analysis', ''))
-                analysis.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY}; line-height:1.4;")
-                analysis.setWordWrap(True)
-
-                period_l.addWidget(num)
-                period_l.addWidget(ganzhi)
-                period_l.addWidget(age)
-                period_l.addWidget(years)
-                period_l.addWidget(analysis, 1)
-
-                l.addWidget(period_w)
-
-            if len(periods) > 5:
-                more_label = QLabel(f'…还有 {len(periods) - 5} 步大运')
-                more_label.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY}; padding-top:4px;")
-                l.addWidget(more_label)
-
-        # 流年展示
-        years_list = liunian.get('years', [])
-        if years_list:
-            divider = QFrame()
-            divider.setFixedHeight(1)
-            divider.setStyleSheet(f"background:{Colors.TEXT3}; opacity:0.3; margin:8px 0;")
-            l.addWidget(divider)
-
-            flow_title = QLabel('流年运势（未来10年）')
-            flow_title.setStyleSheet(
-                f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
-                f"color:{Colors.LIUJIN}; font-family:{Fonts.BODY}; padding-bottom:8px;"
-            )
-            l.addWidget(flow_title)
-
-            for year_data in years_list:
-                year_w = QWidget()
-                year_w.setStyleSheet("background: transparent;")
-                year_l = QHBoxLayout(year_w)
-                year_l.setSpacing(12)
-
-                # 年份
-                year = QLabel(str(year_data['year']))
-                year.setStyleSheet(f"""
-                    background: {Colors.LIUJIN}; color: white;
-                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
-                    border-radius:{Spacing.RADIUS_SM}; padding:4px 10px;
-                    font-family:{Fonts.BODY}; min-width:50px;
-                """)
-                year.setAlignment(Qt.AlignCenter)
-
-                # 干支
-                ganzhi = QLabel(year_data['ganzhi'])
-                ganzhi.setStyleSheet(f"""
-                    background: {Colors.QINGHUA}; color: white;
-                    font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM};
-                    border-radius:{Spacing.RADIUS_SM}; padding:4px 10px;
-                    font-family:{Fonts.BODY}; min-width:60px;
-                """)
-                ganzhi.setAlignment(Qt.AlignCenter)
-
-                # 分析
-                analysis = QLabel(year_data.get('analysis', ''))
-                analysis.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY}; line-height:1.4;")
-                analysis.setWordWrap(True)
-
-                year_l.addWidget(year)
-                year_l.addWidget(ganzhi)
-                year_l.addWidget(analysis, 1)
-
-                l.addWidget(year_w)
-
-        return w
 
     def _rebuild_header(self):
         """重建头部：先移除已有的第一个 header layout，再添加新的"""
@@ -749,8 +765,8 @@ class ResultPanel(QWidget):
         self.refresh_btn.setVisible(True)
         self.copy_btn.setVisible(True)
         self.export_btn.setVisible(True)
-        self.ai_analyze_btn.setVisible(True)
-        self.ai_analyze_btn.setText('🤖 重新分析')
+        self.smart_analyze_btn.setVisible(True)
+        self.smart_analyze_btn.setText('🤖 重新分析')
         self.status_lbl.setText('✓ 排盘完成')
         self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
 
@@ -779,7 +795,7 @@ class ResultPanel(QWidget):
         bazi = rd.get('bazi', {})
         if bazi:
             bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
-            bazi_card.set_content(self._pillars(bazi))
+            bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
             self.clay.addWidget(bazi_card)
 
         # 五行分析卡片（默认展开）
@@ -808,27 +824,35 @@ class ResultPanel(QWidget):
         liunian = rd.get('liunian', {})
         if dayun.get('periods') or liunian.get('years'):
             yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=False)
-            yunshi_card.set_content(self._yunshi(dayun, liunian))
+            yunshi_card.set_content(fortune_timeline_widget(dayun, liunian, Colors.LIUJIN))
             self.clay.addWidget(yunshi_card)
 
         self.clay.addStretch()
         self._fade_in_widgets()
 
-    def show_loading(self):
-        """展示排盘计算中的加载态。
+    def show_loading(self, message: str = '排盘中…'):
+        """展示加载状态（支持排盘和AI分析两种模式）。
 
-        清空旧内容并重建头部，隐藏刷新/复制/导出/AI 按钮，居中显示太极图标脉冲动画
-        与『正在排盘中…』提示，给用户即时的排盘进行中反馈。
+        清空旧内容并重建头部，隐藏刷新/复制/导出/智能分析按钮，居中显示太极图标脉冲动画
+        与提示文字。排盘时使用青色脉冲，AI分析时使用鎏金色脉冲。
         """
         self._clear_content()
         self._rebuild_header()
 
-        self.status_lbl.setText('排盘中…')
-        self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.QINGHUA}; font-family:{Fonts.BODY};")
+        is_ai_loading = message and message != '排盘中…'
+
+        if is_ai_loading:
+            self.status_lbl.setText('龙虎山大师兄分析中…')
+            self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
+        else:
+            self.status_lbl.setText('排盘中…')
+            self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.QINGHUA}; font-family:{Fonts.BODY};")
+
         self.refresh_btn.setVisible(False)
         self.copy_btn.setVisible(False)
         self.export_btn.setVisible(False)
-        self.ai_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setEnabled(False)
 
         w = QWidget()
         w.setStyleSheet("background: transparent;")
@@ -837,37 +861,56 @@ class ResultPanel(QWidget):
         l.setSpacing(14)
 
         tj = QLabel('☯')
-        tj.setStyleSheet(f"font-size: 56px; color: {Colors.QINGHUA};")
+        tj.setStyleSheet(f"font-size: 56px; color: {Colors.LIUJIN if is_ai_loading else Colors.QINGHUA};")
         tj.setAlignment(Qt.AlignCenter)
         self._pulse_widget(tj)
 
-        tx = QLabel('正在排盘中…')
-        tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
-        tx.setAlignment(Qt.AlignCenter)
+        if is_ai_loading:
+            tx = QLabel(message)
+            tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
+            tx.setAlignment(Qt.AlignCenter)
 
-        l.addStretch()
-        l.addWidget(tj)
-        l.addWidget(tx)
-        l.addStretch()
+            sub = QLabel('请稍候，龙虎山大师兄正在结合命理知识进行深度解读')
+            sub.setStyleSheet(f"font-size:12px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+            sub.setAlignment(Qt.AlignCenter)
+            l.addStretch()
+            l.addWidget(tj)
+            l.addWidget(tx)
+            l.addWidget(sub)
+            l.addStretch()
+        else:
+            tx = QLabel('正在排盘中…')
+            tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+            tx.setAlignment(Qt.AlignCenter)
+            l.addStretch()
+            l.addWidget(tj)
+            l.addWidget(tx)
+            l.addStretch()
+
         w.setMinimumHeight(350)
         self.clay.addWidget(w)
         self.clay.addStretch()
 
+    def show_ai_loading(self, message: str = '龙虎山大师兄正在深度分析中…'):
+        """显示智能分析加载状态（别名方法，兼容调用方使用 show_ai_loading 的情况）"""
+        self.show_loading(message)
+
     def _pulse_widget(self, widget):
-        """脉冲动画效果"""
-        # 先停止旧的脉冲定时器，防止累积
+        """为加载态的图标部件启动脉冲定时器（排盘用青色，AI分析用鎏金色）。"""
         self._stop_pulse()
         self._pulse_state = True
         self._pulse_widget_ref = widget
+        self._pulse_color = Colors.LIUJIN if (getattr(self, '_ai_loading', False)) else Colors.QINGHUA
+        self._pulse_color_light = Colors.LIUJIN_LIGHT if (getattr(self, '_ai_loading', False)) else Colors.QINGHUA_LIGHT
 
         def toggle_pulse():
-            """脉冲定时器回调：在可见时切换图标明暗色，部件销毁则停止脉冲。"""
+            """脉冲定时器回调：可见时切换图标明暗色，部件销毁则停止脉冲。"""
             w = self._pulse_widget_ref
             try:
                 if not w or not w.isVisible():
                     return
                 self._pulse_state = not self._pulse_state
-                color = Colors.QINGHUA if self._pulse_state else Colors.QINGHUA_LIGHT
+                color = self._pulse_color if self._pulse_state else self._pulse_color_light
                 w.setStyleSheet(f"font-size: 56px; color: {color};")
             except RuntimeError:
                 self._stop_pulse()
@@ -877,7 +920,7 @@ class ResultPanel(QWidget):
         self.pulse_timer.start(750)
 
     def _stop_pulse(self):
-        """停止并销毁排盘加载态的脉冲定时器，解除对脉冲部件的引用。"""
+        """停止并销毁加载态的脉冲定时器，解除对脉冲部件的引用。"""
         if hasattr(self, 'pulse_timer') and self.pulse_timer:
             self.pulse_timer.stop()
             self.pulse_timer.deleteLater()
@@ -895,90 +938,22 @@ class ResultPanel(QWidget):
         self.refresh_btn.setVisible(False)
         self.copy_btn.setVisible(False)
         self.export_btn.setVisible(False)
-        self.ai_analyze_btn.setVisible(False)
+        self.smart_analyze_btn.setVisible(False)
 
-    def show_ai_loading(self, message: str = '龙虎山大师兄正在深度分析中…'):
-        """显示AI分析加载状态"""
-        self._clear_content()
-        self._rebuild_header()
+    def display_ai_analysis_result(self, smart_data: dict):
+        """显示AI分析结果（别名方法，兼容调用方使用 display_ai_analysis_result 的情况）"""
+        self.display_ai_result(smart_data)
 
-        self.status_lbl.setText('龙虎山大师兄分析中…')
-        self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
-        self.refresh_btn.setVisible(False)
-        self.copy_btn.setVisible(False)
-        self.export_btn.setVisible(False)
-        self.ai_analyze_btn.setVisible(False)
-        self.ai_analyze_btn.setEnabled(False)
-
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        l = QVBoxLayout(w)
-        l.setAlignment(Qt.AlignCenter)
-        l.setSpacing(14)
-
-        tj = QLabel('☯')
-        tj.setStyleSheet(f"font-size: 56px; color: {Colors.LIUJIN};")
-        tj.setAlignment(Qt.AlignCenter)
-        self._ai_pulse_widget(tj)
-
-        tx = QLabel(message)
-        tx.setStyleSheet(f"font-size:15px; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
-        tx.setAlignment(Qt.AlignCenter)
-
-        sub = QLabel('请稍候，龙虎山大师兄正在结合命理知识进行深度解读')
-        sub.setStyleSheet(f"font-size:12px; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
-        sub.setAlignment(Qt.AlignCenter)
-
-        l.addStretch()
-        l.addWidget(tj)
-        l.addWidget(tx)
-        l.addWidget(sub)
-        l.addStretch()
-        w.setMinimumHeight(350)
-        self.clay.addWidget(w)
-        self.clay.addStretch()
-
-    def _ai_pulse_widget(self, widget):
-        """为 AI 加载态的图标部件启动鎏金脉冲定时器（750ms 周期明暗交替）。"""
-        # 先停止旧的脉冲定时器
-        self._stop_ai_pulse()
-        self._ai_pulse_state = True
-        self._ai_pulse_widget_ref = widget
-
-        def toggle_pulse():
-            """AI 脉冲定时器回调：可见时切换图标明暗色，部件销毁则停止脉冲。"""
-            w = self._ai_pulse_widget_ref
-            try:
-                if not w or not w.isVisible():
-                    return
-                self._ai_pulse_state = not self._ai_pulse_state
-                color = Colors.LIUJIN if self._ai_pulse_state else Colors.LIUJIN_LIGHT
-                w.setStyleSheet(f"font-size: 56px; color: {color};")
-            except RuntimeError:
-                self._stop_ai_pulse()
-
-        self.ai_pulse_timer = QTimer(self)
-        self.ai_pulse_timer.timeout.connect(toggle_pulse)
-        self.ai_pulse_timer.start(750)
-
-    def _stop_ai_pulse(self):
-        """停止并销毁 AI 加载态的脉冲定时器，解除对脉冲部件的引用。"""
-        if hasattr(self, 'ai_pulse_timer') and self.ai_pulse_timer:
-            self.ai_pulse_timer.stop()
-            self.ai_pulse_timer.deleteLater()
-            self.ai_pulse_timer = None
-        self._ai_pulse_widget_ref = None
-
-    def display_ai_result(self, ai_data: dict):
-        """显示AI分析结果 - 使用可折叠卡片"""
-        self._stop_ai_pulse()
-        # 保存 AI 数据，供导出（PDF/Excel/CSV）合并使用
-        self._ai_data = ai_data
+    def display_ai_result(self, smart_data: dict):
+        """显示智能分析结果 - 使用可折叠卡片"""
+        self._stop_pulse()
+        # 保存 智能 数据，供导出（PDF/Excel/CSV）合并使用
+        self._data = smart_data
 
         rd = getattr(self, '_current_result', {}) or {}
 
-        if not ai_data or not isinstance(ai_data, dict):
-            self._show_ai_error('龙虎山大师兄未返回有效内容，请重试')
+        if not smart_data or not isinstance(smart_data, dict):
+            self._show_error('龙虎山大师兄未返回有效内容，请重试')
             return
 
         self._clear_content()
@@ -990,20 +965,20 @@ class ResultPanel(QWidget):
             self.copy_btn.setVisible(True)
         if hasattr(self, 'export_btn') and self.export_btn:
             self.export_btn.setVisible(True)
-        if hasattr(self, 'ai_analyze_btn') and self.ai_analyze_btn:
-            self.ai_analyze_btn.setVisible(True)
-            self.ai_analyze_btn.setEnabled(True)
-            self.ai_analyze_btn.setText('🔄 重新分析')
+        if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
+            self.smart_analyze_btn.setText('🔄 重新分析')
         self.status_lbl.setText('✓ 龙虎山大师兄分析完成')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
         )
 
-        # 原始排盘结果（折叠状态）
+        # 原始排盘结果（始终展开，不再折叠；v5.1 起移除折叠导致内容「消失」的问题）
         bi = rd.get('basic_info', {}) or {}
         bt = rd.get('bazi_types', {}) or {}
         if bi:
-            orig_card = CollapsibleCard('命盘信息', 'ℹ', accent_color=Colors.QINGHUA, collapsed=True)
+            orig_card = CollapsibleCard('命盘信息', 'ℹ', accent_color=Colors.QINGHUA, collapsed=False)
             orig_card.set_content(self._info_row([
                 ('排盘类型', bi.get('pan_type', '-')),
                 ('公历日期', bi.get('solar_date', '-')),
@@ -1014,40 +989,47 @@ class ResultPanel(QWidget):
             ]))
             self.clay.addWidget(orig_card)
 
-        # 命局类型（折叠状态）
+        # 命局类型
         if bt and (bt.get('strength') or bt.get('geju_type') or bt.get('wuxing_summary')):
-            type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=True)
+            type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=False)
             type_card.set_content(self._bazi_types(bt))
             self.clay.addWidget(type_card)
 
         bazi = rd.get('bazi', {}) or {}
         if bazi:
-            bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=True)
-            bazi_card.set_content(self._pillars(bazi))
+            bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
+            bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
             self.clay.addWidget(bazi_card)
 
         wx = rd.get('wuxing', {}) or {}
         if wx:
-            wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=True)
+            wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=False)
             wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
             self.clay.addWidget(wx_card)
 
         an = rd.get('analysis', []) or []
         if an:
-            an_card = CollapsibleCard('吉凶批注', '⚖', accent_color=Colors.ZHUSHA, collapsed=True)
+            an_card = CollapsibleCard('吉凶批注', '⚖', accent_color=Colors.ZHUSHA, collapsed=False)
             an_card.set_content(self._annotations(an))
             self.clay.addWidget(an_card)
 
-        # 大运流年卡片（折叠状态）
+        # 运程总结
+        yc = rd.get('yuncheng', {}) or {}
+        if yc and (yc.get('career') or yc.get('wealth') or yc.get('health') or yc.get('love')):
+            yc_card = CollapsibleCard('运程总结', '☯', accent_color=Colors.LIUJIN, collapsed=False)
+            yc_card.set_content(self._yuncheng(yc))
+            self.clay.addWidget(yc_card)
+
+        # 大运流年卡片
         dayun = rd.get('dayun', {}) or {}
         liunian = rd.get('liunian', {}) or {}
         if dayun.get('periods') or liunian.get('years'):
-            yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=True)
-            yunshi_card.set_content(self._yunshi(dayun, liunian))
+            yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=False)
+            yunshi_card.set_content(fortune_timeline_widget(dayun, liunian, Colors.LIUJIN))
             self.clay.addWidget(yunshi_card)
 
         # AI分隔标识
-        self._add_ai_section_header(ai_data)
+        self._add_section_header(smart_data)
 
     def _on_export_click(self):
         """导出按钮点击事件"""
@@ -1061,11 +1043,11 @@ class ResultPanel(QWidget):
             QMessageBox.warning(self, '导出失败', '没有可导出的数据')
             return
 
-        # 合并 AI 分析数据，使其可随报告一并导出
+        # 合并 AI分析数据，使其可随报告一并导出
         export_data = dict(rd)
-        ai = getattr(self, '_ai_data', None)
-        if ai and isinstance(ai, dict):
-            export_data['ai_analysis'] = ai
+        ai_data = getattr(self, '_data', None)
+        if ai_data and isinstance(ai_data, dict):
+            export_data['smart_analysis'] = ai_data
 
         # 显示导出对话框
         dialog = ExportDialog(rd, parent=self)
@@ -1121,15 +1103,15 @@ class ResultPanel(QWidget):
                     QMessageBox.warning(self, '导出失败', f'导出失败：{e}')
 
     # AI分隔标识
-    def _add_ai_section_header(self, ai_data):
-        """在原始排盘结果之后插入龙虎山大师兄（AI）分析分隔区与各分析卡片。
+    def _add_section_header(self, smart_data):
+        """在原始排盘结果之后插入大师兄分析分隔区与各分析卡片。
 
         Args:
-            ai_data: AI 返回的分析字典，按 personality/career/marriage 等键分组渲染
+            smart_data: 大师兄 返回的分析字典，按 personality/career/marriage 等键分组渲染
 
-        以渐变分隔线 + 『龙虎山大师兄智能深度分析』标题作为 AI 内容起点，
+        以渐变分隔线 + 『龙虎山大师兄分析预测』标题作为 大师兄 内容起点，
         随后按预设章节渲染可折叠分析卡片；若无任何条目则展示空提示。
-        末尾清理残留图形特效并延迟滚动到该分隔区（见 _scroll_to_ai_section）。
+        末尾清理残留图形特效并延迟滚动到该分隔区（见 _scroll_to_section）。
         """
         # 分隔线
         divider = QFrame()
@@ -1151,7 +1133,7 @@ class ResultPanel(QWidget):
         icon.setStyleSheet(f"font-size: 18px; color: {Colors.LIUJIN};")
         title_layout.addWidget(icon)
 
-        title = QLabel('龙虎山大师兄智能深度分析')
+        title = QLabel('龙虎山大师兄分析预测')
         title.setStyleSheet(
             f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
             f"color: {Colors.LIUJIN}; font-family: {Fonts.TITLE};"
@@ -1160,28 +1142,69 @@ class ResultPanel(QWidget):
         title_layout.addStretch()
         self.clay.addWidget(title_widget)
 
-        # AI分析卡片（默认展开）
-        sections = [
+        has_content = False
+
+        # 1) 重点提示（风险感知高亮，含风险关键词的行自动标红）
+        key_points = smart_data.get('key_points')
+        if isinstance(key_points, (list, tuple)):
+            kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
+        elif isinstance(key_points, str):
+            kp_text = key_points
+        else:
+            kp_text = ''
+        if kp_text and kp_text.strip():
+            self.clay.addWidget(risk_aware_label(kp_text.strip(), Colors.LIUJIN))
+            has_content = True
+
+        # 2) 整体结论（醒目金边色块，视觉层级高于普通卡片）
+        verdict = self._as_text(smart_data.get('final_verdict'))
+        if verdict:
+            self.clay.addWidget(conclusion_block(verdict, Colors.LIUJIN))
+            has_content = True
+
+        # 3) 普通分析列表（字符串列表逐条编号）
+        # 字段契约以 core.analysis_storage._JSON_SCHEMAS['bazi'] 为准；
+        # marriage / pattern_analysis / suggestions 等为历史废弃键，AI 已不再产出。
+        list_fields = [
             ('personality', '性格特质', '🧠', Colors.QINGHUA),
             ('career', '事业财运', '💼', Colors.LIUJIN),
-            ('marriage', '婚姻感情', '💕', Colors.ZHUSHA),
+            ('relationships', '婚姻感情', '💕', Colors.ZHUSHA),
             ('health', '健康注意', '💪', Colors.SUCCESS),
-            ('pattern_analysis', '格局分析', '🏛', Colors.QINGHUA),
-            ('wuxing_balance', '五行平衡分析', '⚖', Colors.LIUJIN),
-            ('shishen_analysis', '十神分析', '🔮', Colors.ZHUSHA),
-            ('improvement_plan', '改善方案', '🌟', Colors.LIUJIN),
-            ('suggestions', '综合建议', '✨', Colors.QINGHUA),
+            ('four_pillars_detail', '四柱详细解读', '🕰', Colors.LIUJIN),
+            ('historical_cases', '历史案例', '📚', Colors.ZHUSHA),
         ]
-        has_ai_content = False
-        for key, title, icon, color in sections:
-            items = ai_data.get(key, []) or []
-            if items:
-                has_ai_content = True
-                ai_card = CollapsibleCard(f'龙虎山大师兄·{title}', icon, accent_color=color, collapsed=False)
-                ai_card.set_content(self._ai_list(items, color))
-                self.clay.addWidget(ai_card)
+        for key, title, icon, color in list_fields:
+            items = self._as_list(smart_data.get(key))
+            if not items:
+                continue
+            has_content = True
+            card = CollapsibleCard(f'龙虎山大师兄·{title}', icon, accent_color=color, collapsed=False)
+            card.set_content(self._list(items, color))
+            self.clay.addWidget(card)
 
-        if not has_ai_content:
+        # 4) 核心建议（绿边独立色块，从普通列表中提升）
+        advice_items = self._as_list(smart_data.get('scenario_advice'))
+        if advice_items:
+            has_content = True
+            self.clay.addWidget(suggestion_block(advice_items, Colors.SUCCESS))
+
+        # 5) 概率统计（含「如何理解这些数据」说明块）
+        prob_items = self._as_list(smart_data.get('probability_stats'))
+        if prob_items:
+            has_content = True
+            card = CollapsibleCard('龙虎山大师兄·概率统计', '📊', accent_color=Colors.SUCCESS, collapsed=False)
+            card.set_content(probability_stats_widget(prob_items, Colors.SUCCESS))
+            self.clay.addWidget(card)
+
+        # 6) 免责声明（段落卡）
+        disclaimer = self._as_text(smart_data.get('disclaimer'))
+        if disclaimer:
+            has_content = True
+            card = CollapsibleCard('龙虎山大师兄·免责声明', '⚠', accent_color=Colors.TEXT3, collapsed=False)
+            card.set_content(self._paragraph(disclaimer, Colors.TEXT3))
+            self.clay.addWidget(card)
+
+        if not has_content:
             empty_label = QLabel('龙虎山大师兄未返回有效条目，请点击「重新分析」重试')
             empty_label.setStyleSheet(
                 f"color:{Colors.TEXT3}; font-size:{Fonts.SZ_BODY}; "
@@ -1193,8 +1216,8 @@ class ResultPanel(QWidget):
         self.clay.addStretch()
         self._safe_clear_graphics_effects()
 
-        if has_ai_content:
-            QTimer.singleShot(50, self._scroll_to_ai_section)
+        if has_content:
+            QTimer.singleShot(50, self._scroll_to_section)
 
     # ----------------- 辅助方法 -----------------
 
@@ -1226,11 +1249,11 @@ class ResultPanel(QWidget):
             if w is not None and w.graphicsEffect() is not None:
                 w.setGraphicsEffect(None)
 
-    def _scroll_to_ai_section(self):
-        """将滚动区定位到 AI 分析分隔标题处。
+    def _scroll_to_section(self):
+        """将滚动区定位到 智能 分析分隔标题处。
 
-        通过遍历内容部件、匹配文本包含『龙虎山大师兄』的 QLabel 实现定位
-        （_add_ai_section_header 生成的标题即为此文本）。
+        通过遍历内容部件、匹配文本包含『分析预测』的 QLabel 实现定位
+        （_add_section_header 生成的标题即为此文本）。
         注意：此定位强依赖该文案字面量，若修改用户可见的标题文字会破坏滚动定位。
         """
         try:
@@ -1241,7 +1264,7 @@ class ResultPanel(QWidget):
                 w = item.widget()
                 if w is None:
                     continue
-                if isinstance(w, QLabel) and '龙虎山大师兄' in w.text():
+                if isinstance(w, QLabel) and '分析预测' in w.text():
                     self.scroll.ensureWidgetVisible(w)
                     return
             sb = self.scroll.verticalScrollBar()
@@ -1250,8 +1273,8 @@ class ResultPanel(QWidget):
         except Exception:
             pass
 
-    def _show_ai_error(self, message: str):
-        """展示 AI 分析异常提示。
+    def _show_error(self, message: str):
+        """展示 大师兄 分析异常提示。
 
         Args:
             message: 要展示的异常/错误说明文案
@@ -1264,10 +1287,10 @@ class ResultPanel(QWidget):
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};"
         )
-        if hasattr(self, 'ai_analyze_btn') and self.ai_analyze_btn:
-            self.ai_analyze_btn.setVisible(True)
-            self.ai_analyze_btn.setEnabled(True)
-            self.ai_analyze_btn.setText('🔄 重新分析')
+        if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
+            self.smart_analyze_btn.setText('🔄 重新分析')
         tip = QLabel(f'⚠ {message}')
         tip.setStyleSheet(
             f"color:{Colors.TEXT2}; font-size:{Fonts.SZ_BODY}; "
@@ -1278,8 +1301,8 @@ class ResultPanel(QWidget):
         self.clay.addWidget(tip)
         self.clay.addStretch()
 
-    def _ai_list(self, items: list, color: str) -> QWidget:
-        """AI分析列表项 - 增强版"""
+    def _list(self, items: list, color: str) -> QWidget:
+        """智能分析列表项 - 增强版"""
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
@@ -1309,8 +1332,52 @@ class ResultPanel(QWidget):
             l.addLayout(row)
         return w
 
+    @staticmethod
+    def _as_text(value) -> str:
+        """将可能为 None / 字符串 / 列表的字段值统一归一化为纯文本。
+
+        用于 final_verdict / disclaimer 等段落型字段：无论 AI 返回字符串还是
+        （退化情况下的）列表，都合并为一段可读文本，避免被当成列表逐字符渲染。
+        """
+        if value is None:
+            return ''
+        if isinstance(value, (list, tuple)):
+            return '\n'.join(str(x) for x in value if x is not None and str(x).strip())
+        return str(value).strip()
+
+    @staticmethod
+    def _as_list(value) -> list:
+        """将字段值归一化为『字符串列表』，供 _list 逐条编号渲染。
+
+        防御性兜底：字符串会被整体作为单条（而非拆成单字符）；
+        None / 空值返回空列表，确保调用方无需再判断类型。
+        """
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value] if value.strip() else []
+        if isinstance(value, (list, tuple)):
+            return [str(x) for x in value if x is not None and str(x).strip()]
+        return [str(value)]
+
+    def _paragraph(self, text: str, color: str) -> QWidget:
+        """段落型内容渲染：单节整体文本，自动换行、行距舒适。"""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        l = QVBoxLayout(w)
+        l.setContentsMargins(8, 6, 8, 6)
+        l.setSpacing(4)
+        txt = QLabel(text)
+        txt.setWordWrap(True)
+        txt.setStyleSheet(
+            f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT}; "
+            f"font-family:{Fonts.BODY}; line-height:1.8; padding: 2px 0;"
+        )
+        l.addWidget(txt)
+        return w
+
     def get_chart_data_for_ai(self) -> dict:
-        """获取用于AI分析的完整排盘数据（含五行明细/十神/命理/大运），确保大师兄分析有充分命理依据
+        """获取用于智能分析的完整排盘数据（含五行明细/十神/命理/大运），确保大师兄分析有充分命理依据
 
         注意：早期实现只透传「四柱 + 五行计数」，导致十神/命理/大运等核心数据从未送达 AI，
         分析只能泛泛而谈。此处补全全部已计算字段，让 DataIntegrator 能拼出完整 prompt。

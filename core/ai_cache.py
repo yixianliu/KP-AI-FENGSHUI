@@ -8,7 +8,7 @@ core/ai_cache.py — AI 分析调用本地缓存层（P2-4）
 - 失效策略：默认永不失效（命理分析结论稳定）；提供 `clear_old()` LRU 清理接口（按 hit_count）。
 
 设计要点：
-- 缓存层对 analysis_pipeline 透明：run_* 入口先查缓存，未命中走 API 后写缓存。
+- 缓存层对 AI 分析透明：run_* 入口先查缓存，未命中走 API 后写缓存。
 - 表 schema 嵌入 schema_sqlite.sql；首次运行由 ensure_initialized() 自动建表（无需种子）。
 - 运行时自愈：`ensure_cache_table()` 会在 ai_cache 表缺失的旧主库上自动建表（按 DB 路径追踪，测试切换临时库也安全）。
 - 缓存写入与命中均记录日志；hit_count > 1 时附加 "[AI 缓存] 命中第 N 次" 标记。
