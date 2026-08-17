@@ -1,6 +1,6 @@
 """
-风水排盘专业工具 v5.0.3 - 精美国风主窗口
-QSplitter左右分栏28%/72% · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
+风水排盘专业工具 - 精美国风主窗口
+QSplitter左右分栏 · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFrame, QApplication, QStatusBar,
@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QIcon
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from core.path_utils import get_resource_path
+from app_version import get_version_label, APP_NAME
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from ui.components.meihua_input import MeihuaInputPanel
@@ -354,8 +355,27 @@ class MainWindow(QMainWindow):
         # 状态栏
         sb = QStatusBar()
         sb.setStyleSheet(Stylesheets.STATUS)
-        sb.showMessage('风水排盘专业工具 v5.0.3 · 精美国风 · 龙虎山大师兄自动分析')
+        sb.showMessage('八字排盘 · 梅花易数 · 大六壬 · 龙虎山大师兄自动分析')
         self.setStatusBar(sb)
+
+        # 常驻版本标签（状态栏右侧，清晰可见）：版本号源自 app_version 单一权威源，
+        # 与程序实际版本完全一致，打包后随版本更新自动同步。
+        self._version_label = QLabel(get_version_label())
+        self._version_label.setObjectName('StatusBarVersion')
+        self._version_label.setStyleSheet(f"""
+            QLabel#StatusBarVersion {{
+                color: {Colors.QINGHUA};
+                font-size: 11px;
+                font-family: 'Courier New', 'Consolas', monospace;
+                font-weight: {Fonts.W_MEDIUM};
+                padding: 2px 12px;
+                border-left: 1px solid {Colors.BORDER};
+                background: {Colors.HOVER};
+            }}
+        """)
+        self._version_label.setToolTip(f'{APP_NAME} {get_version_label()} · 绿色便携版')
+        sb.addPermanentWidget(self._version_label)
+
         self.module_hint = None  # 预留：当前模块提示
 
     def _create_navbar(self, parent):
@@ -579,8 +599,19 @@ class MainWindow(QMainWindow):
             return None
 
         try:
-            birth_date = f"{data.get('year', '')}-{data.get('month', ''):02d}-{data.get('day', ''):02d}"
-            birth_time = f"{data.get('hour', 0):02d}:{data.get('minute', 0):02d}"
+            def _to_int(v, default=0):
+                """安全转为 int：缺值/非数字（如空串或字符串）回落默认值。"""
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return default
+
+            y, mo, d = (_to_int(data.get('year')),
+                        _to_int(data.get('month')),
+                        _to_int(data.get('day')))
+            # 无真实生辰信息（如梅花/六壬）时留空，避免写入 "0000-00-00" 垃圾值
+            birth_date = f"{y:04d}-{mo:02d}-{d:02d}" if (y or mo or d) else ''
+            birth_time = f"{_to_int(data.get('hour')):02d}:{_to_int(data.get('minute', 0)):02d}"
 
             record_id = self.db_manager.save_pan_record(
                 user_id=0,
@@ -941,7 +972,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(80, lambda: self._do_meihua(data, task_id))
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
-            traceback.print_exc()
+            self._logger.warning(f"[梅花] 起卦参数校验失败: {e}")
 
 
     def _do_meihua(self, data, task_id=None):

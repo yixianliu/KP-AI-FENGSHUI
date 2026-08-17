@@ -1,5 +1,5 @@
 ﻿"""
-关于对话框 v5.0.3 — 增强视觉交互效果
+关于对话框 — 增强视觉交互效果
 =====================================
 包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色
 """
@@ -18,7 +18,13 @@ class AboutDialog(QDialog):
 
     QQ = '1153602036'
     PHONE = '19258585274'
-    APP_VERSION = 'v5.0.3'
+    # 版本号单一权威源：从 app_version 读取，确保与程序实际版本完全一致。
+    # 导入失败时回落到常量，保证对话框永远能打开。
+    try:
+        from app_version import get_version_label
+        APP_VERSION = get_version_label()
+    except Exception:
+        APP_VERSION = 'v5.0.3'
 
     # 卡片动画延迟参数
     _STAGGER_DELAY = 80      # 每张卡片延迟 ms

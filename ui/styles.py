@@ -269,7 +269,7 @@ class Stylesheets:
             background-color: {Colors.QINGHUA};
             color: {Colors.TEXT_INV};
             border-color: {Colors.QINGHUA};
-            font-weight: {Fonts.W_MEDIUM};
+            font-weight: {Fonts.W_BOLD};
         }}
     """
 

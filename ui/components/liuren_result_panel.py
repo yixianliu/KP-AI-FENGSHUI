@@ -235,11 +235,6 @@ class LiurenResultPanel(QWidget):
         Returns:
             渲染好的 QWidget。
         """
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
         rows = [
             ('起课方式', r.get('method_name', '')),
             ('占问', r.get('question') or '—'),
@@ -248,17 +243,36 @@ class LiurenResultPanel(QWidget):
             ('月将', f"{r.get('yue_jiang_name','')}（{r.get('yue_jiang','')}）"),
             ('占时', r.get('zhan_shi', '')),
         ]
+        # 行式布局：鎏金微光小药丸标签 + 粗体值 + 行间细分隔（与梅花「起卦信息」一致）
+        vlay = QVBoxLayout()
+        vlay.setContentsMargins(0, 0, 0, 0)
+        vlay.setSpacing(0)
         for i, (k, v) in enumerate(rows):
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(10, 8, 10, 8)
+            rl.setSpacing(12)
             kl = QLabel(k)
-            kl.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN};")
-            kl.setFixedWidth(76)
-            kl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            kl.setFixedWidth(64)
+            kl.setAlignment(Qt.AlignCenter)
+            kl.setStyleSheet(f"""
+                font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT2};
+                font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY};
+                background-color: {Colors.HIGHLIGHT_GLOW};
+                border-radius: {Spacing.RADIUS_SM}; padding: 3px 6px;
+            """)
             vl = QLabel(str(v))
-            vl.setStyleSheet(f"font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_PRIMARY}; font-family: {Fonts.FAMILY_CN};")
+            vl.setStyleSheet(f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; font-family: {Fonts.BODY}; line-height: 1.5;")
             vl.setWordWrap(True)
-            grid.addWidget(kl, i, 0)
-            grid.addWidget(vl, i, 1)
-        w = QWidget(); w.setLayout(grid)
+            rl.addWidget(kl)
+            rl.addWidget(vl, 1)
+            vlay.addWidget(row)
+            if i < len(rows) - 1:
+                div = QFrame()
+                div.setFixedHeight(1)
+                div.setStyleSheet(f"background: {Colors.DIVIDER}; margin: 0 10px;")
+                vlay.addWidget(div)
+        w = QWidget(); w.setLayout(vlay)
         return w
 
     # ---------- 天地盘 ----------

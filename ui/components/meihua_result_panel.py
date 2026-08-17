@@ -1,8 +1,11 @@
-﻿"""
+"""
 梅花易数起卦结果展示面板
 """
+import re
+
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QGridLayout, QSizePolicy)
+                             QScrollArea, QPushButton, QGridLayout, QSizePolicy,
+                             QGraphicsOpacityEffect)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
@@ -208,11 +211,11 @@ class MeihuaResultPanel(QWidget):
         return card
 
     def _create_hexagram_display(self, hexagram_info, hex_type='本卦'):
-        """创建卦象展示组件"""
+        """创建卦象展示组件（优化版：头部卦名 + 上/下卦卡 + 卦辞原文块 + 释义，与爻辞详解一致）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         name = hexagram_info.get('name', '')
         symbol = hexagram_info.get('symbol', '')
@@ -221,25 +224,26 @@ class MeihuaResultPanel(QWidget):
         upper_gua = hexagram_info.get('upper_gua', '')
         lower_gua = hexagram_info.get('lower_gua', '')
 
+        # ---- 头部：类型徽标 + 卦名（衬线大字） ----
         header_row = QHBoxLayout()
-        header_row.setSpacing(20)
+        header_row.setSpacing(10)
         header_row.setAlignment(Qt.AlignCenter)
 
         type_label = QLabel(hex_type)
         type_label.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY};
-            color: {Colors.TEXT_SECONDARY};
-            font-weight: {Fonts.WEIGHT_BOLD};
-            font-family: {Fonts.FAMILY_CN};
-            padding: 4px 12px;
+            font-size: {Fonts.SZ_SMALL};
+            color: {Colors.TEXT2};
+            font-weight: {Fonts.W_BOLD};
+            font-family: {Fonts.BODY};
+            padding: 3px 10px;
             background-color: {Colors.HIGHLIGHT_GLOW};
-            border-radius: 4px;
+            border-radius: {Spacing.RADIUS_SM};
         """)
 
         name_label = QLabel(f'{name}　{symbol}')
         name_label.setStyleSheet(f"""
-            font-size: 24px;
-            font-weight: {Fonts.WEIGHT_BOLD};
+            font-size: {Fonts.SIZE_KEY};
+            font-weight: {Fonts.W_BOLD};
             color: {Colors.ACCENT};
             font-family: {Fonts.FAMILY_SERIF};
             letter-spacing: 3px;
@@ -250,100 +254,201 @@ class MeihuaResultPanel(QWidget):
         header_row.addStretch()
         layout.addLayout(header_row)
 
+        # ---- 上/下卦信息卡（描边圆角，与爻辞子卡一致） ----
         gua_info = QLabel(f'上卦　{upper_gua}　　下卦　{lower_gua}')
         gua_info.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY};
-            color: {Colors.TEXT_SECONDARY};
-            font-family: {Fonts.FAMILY_CN};
+            font-size: {Fonts.SZ_BODY};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY};
             background-color: {Colors.BACKGROUND};
-            border-radius: {Spacing.CONTROL_RADIUS};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
             padding: 8px 12px;
         """)
         gua_info.setAlignment(Qt.AlignCenter)
         layout.addWidget(gua_info)
 
+        # ---- 卦辞原文块（羊皮纸 + 左边条，与爻辞原文一致） ----
         if judgment:
-            judgment_label = QLabel(f'【卦辞】{judgment}')
-            judgment_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.PRIMARY};
-                font-family: {Fonts.FAMILY_SERIF};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                padding: 8px 12px;
-                background-color: {Colors.BACKGROUND};
-                border-radius: {Spacing.CONTROL_RADIUS};
+            orig_block = QFrame()
+            orig_block.setStyleSheet(f"""
+                QFrame {{
+                    background: {Colors.BG_DARK};
+                    border: none;
+                    border-left: 3px solid {Colors.PRIMARY};
+                    border-radius: {Spacing.RADIUS_SM};
+                }}
             """)
-            judgment_label.setWordWrap(True)
-            layout.addWidget(judgment_label)
+            ob_lay = QVBoxLayout(orig_block)
+            ob_lay.setContentsMargins(12, 8, 12, 8)
+            ob_lay.setSpacing(4)
 
+            orig_tag = QLabel('卦辞')
+            orig_tag.setStyleSheet(
+                f"font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_MEDIUM}; "
+                f"color: {Colors.PRIMARY}; font-family: {Fonts.BODY};")
+            orig_text = QLabel(f'【卦辞】{judgment}')
+            orig_text.setWordWrap(True)
+            orig_text.setStyleSheet(
+                f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; "
+                f"font-family: {Fonts.FAMILY_SERIF}; line-height: 1.7;")
+            ob_lay.addWidget(orig_tag)
+            ob_lay.addWidget(orig_text)
+            layout.addWidget(orig_block)
+
+        # ---- 释义块（弱化层级） ----
         if explanation:
-            explanation_label = QLabel(explanation)
-            explanation_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_SECONDARY};
-                font-family: {Fonts.FAMILY_CN};
-                line-height: 1.6;
-            """)
-            explanation_label.setWordWrap(True)
-            layout.addWidget(explanation_label)
+            exp_block = QWidget()
+            eb_lay = QVBoxLayout(exp_block)
+            eb_lay.setContentsMargins(12, 4, 12, 4)
+            eb_lay.setSpacing(4)
+            exp_tag = QLabel('释义')
+            exp_tag.setStyleSheet(
+                f"font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_MEDIUM}; "
+                f"color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+            exp_text = QLabel(explanation)
+            exp_text.setWordWrap(True)
+            exp_text.setStyleSheet(
+                f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT2}; "
+                f"font-family: {Fonts.BODY}; line-height: 1.6;")
+            eb_lay.addWidget(exp_tag)
+            eb_lay.addWidget(exp_text)
+            layout.addWidget(exp_block)
 
         return widget
 
     def _create_yao_display(self, yao_info_list):
-        """创建爻辞展示"""
+        """创建爻辞展示（优化版：清晰爻头 + 动爻徽标 + 原文/释义分层）。
+
+        视觉层次设计：
+          - 每一爻 = 一张独立卡片，左侧强调色条（动爻=朱砂红、静爻=青花蓝）；
+          - 顶部爻头：爻名（衬线粗体）+ 右侧「⚡ 动爻」徽标（仅在动爻时）；
+          - 爻辞原文：置于羊皮纸底色块（动爻用朱砂红微光 + 朱砂红左边条），
+            衬线大字凸显，作为核心内容；
+          - 释义：用细分隔线与原文隔开，灰色小字弱化层级，便于快速扫读。
+        全部沿用设计系统配色与 RADIUS_SM 圆角，提升国风质感与可读性。
+        """
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         for yao in yao_info_list:
-            yao_widget = QFrame()
-            yao_widget.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {Colors.BACKGROUND};
-                    border-radius: {Spacing.CONTROL_RADIUS};
-                    padding: 10px;
-                }}
-            """)
-
-            yao_layout = QVBoxLayout(yao_widget)
-            yao_layout.setContentsMargins(12, 8, 12, 8)
-            yao_layout.setSpacing(4)
-
             name = yao.get('name', '')
             text = yao.get('text', '')
             explanation = yao.get('explanation', '')
             is_moving = yao.get('is_moving', False)
+            accent = Colors.ACCENT if is_moving else Colors.PRIMARY
 
-            name_label = QLabel(f'{"● " if is_moving else ""}{name}')
+            yao_card = QFrame()
+            yao_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border: 1px solid {Colors.BORDER};
+                    border-radius: {Spacing.RADIUS_SM};
+                }}
+            """)
+
+            card_lay = QVBoxLayout(yao_card)
+            card_lay.setContentsMargins(0, 0, 0, 0)
+            card_lay.setSpacing(0)
+
+            # ---- 爻头：强调色条 + 爻名 + （动爻徽标） ----
+            header = QWidget()
+            header_lay = QHBoxLayout(header)
+            header_lay.setContentsMargins(12, 10, 12, 10)
+            header_lay.setSpacing(8)
+
+            bar = QFrame()
+            bar.setFixedSize(4, 18)
+            bar.setStyleSheet(f"background: {accent}; border: none; border-radius: 2px;")
+
+            name_label = QLabel(name)
             name_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                color: {Colors.ACCENT if is_moving else Colors.PRIMARY};
+                font-size: {Fonts.SZ_SECTION};
+                font-weight: {Fonts.W_BOLD};
+                color: {accent};
                 font-family: {Fonts.FAMILY_SERIF};
             """)
 
-            text_label = QLabel(text)
-            text_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_PRIMARY};
-                font-family: {Fonts.FAMILY_CN};
-            """)
-            text_label.setWordWrap(True)
+            header_lay.addWidget(bar)
+            header_lay.addWidget(name_label)
+            header_lay.addStretch()
 
-            if explanation:
-                exp_label = QLabel(f'释义：{explanation}')
-                exp_label.setStyleSheet(f"""
-                    font-size: {Fonts.SIZE_SMALL};
-                    color: {Colors.TEXT_TERTIARY};
-                    font-family: {Fonts.FAMILY_CN};
+            if is_moving:
+                badge = QLabel('⚡ 动爻')
+                badge.setStyleSheet(f"""
+                    font-size: {Fonts.SZ_MICRO};
+                    font-weight: {Fonts.W_BOLD};
+                    color: {Colors.TEXT_INV};
+                    background: {Colors.ZHUSHA};
+                    border: none;
+                    border-radius: {Spacing.RADIUS_SM};
+                    padding: 2px 8px;
                 """)
-                exp_label.setWordWrap(True)
-                yao_layout.addWidget(exp_label)
+                header_lay.addWidget(badge)
 
-            yao_layout.insertWidget(0, text_label)
-            yao_layout.insertWidget(0, name_label)
-            layout.addWidget(yao_widget)
+            card_lay.addWidget(header)
+
+            # 头部分隔线
+            head_div = QFrame()
+            head_div.setFixedHeight(1)
+            head_div.setStyleSheet(f"background: {Colors.DIVIDER}; border: none;")
+            card_lay.addWidget(head_div)
+
+            # ---- 爻辞原文块 ----
+            if text:
+                orig_block = QFrame()
+                orig_block.setStyleSheet(f"""
+                    QFrame {{
+                        background: {Colors.ZHUSHA_GLOW if is_moving else Colors.BG_DARK};
+                        border: none;
+                        border-left: 3px solid {accent};
+                        border-radius: {Spacing.RADIUS_SM};
+                    }}
+                """)
+                ob_lay = QVBoxLayout(orig_block)
+                ob_lay.setContentsMargins(12, 8, 12, 8)
+                ob_lay.setSpacing(4)
+
+                orig_tag = QLabel('爻辞原文')
+                orig_tag.setStyleSheet(
+                    f"font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_MEDIUM}; "
+                    f"color: {accent}; font-family: {Fonts.BODY};")
+
+                orig_text = QLabel(text)
+                orig_text.setWordWrap(True)
+                orig_text.setStyleSheet(
+                    f"font-size: {Fonts.SZ_SECTION}; color: {Colors.TEXT}; "
+                    f"font-family: {Fonts.FAMILY_SERIF}; line-height: 1.8;")
+
+                ob_lay.addWidget(orig_tag)
+                ob_lay.addWidget(orig_text)
+                card_lay.addWidget(orig_block)
+
+            # ---- 释义块 ----
+            if explanation:
+                exp_block = QWidget()
+                eb_lay = QVBoxLayout(exp_block)
+                eb_lay.setContentsMargins(12, 8, 12, 10)
+                eb_lay.setSpacing(4)
+
+                exp_tag = QLabel('释义')
+                exp_tag.setStyleSheet(
+                    f"font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_MEDIUM}; "
+                    f"color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+
+                exp_text = QLabel(explanation)
+                exp_text.setWordWrap(True)
+                exp_text.setStyleSheet(
+                    f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT2}; "
+                    f"font-family: {Fonts.BODY}; line-height: 1.6;")
+
+                eb_lay.addWidget(exp_tag)
+                eb_lay.addWidget(exp_text)
+                card_lay.addWidget(exp_block)
+
+            layout.addWidget(yao_card)
 
         return widget
 
@@ -564,7 +669,7 @@ class MeihuaResultPanel(QWidget):
         return widget
 
     def _create_evolution_diagram(self, result_data):
-        """创建卦象演变流程图"""
+        """创建卦象演变流程图（优化版：阶段序号徽标 + 鎏金顶条，与爻辞详解视觉一致）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -586,39 +691,70 @@ class MeihuaResultPanel(QWidget):
             return None
 
         stage_layout = QHBoxLayout()
-        stage_layout.setSpacing(20)
-        
+        stage_layout.setSpacing(12)
+        stage_layout.setAlignment(Qt.AlignCenter)
+
         for i, (stage_name, gua_name, meaning) in enumerate(stages):
             card = QFrame()
             card.setStyleSheet(f"""
                 QFrame {{
                     background-color: {Colors.BACKGROUND};
                     border: 1px solid {Colors.QINGHUA_LIGHT};
-                    border-radius: 6px;
-                    padding: 8px;
+                    border-radius: {Spacing.RADIUS_SM};
+                    padding: 10px 12px;
                 }}
             """)
             card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(0, 0, 0, 0)
+            card_lay.setSpacing(6)
             card_lay.setAlignment(Qt.AlignCenter)
-            
+
+            # 顶部：阶段序号徽标 + 阶段名（青花蓝）
+            head = QHBoxLayout()
+            head.setSpacing(6)
+            head.setAlignment(Qt.AlignCenter)
+
+            idx_badge = QLabel(str(i + 1))
+            idx_badge.setFixedSize(20, 20)
+            idx_badge.setAlignment(Qt.AlignCenter)
+            idx_badge.setStyleSheet(
+                f"background: {Colors.QINGHUA}; color: {Colors.TEXT_INV}; "
+                f"font-size: 11px; font-weight: {Fonts.W_BOLD}; "
+                f"border-radius: 10px; font-family: {Fonts.BODY};")
+
             name_label = QLabel(stage_name)
-            name_label.setStyleSheet(f"font-size: 14px; color: {Colors.TEXT_SECONDARY}; font-weight: bold;")
+            name_label.setStyleSheet(
+                f"font-size: 14px; color: {Colors.PRIMARY}; "
+                f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.BODY};")
+
+            head.addWidget(idx_badge)
+            head.addWidget(name_label)
+            card_lay.addLayout(head)
+
+            # 卦名（衬线大字）
             gua_label = QLabel(gua_name)
-            gua_label.setStyleSheet(f"font-size: 18px; color: {Colors.PRIMARY}; font-weight: bold;")
+            gua_label.setAlignment(Qt.AlignCenter)
+            gua_label.setStyleSheet(
+                f"font-size: 18px; color: {Colors.TEXT}; "
+                f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.FAMILY_SERIF};")
+
+            # 意义（鎏金小字）
             meaning_label = QLabel(meaning)
-            meaning_label.setStyleSheet(f"font-size: 12px; color: {Colors.TEXT_TERTIARY};")
-            
-            card_lay.addWidget(name_label)
+            meaning_label.setAlignment(Qt.AlignCenter)
+            meaning_label.setStyleSheet(
+                f"font-size: 12px; color: {Colors.LIUJIN}; font-family: {Fonts.BODY};")
+
             card_lay.addWidget(gua_label)
             card_lay.addWidget(meaning_label)
-            
             stage_layout.addWidget(card)
-            
+
             if i < len(stages) - 1:
-                arrow = QLabel('→')
-                arrow.setStyleSheet(f"font-size: 24px; color: {Colors.LIUJIN};")
+                arrow = QLabel('➜')
+                arrow.setAlignment(Qt.AlignCenter)
+                arrow.setStyleSheet(
+                    f"font-size: 22px; color: {Colors.LIUJIN}; font-family: {Fonts.BODY};")
                 stage_layout.addWidget(arrow)
-        
+
         layout.addLayout(stage_layout)
         return widget
 
@@ -738,12 +874,6 @@ class MeihuaResultPanel(QWidget):
                 evolution_card = self._create_result_card('卦象演变', '🔄', evolution_widget)
                 self.content_layout.addWidget(evolution_card)
 
-        suggestions = result_data.get('suggestions', [])
-        if suggestions:
-            sug_widget = self._create_suggestions(suggestions)
-            sug_card = self._create_result_card('行动建议', '💡', sug_widget)
-            self.content_layout.addWidget(sug_card)
-
         smart_placeholder = QFrame()
         smart_placeholder.setVisible(False)
         smart_placeholder.setObjectName('smart_result_placeholder')
@@ -751,36 +881,87 @@ class MeihuaResultPanel(QWidget):
 
         self.content_layout.addStretch()
 
+        # 结果卡片依次淡入，增强视觉交互（与八字面板一致）
+        self._fade_in_widgets()
+
+    def _fade_in_widgets(self):
+        """淡入动画：起卦结果各卡片依次淡入（与八字面板一致），增强视觉交互。
+
+        每张卡片套一层 QGraphicsOpacityEffect，从 0→1 用 OutCubic 缓动淡入，
+        并按序号错峰 20ms 启动（总延迟不超过 800ms），营造「逐张浮现」的层次感。
+
+        注意：不按 isVisible() 跳过——若仅当可见才淡入，则当结果面板此刻不是
+        当前堆叠页（未切换/未映射）时会导致整段淡入被跳过、动画失效。动画始终
+        启动并收敛到 opacity=1，隐藏控件（setVisible(False) 的占位）仍保持隐藏，
+        无副作用。
+        """
+        self._fade_anims = []
+        for i in range(self.content_layout.count()):
+            item = self.content_layout.itemAt(i)
+            if not item:
+                continue
+            widget = item.widget()
+            if widget is None:
+                continue
+            effect = QGraphicsOpacityEffect(widget)
+            effect.setOpacity(0.0)
+            widget.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity")
+            anim.setDuration(350)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            self._fade_anims.append(anim)
+            # 错峰启动，总延迟不超过 800ms
+            QTimer.singleShot(min(i * 20, 800), anim.start)
+
     def _create_info_grid(self, data):
-        """创建信息网格（标签右对齐定宽、值清晰层级并可换行）"""
+        """创建信息网格（标签徽标 + 值，行间细分隔，与面板国风风格一致）。"""
         widget = QWidget()
-        layout = QGridLayout(widget)
+        layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setVerticalSpacing(10)
-        layout.setHorizontalSpacing(16)
-        layout.setColumnStretch(1, 1)
+        layout.setSpacing(0)
 
         for i, (label, value) in enumerate(data):
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(10, 8, 10, 8)
+            rl.setSpacing(12)
+
+            # 标签：鎏金微光小药丸（与卦象类型徽标同源）
             label_widget = QLabel(label)
-            label_widget.setFixedWidth(76)
-            label_widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            label_widget.setFixedWidth(64)
+            label_widget.setAlignment(Qt.AlignCenter)
             label_widget.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_SMALL};
-                color: {Colors.TEXT_TERTIARY};
-                font-family: {Fonts.FAMILY_CN};
+                font-size: {Fonts.SZ_MICRO};
+                color: {Colors.TEXT2};
+                font-weight: {Fonts.W_MEDIUM};
+                font-family: {Fonts.BODY};
+                background-color: {Colors.HIGHLIGHT_GLOW};
+                border-radius: {Spacing.RADIUS_SM};
+                padding: 3px 6px;
             """)
 
             value_widget = QLabel(str(value))
             value_widget.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY};
-                color: {Colors.TEXT_PRIMARY};
-                font-weight: {Fonts.WEIGHT_BOLD};
-                font-family: {Fonts.FAMILY_CN};
+                font-size: {Fonts.SZ_BODY};
+                color: {Colors.TEXT};
+                font-weight: {Fonts.W_BOLD};
+                font-family: {Fonts.BODY};
+                line-height: 1.5;
             """)
             value_widget.setWordWrap(True)
 
-            layout.addWidget(label_widget, i, 0)
-            layout.addWidget(value_widget, i, 1)
+            rl.addWidget(label_widget)
+            rl.addWidget(value_widget, 1)
+            layout.addWidget(row)
+
+            # 行间细分隔线（末行不加）
+            if i < len(data) - 1:
+                div = QFrame()
+                div.setFixedHeight(1)
+                div.setStyleSheet(f"background: {Colors.DIVIDER}; margin: 0 10px;")
+                layout.addWidget(div)
 
         return widget
 
@@ -1062,12 +1243,155 @@ class MeihuaResultPanel(QWidget):
                 card.set_content(probability_stats_widget(items, color))
                 cv.addWidget(card)
                 continue
+            if key == 'advice':
+                card = _build_advice_card(title, icon, color, items)
+                if card:
+                    has_content = True
+                    cv.addWidget(card)
+                continue
             card = _build_section_card(title, icon, color, items)
             if card:
                 has_content = True
                 cv.addWidget(card)
 
-        # 没有任何 智能 内容的兜底提示
+        def _build_advice_card(title, icon, color, items):
+            """将 advice 列表渲染为「可执行建议卡片」：优先级标签 + 行动说明 + 时机/规避提示。"""
+            if isinstance(items, str):
+                items = [items] if items.strip() else []
+            elif isinstance(items, (list, tuple)):
+                items = [str(x) for x in items if x is not None and str(x).strip()]
+            else:
+                items = [str(items)] if items else []
+            if not items:
+                return None
+
+            # 优先级 → 对应颜色映射（高=鎏金/中=青花蓝/低=灰）
+            _PRIORITY_STYLE = {
+                '高': (Colors.LIUJIN, Colors.LIUJIN_GLOW, '🔥'),
+                '中': (Colors.QINGHUA, Colors.QINGHUA_GLOW, '📌'),
+                '低': (Colors.TEXT_TERTIARY, Colors.CARD, '💬'),
+            }
+            # 关键词 → 风险色 / 正向色
+            _RISK_KW = ('避免', '忌讳', '不宜', '切勿', '危险', '小心', '防')
+            _POSITIVE_KW = ('宜', '建议', '可', '应该', '应当')
+
+            section_widget = QFrame()
+            section_widget.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Colors.BACKGROUND};
+                    border-radius: {Spacing.CONTROL_RADIUS};
+                }}
+            """)
+            section_layout = QVBoxLayout(section_widget)
+            section_layout.setContentsMargins(12, 10, 12, 10)
+            section_layout.setSpacing(10)
+
+            for idx, item in enumerate(items, 1):
+                # 解析优先级前缀 「【高】」「【中】」「【低】」
+                prio_label = '中'
+                prio_icon = '📌'
+                prio_color, prio_bg, prio_icon = _PRIORITY_STYLE.get('中', _PRIORITY_STYLE['中'])
+                cleaned = item.strip()
+                if cleaned.startswith('【') and '】' in cleaned:
+                    end = cleaned.index('】')
+                    tag = cleaned[2:end]
+                    if tag in _PRIORITY_STYLE:
+                        prio_color, prio_bg, prio_icon = _PRIORITY_STYLE[tag]
+                        prio_label = tag
+                        cleaned = cleaned[end + 1:].strip()
+
+                # 按句拆分：识别「时机」「避免」「建议」等关键词分段
+                parts = _split_advice_parts(cleaned)
+
+                row = QFrame()
+                row.setStyleSheet(
+                    f"QFrame {{ background-color: {prio_bg}; "
+                    f"border-left: 4px solid {prio_color}; "
+                    f"border-radius: {Spacing.RADIUS_SM}; }}"
+                )
+                rl = QVBoxLayout(row)
+                rl.setContentsMargins(14, 10, 14, 10)
+                rl.setSpacing(6)
+
+                # 头部：序号 + 优先级图标 + 首句（核心行动）
+                head = QHBoxLayout()
+                head.setSpacing(8)
+                num = QLabel(f'{idx}')
+                num.setFixedSize(22, 22)
+                num.setAlignment(Qt.AlignCenter)
+                num.setStyleSheet(
+                    f"background: {prio_color}; color: white; font-size: 11px; "
+                    f"font-weight: {Fonts.WEIGHT_BOLD}; border-radius: 11px; "
+                    f"font-family: {Fonts.FAMILY_CN};"
+                )
+                icon_lbl = QLabel(prio_icon)
+                icon_lbl.setFixedSize(20, 20)
+                icon_lbl.setStyleSheet(f"font-size: 14px;")
+                title_lbl = QLabel(parts.get('main', cleaned))
+                title_lbl.setWordWrap(True)
+                title_lbl.setStyleSheet(
+                    f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; "
+                    f"font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY}; "
+                    f"line-height: 1.6;"
+                )
+                head.addWidget(num)
+                head.addWidget(icon_lbl)
+                head.addWidget(title_lbl, 1)
+                rl.addLayout(head)
+
+                # 细节：时机 / 规避 / 补充说明
+                detail_texts = []
+                if parts.get('timing'):
+                    detail_texts.append(f"⏰ 时机：{parts['timing']}")
+                if parts.get('avoid'):
+                    detail_texts.append(f"⚠ 规避：{parts['avoid']}")
+                if parts.get('extra'):
+                    detail_texts.append(parts['extra'])
+
+                for dt in detail_texts:
+                    dl = QLabel(dt)
+                    dl.setWordWrap(True)
+                    is_risk = any(kw in dt for kw in _RISK_KW)
+                    dl.setStyleSheet(
+                        f"font-size: {Fonts.SZ_SMALL}; "
+                        f"color: {Colors.DANGER if is_risk else Colors.TEXT2}; "
+                        f"font-family: {Fonts.BODY}; line-height: 1.55; "
+                        f"padding-left: 30px;"
+                    )
+                    rl.addWidget(dl)
+
+                # 优先级徽章
+                badge = QLabel(f"优先级：{prio_label}")
+                badge.setStyleSheet(
+                    f"font-size: {Fonts.SZ_SMALL}; color: {prio_color}; "
+                    f"font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY}; "
+                    f"padding-left: 30px;"
+                )
+                rl.addWidget(badge)
+
+                section_layout.addWidget(row)
+
+            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+            card.set_content(section_widget)
+            return card
+
+        def _split_advice_parts(text: str) -> dict:
+            """将单条建议按关键词拆分为 main / timing / avoid / extra。"""
+            import re as _re
+            result = {'main': text, 'timing': '', 'avoid': '', 'extra': ''}
+            # 时机：含「时机」「应期」「在…时」「…前后」
+            m = _re.search(r'[时机应期].{0,20}?[。；;]', text)
+            if m:
+                result['timing'] = m.group(0).strip('。；; ')
+                result['main'] = text[:m.start()].strip()
+                text = text[m.end():].strip()
+            # 规避：含「避免」「忌讳」「不宜」「切勿」
+            m = _re.search(r'(?:避免|忌讳|不宜|切勿|小心|防)[^。]{0,30}?[。；;]', text)
+            if m:
+                result['avoid'] = m.group(0).strip('。；; ')
+            return result
+
+        # 没有任何 智能 内容的兜底提示（缩进与上方同级）
         if not has_content:
             tip = QLabel('龙虎山大师兄未返回有效条目，请点击「重新解读」重试')
             tip.setStyleSheet(

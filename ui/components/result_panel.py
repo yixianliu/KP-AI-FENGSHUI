@@ -1,4 +1,4 @@
-﻿"""
+"""
 右侧结果面板 v5.0 - 精美国风 · 可折叠卡片 · 清晰排版 · 流畅动画
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
@@ -367,7 +367,7 @@ class ResultPanel(QWidget):
                 )
                 detail_row.addWidget(tag4)
 
-            # 把 row_gv layout 包成 widget 再加到 cl
+            # 把 row_gv layout 包成 widget 再加到 cl，避免 TypeError
             row_gv_widget = QWidget()
             row_gv_widget.setStyleSheet("background: transparent;")
             row_gv_widget.setLayout(row_gv)

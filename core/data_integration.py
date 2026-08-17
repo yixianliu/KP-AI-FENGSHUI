@@ -18,6 +18,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _to_float(v, default=0.0):
+    """安全转 float：缺值/非数字（如空串或字符串）回落默认，避免 :.2f 等格式化崩溃。"""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 class DataIntegrator:
     """数据整合器 - 统一管理分析所需的所有数据"""
 
@@ -366,8 +374,22 @@ class DataIntegrator:
         parts.append("=" * 70)
         parts.append(f"姓名：{input_data.get('name', '')}")
         parts.append(f"性别：{input_data.get('gender', '')}")
-        parts.append(f"出生日期：{input_data.get('year')}年{input_data.get('month')}月{input_data.get('day')}日")
-        parts.append(f"出生时间：{input_data.get('hour'):02d}:{input_data.get('minute'):02d}")
+        def _to_int(v, default=0):
+            """安全转 int：缺值/非数字回落默认，避免 :0?d 格式化崩溃。"""
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
+        y = _to_int(input_data.get('year'))
+        mo = _to_int(input_data.get('month'))
+        d = _to_int(input_data.get('day'))
+        # 仅在确有生辰信息时展示日期/时间，避免写入 "0年0月0日"/None 垃圾值
+        if y or mo or d:
+            parts.append(f"出生日期：{y}年{mo}月{d}日")
+            h = _to_int(input_data.get('hour'))
+            mi = _to_int(input_data.get('minute'))
+            parts.append(f"出生时间：{h:02d}:{mi:02d}")
         parts.append(f"出生地：{input_data.get('location') or input_data.get('city')}（经度：{input_data.get('longitude')}°）")
         parts.append(f"是否农历：{'是' if input_data.get('is_lunar') else '否'}")
 
@@ -391,13 +413,13 @@ class DataIntegrator:
         parts.append("【五行分析】")
         parts.append("=" * 70)
         parts.append(f"五行总结：{wuxing.get('summary', '')}")
-        parts.append(f"总评分：{wuxing.get('total_score', 0):.2f}")
+        parts.append(f"总评分：{_to_float(wuxing.get('total_score', 0)):.2f}")
         parts.append(f"日主五行：{wuxing.get('rizhu_wx', '')}")
 
         elements = wuxing.get('elements', {})
         for wx in ['木', '火', '土', '金', '水']:
             elem = elements.get(wx, {})
-            parts.append(f"  {wx}：分值={elem.get('score', 0):.2f}，占比={elem.get('percentage', 0):.1f}%，"
+            parts.append(f"  {wx}：分值={_to_float(elem.get('score', 0)):.2f}，占比={_to_float(elem.get('percentage', 0)):.1f}%，"
                          f"强度={elem.get('strength', '')}，{elem.get('description', '')}")
 
         tonggen = wuxing.get('tonggen', {})
@@ -433,7 +455,7 @@ class DataIntegrator:
         if pillars:
             parts.append(f"各柱十神详情：")
             for pillar_name, items in pillars.items():
-                pillar_items = [f"{item.get('gan')}{item.get('zhi')}({item.get('shishen')},权重{item.get('weight', 0):.2f})"
+                pillar_items = [f"{item.get('gan')}{item.get('zhi')}({item.get('shishen')},权重{_to_float(item.get('weight', 0)):.2f})"
                                 for item in items]
                 parts.append(f"  {pillar_name}：{'、'.join(pillar_items)}")
 
@@ -475,7 +497,7 @@ class DataIntegrator:
         parts.append("=" * 70)
 
         rizhu_wuxing = relationships.get('rizhu_wuxing', {})
-        parts.append(f"日主与五行：日主{bazi.get('rizhu', '')}属{rizhu_wuxing.get('wuxing', '')}，分值{rizhu_wuxing.get('score', 0):.2f}")
+        parts.append(f"日主与五行：日主{bazi.get('rizhu', '')}属{rizhu_wuxing.get('wuxing', '')}，分值{_to_float(rizhu_wuxing.get('score', 0)):.2f}")
 
         wuxing_balance = relationships.get('wuxing_balance', {})
         if wuxing_balance.get('strong'):
@@ -484,7 +506,7 @@ class DataIntegrator:
             parts.append(f"五行偏弱：{'、'.join(wuxing_balance['weak'])}")
 
         shishen_dominant = relationships.get('shishen_dominant', {})
-        parts.append(f"主导十神类别：{shishen_dominant.get('category', '')}，权重{shishen_dominant.get('weight', 0):.2f}")
+        parts.append(f"主导十神类别：{shishen_dominant.get('category', '')}，权重{_to_float(shishen_dominant.get('weight', 0)):.2f}")
 
         shensha_impact = relationships.get('shensha_impact', {})
         parts.append(f"神煞影响：吉神{shensha_impact.get('positive_count', 0)}个，凶煞{shensha_impact.get('negative_count', 0)}个")
