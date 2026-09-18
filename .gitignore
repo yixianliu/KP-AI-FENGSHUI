@@ -61,3 +61,5 @@ api
 /pyside6_packages/
 /tests/
 /.github/
+/_build_single/
+/database/
