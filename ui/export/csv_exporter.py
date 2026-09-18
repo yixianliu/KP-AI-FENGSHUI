@@ -28,6 +28,10 @@ _AI_SECTIONS = [
 ]
 
 
+# AI 分析区章节标题（与 ai_titles.py 保持一致）
+_AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+
+
 def _to_str(v: Any) -> str:
     """把任意排盘字段值统一转换为可写入 CSV 单元格的字符串。
 
@@ -204,7 +208,7 @@ class CsvExporter(BaseExporter):
                 # AI 智能分析
                 if has_chapter(data, 'ai_analysis'):
                     ai = data.get('ai_analysis', {}) or {}
-                    writer.writerow(['龙虎山大师兄分析预测'])
+                    writer.writerow([_AI_SECTION_TITLE])
                     for key, title in _AI_SECTIONS:
                         items = ai.get(key, []) or []
                         if isinstance(items, str):

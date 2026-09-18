@@ -1,89 +1,92 @@
 """
-风水排盘专业工具 - 精美国风设计系统 v5.0.3
-三色点缀：朱砂红·青花蓝·鎏金黄 | 暖米底色 | 圆角卡片 | 柔和阴影 | 微动画
+风水排盘专业工具 - 新中式玄中易设计系统 v6.0
+主色调：深靛蓝 #1a1a2e / 古金 #c9a227 / 朱红 #8b0000
+深底色配金色/朱红点缀 · 水墨纹理背景 · 宋体/楷体标题 · 微软雅黑正文
 """
 
-
 class Colors:
-    """全局色彩体系"""
+    """全局色彩体系（新中式玄中易深色体系）"""
 
-    # ========== 底色系 - 暖米色调 ==========
-    BG = '#F7F4EE'
-    BG_DARK = '#EDE8DF'
-    CARD = '#FFFFFF'
-    HOVER = '#F2EEE6'
-    CARD_HOVER = '#FAF8F4'
-    CARD_SELECTED = '#F0EDE4'
+    # ========== 主色调（项目规范） ==========
+    INK = '#1a1a2e'          # 深靛蓝（主色）
+    GOLD = '#c9a227'         # 古金（强调/高亮）
+    ZHONGYI = '#8b0000'      # 朱红（主操作/点缀）
+
+    # ========== 底色系 - 深靛蓝水墨 ==========
+    BG = '#1a1a2e'
+    BG_DARK = '#12121f'
+    CARD = '#21213a'
+    HOVER = '#262640'
+    CARD_HOVER = '#28284a'
+    CARD_SELECTED = '#2c2c4e'
 
     # ========== 三色点缀 - 国风主题 ==========
-    # 朱砂红（主操作）
-    ZHUSHA = '#C45545'
-    ZHUSHA_LIGHT = '#E8B0A0'
-    ZHUSHA_DARK = '#9B3528'
-    ZHUSHA_GLOW = 'rgba(196, 85, 69, 0.12)'
+    # 朱红（主操作）
+    ZHUSHA = '#8b0000'
+    ZHUSHA_LIGHT = '#C97A6A'
+    ZHUSHA_DARK = '#5E0000'
+    ZHUSHA_GLOW = 'rgba(139, 0, 0, 0.25)'
 
-    # 青花蓝（导航/选中）
-    QINGHUA = '#4A7A90'
-    QINGHUA_LIGHT = '#A0C4D4'
-    QINGHUA_DARK = '#3A5A6A'
-    QINGHUA_GLOW = 'rgba(74, 122, 144, 0.10)'
+    # 古金（导航/选中）
+    QINGHUA = '#c9a227'
+    QINGHUA_LIGHT = '#e8d08a'
+    QINGHUA_DARK = '#8f751c'
+    QINGHUA_GLOW = 'rgba(201, 162, 39, 0.22)'
 
-    # 鎏金黄（高亮/强调）
-    LIUJIN = '#B88A30'
-    LIUJIN_LIGHT = '#E0D0A0'
-    LIUJIN_DARK = '#8B6520'
-    LIUJIN_GLOW = 'rgba(184, 138, 48, 0.10)'
+    # 古金（高亮/强调）
+    LIUJIN = '#c9a227'
+    LIUJIN_LIGHT = '#e8d08a'
+    LIUJIN_DARK = '#8f751c'
+    LIUJIN_GLOW = 'rgba(201, 162, 39, 0.22)'
 
-    # ========== 文字色彩 ==========
-    TEXT = '#1C1A16'
-    TEXT2 = '#5C5650'
-    TEXT3 = '#8C8680'
-    TEXT4 = '#B0AAA4'
-    TEXT_INV = '#FFFFFF'
+    # ========== 文字色彩（深底配浅色字） ==========
+    TEXT = '#F5F1E8'
+    TEXT2 = '#D8D3C8'
+    TEXT3 = '#9C97A8'
+    TEXT4 = '#6B6678'
+    TEXT_INV = '#12121f'
 
     # ========== 边框与分割 ==========
-    BORDER = '#E6E0D8'
-    BORDER2 = '#D4CCC0'
-    DIVIDER = '#ECE6DC'
-    DIVIDER_LIGHT = '#F2EDE4'
+    BORDER = '#33335A'
+    BORDER2 = '#45456E'
+    DIVIDER = '#2E2E4C'
+    DIVIDER_LIGHT = '#262640'
 
-    # ========== 状态色彩 ==========
-    SUCCESS = '#4A8A5E'
-    SUCCESS_LIGHT = '#D4EDDA'
-    WARNING = '#C49030'
-    WARNING_LIGHT = '#FFF3CD'
+    # ========== 状态色彩（深色底优化对比度） ==========
+    SUCCESS = '#5DAF74'
+    SUCCESS_LIGHT = '#2A4A38'
+    WARNING = '#D8A94E'
+    WARNING_LIGHT = '#4A3E20'
     DANGER = '#C45545'
-    DANGER_LIGHT = '#F8D7DA'
-    INFO = '#4A7A90'
-    INFO_LIGHT = '#D1ECF1'
+    DANGER_LIGHT = '#4A2626'
+    INFO = '#7FB3C8'
+    INFO_LIGHT = '#1E3A4A'
 
-    # ========== 渐变 ==========
-    GRADIENT_WARM = '#F7F4EE'
-    GRADIENT_COOL = '#EEF2F6'
-    GRADIENT_NAV_START = '#FFFFFF'
-    GRADIENT_NAV_END = '#FAF8F4'
+    # ========== 渐变（深色水墨） ==========
+    GRADIENT_WARM = '#1a1a2e'
+    GRADIENT_COOL = '#141428'
+    GRADIENT_NAV_START = '#1a1a2e'
+    GRADIENT_NAV_END = '#12121f'
 
-    # ========== 阴影（用于 QGraphicsDropShadowEffect） ==========
-    SHADOW_SM = 'rgba(0,0,0,0.04)'
-    SHADOW_MD = 'rgba(0,0,0,0.06)'
-    SHADOW_LG = 'rgba(0,0,0,0.10)'
+    # ========== 水墨纹理（低透明度，深底微纹理） ==========
+    WATERMARK = 'rgba(201, 162, 39, 0.03)'
 
-    # ========== 五行色彩 ==========
-    WOOD = '#5A8F6E'
-    WOOD_LIGHT = '#A0D0B0'
-    WOOD_DARK = '#3A6F4E'
-    FIRE = '#C45C48'
-    FIRE_LIGHT = '#E8A898'
-    FIRE_DARK = '#9B3C2A'
-    EARTH = '#8B7355'
-    EARTH_LIGHT = '#B8A080'
-    EARTH_DARK = '#6B5338'
+    # ========== 五行色彩（深色底提亮以保可读性） ==========
+    WOOD = '#7CB48E'
+    WOOD_LIGHT = '#A8D8B8'
+    WOOD_DARK = '#4A8A5E'
+    FIRE = '#E88870'
+    FIRE_LIGHT = '#F0B8A0'
+    FIRE_DARK = '#C45545'
+    EARTH = '#C0A878'
+    EARTH_LIGHT = '#D8C8A0'
+    EARTH_DARK = '#8B7355'
     METAL = '#B8B0A0'
     METAL_LIGHT = '#D8D0C0'
-    METAL_DARK = '#8B8070'
-    WATER = '#5B8FA8'
-    WATER_LIGHT = '#A0C8D8'
-    WATER_DARK = '#3B6F88'
+    METAL_DARK = '#8A8278'
+    WATER = '#8AC8E8'
+    WATER_LIGHT = '#B0D8F0'
+    WATER_DARK = '#5B8FA8'
 
     # ========== 旧版兼容别名 ==========
     BACKGROUND = BG
@@ -101,25 +104,26 @@ class Colors:
     TEXT_SECONDARY = TEXT2
     TEXT_TERTIARY = TEXT3
     TEXT_INVERSE = TEXT_INV
+    # 副标题/辅助说明文字色（加载面板副标题等场景使用）
+    TEXT_SUB = TEXT2
     BORDER_LIGHT = DIVIDER
     HOVER_BG = HOVER
     INPUT_BG = CARD
     PARCHMENT = BG
     PARCHMENT_LIGHT = BG
-    PARCHMENT_DARK = '#E3D5BC'
-    BRONZE = '#6B6B4D'
-    BRONZE_LIGHT = '#8A8A68'
-    BRONZE_DARK = '#4A4A30'
-    WATERMARK = 'rgba(0,0,0,0.02)'
+    PARCHMENT_DARK = '#12121f'
+    BRONZE = '#8A7A5A'
+    BRONZE_LIGHT = '#B0A070'
+    BRONZE_DARK = '#5A5A40'
 
 
 class Fonts:
-    """字体体系"""
+    """字体体系（规范：标题宋体/楷体，正文微软雅黑）"""
 
-    # 衬线字体（标题/装饰）
-    TITLE = '"Noto Serif CJK SC", "Source Han Serif SC", SimSun, STSong, serif'
-    # 无衬线字体（正文/UI）
-    BODY = '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif'
+    # 标题字体（宋体/楷体，新中式玄中易规范）
+    TITLE = '"KaiTi", "SimSun", "STKaiti", "Noto Serif CJK SC", "Source Han Serif SC", serif'
+    # 正文字体（微软雅黑，新中式玄中易规范）
+    BODY = '"Microsoft YaHei", "微软雅黑", "PingFang SC", "Noto Sans CJK SC", sans-serif'
     # 等宽字体（数据/数值）
     MONO = '"Cascadia Code", "Consolas", "SF Mono", Monaco, monospace'
 
@@ -187,6 +191,79 @@ class Stylesheets:
         }}
         QWidget {{
             font-family: {Fonts.BODY};
+        }}
+        QToolTip {{
+            background: {Colors.CARD};
+            color: {Colors.TEXT};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            padding: 10px 14px;
+            font-size: {Fonts.SZ_SMALL};
+            font-family: {Fonts.BODY};
+        }}
+    """
+
+    # ==================== 顶部导航栏 ====================
+    NAVBAR = f"""
+        QFrame {{
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                stop:0 #FFFFFF, stop:1 {Colors.GRADIENT_NAV_END});
+            border-bottom: 1px solid {Colors.DIVIDER};
+        }}
+    """
+    NAVBAR_LOGO = f"""
+        QLabel {{
+            font-size: 24px;
+            color: {Colors.LIUJIN};
+        }}
+    """
+    NAVBAR_TITLE = f"""
+        QLabel {{
+            font-size: 20px;
+            font-weight: {Fonts.W_BOLD};
+            color: {Colors.TEXT};
+            font-family: {Fonts.TITLE};
+            letter-spacing: 2px;
+        }}
+    """
+    NAVBAR_BUTTON = f"""
+        QPushButton {{
+            background: transparent;
+            color: {Colors.TEXT2};
+            border: none;
+            border-radius: {Spacing.RADIUS};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            padding: 8px 24px;
+            min-height: 36px;
+        }}
+        QPushButton:hover {{
+            color: {Colors.TEXT};
+            background: {Colors.CARD};
+        }}
+        QPushButton:checked {{
+            color: {Colors.TEXT_INV};
+            background: {Colors.QINGHUA};
+            font-weight: {Fonts.W_MEDIUM};
+        }}
+    """
+    NAVBAR_ICON_BUTTON = f"""
+        QPushButton {{
+            background: transparent;
+            color: {Colors.QINGHUA};
+            border: 1px solid {Colors.QINGHUA_LIGHT};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: 12px;
+            padding: 2px;
+            min-width: 24px;
+            min-height: 24px;
+        }}
+        QPushButton:hover {{
+            background: {Colors.QINGHUA_GLOW};
+        }}
+        QPushButton:pressed {{
+            background: {Colors.QINGHUA};
+            color: {Colors.TEXT_INV};
         }}
     """
 
@@ -266,10 +343,33 @@ class Stylesheets:
             background-color: {Colors.CARD_HOVER};
         }}
         QPushButton:checked {{
-            background-color: {Colors.QINGHUA};
-            color: {Colors.TEXT_INV};
+            background-color: {Colors.QINGHUA_LIGHT};
+            color: {Colors.QINGHUA_DARK};
             border-color: {Colors.QINGHUA};
             font-weight: {Fonts.W_BOLD};
+        }}
+    """
+
+    # ==================== 分组框 ====================
+    GROUPBOX = f"""
+        QGroupBox {{
+            background-color: transparent;
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            margin-top: 8px;
+            padding-top: 12px;
+            font-size: {Fonts.SZ_SECTION};
+            font-weight: {Fonts.W_MEDIUM};
+            color: {Colors.TEXT};
+            font-family: {Fonts.BODY};
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 12px;
+            top: 0px;
+            padding: 0 6px;
+            color: {Colors.TEXT};
         }}
     """
 
@@ -346,7 +446,7 @@ class Stylesheets:
         }}
         QComboBox QAbstractItemView::item {{
             padding: 8px 12px;
-            border-radius: 4px;
+            border-radius: 6px;
             min-height: 30px;
         }}
         QComboBox QAbstractItemView::item:hover {{
@@ -445,17 +545,17 @@ class Stylesheets:
         }}
         QScrollBar:vertical {{
             background: transparent;
-            width: 8px;
-            border-radius: 4px;
+            width: 12px;
+            border-radius: 6px;
             margin: 2px;
         }}
         QScrollBar::handle:vertical {{
-            background: {Colors.BORDER};
-            border-radius: 4px;
+            background: {Colors.BORDER2};
+            border-radius: 6px;
             min-height: 30px;
         }}
         QScrollBar::handle:vertical:hover {{
-            background: {Colors.BORDER2};
+            background: {Colors.QINGHUA};
         }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0;
@@ -465,17 +565,17 @@ class Stylesheets:
         }}
         QScrollBar:horizontal {{
             background: transparent;
-            height: 8px;
-            border-radius: 4px;
+            height: 12px;
+            border-radius: 6px;
             margin: 2px;
         }}
         QScrollBar::handle:horizontal {{
-            background: {Colors.BORDER};
-            border-radius: 4px;
+            background: {Colors.BORDER2};
+            border-radius: 6px;
             min-width: 30px;
         }}
         QScrollBar::handle:horizontal:hover {{
-            background: {Colors.BORDER2};
+            background: {Colors.QINGHUA};
         }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
             width: 0;
@@ -502,6 +602,8 @@ class Stylesheets:
     """
 
     # ==================== 提示框 ====================
+    # Note: TOOLTIP is now included in MAIN, so we don't need to define it separately here.
+    # But we keep it for compatibility if needed elsewhere.
     TOOLTIP = f"""
         QToolTip {{
             background: {Colors.CARD};

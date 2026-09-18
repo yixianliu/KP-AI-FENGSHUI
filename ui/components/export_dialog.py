@@ -151,7 +151,7 @@ class ExportDialog(QDialog):
 
         # ---------- 导出格式 ----------
         format_group = QGroupBox('导出格式')
-        format_layout = QVBoxLayout()
+        format_layout = QVBoxLayout(format_group)
 
         format_options_layout = QHBoxLayout()
         self.csv_radio = QRadioButton('CSV (兼容性强)')
@@ -163,13 +163,11 @@ class ExportDialog(QDialog):
         format_options_layout.addWidget(self.excel_radio)
         format_options_layout.addWidget(self.pdf_radio)
         format_layout.addLayout(format_options_layout)
-
-        format_group.setLayout(format_layout)
         layout.addWidget(format_group)
 
         # ---------- 导出内容（可选章节） ----------
         content_group = QGroupBox('导出内容（勾选章节）')
-        content_layout = QVBoxLayout()
+        content_layout = QVBoxLayout(content_group)
 
         quick_row = QHBoxLayout()
         self.select_all_btn = QPushButton('全选')
@@ -194,19 +192,16 @@ class ExportDialog(QDialog):
             grid.addWidget(cb, i // 2, i % 2)
             self._checks[key] = cb
         content_layout.addLayout(grid)
-
-        content_group.setLayout(content_layout)
         layout.addWidget(content_group)
 
         # ---------- 文件名 ----------
         filename_group = QGroupBox('文件名')
-        filename_layout = QHBoxLayout()
+        filename_layout = QHBoxLayout(filename_group)
         filename_layout.addWidget(QLabel('前缀:'))
         self.filename_edit = QLineEdit()
         _dft = self.data.get('basic_info', {}).get('solar_date') or '八字排盘'
         self.filename_edit.setText(f"八字排盘_{_dft}")
         filename_layout.addWidget(self.filename_edit)
-        filename_group.setLayout(filename_layout)
         layout.addWidget(filename_group)
 
         # ---------- 按钮 ----------

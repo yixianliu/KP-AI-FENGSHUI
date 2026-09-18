@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                              QScrollArea, QGroupBox, QGridLayout)
 from PySide6.QtCore import Qt
 from ui.styles import Stylesheets, Colors, Fonts
-from core.liuren import GATE_METHODS, GATE_NAMES
+from core.divination.liuren import GATE_METHODS, GATE_NAMES
 from core.ganzhi_constants import DI_ZHI
 
 #: 占时下拉框的候选项，直接复用权威地支表（顺序即子丑寅卯……）
@@ -89,7 +89,9 @@ class LiurenInputPanel(QWidget):
 
         # 时间设置
         time_group = QGroupBox('起课时间')
-        time_lay = QGridLayout(); time_lay.setSpacing(8)
+        time_group.setStyleSheet(Stylesheets.GROUPBOX)
+        time_lay = QGridLayout(time_group)
+        time_lay.setSpacing(8)
         time_lay.addWidget(QLabel('历法:'), 0, 0)
         self.calendar_combo = QComboBox()
         self.calendar_combo.addItems(['公历', '农历'])
@@ -100,7 +102,6 @@ class LiurenInputPanel(QWidget):
         self.time_edit.setPlaceholderText('留空取当前时辰 (格式: YYYY-MM-DD HH:MM)')
         time_lay.addWidget(self.time_edit, 1, 1, 1, 2)
         time_lay.setColumnStretch(2, 1)
-        time_group.setLayout(time_lay)
         lay.addWidget(time_group)
 
         # 占时覆盖（可选）
@@ -116,7 +117,9 @@ class LiurenInputPanel(QWidget):
 
         # 起课方式（九宗门）
         method_group = QGroupBox('起课方式（三传取用法）')
-        method_lay = QGridLayout(); method_lay.setSpacing(8)
+        method_group.setStyleSheet(Stylesheets.GROUPBOX)
+        method_lay = QGridLayout(method_group)
+        method_lay.setSpacing(8)
         self.method_btns = []
         self.method_grp = QButtonGroup(self)
         self.method_grp.setExclusive(True)
@@ -133,7 +136,6 @@ class LiurenInputPanel(QWidget):
         method_lay.setColumnStretch(0, 1)
         method_lay.setColumnStretch(1, 1)
         self.method_btns[0].setChecked(True)
-        method_group.setLayout(method_lay)
         lay.addWidget(method_group)
 
         lay.addStretch()

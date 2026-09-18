@@ -1,4 +1,4 @@
-﻿"""
+"""
 PDF 导出器（reportlab）
 将排盘结果排版为结构化 PDF 报告：命盘信息、命局类型、四柱八字、
 五行分析、十神分析、大运流年（含起运）、运程总结（事业/财运/健康/感情）、
@@ -7,6 +7,9 @@ PDF 导出器（reportlab）
 """
 from typing import Dict, Any, List
 from .base_exporter import BaseExporter
+from .ai_titles import AI_SECTION_TITLE
+
+# AI 分析区章节标题（单一权威源：ui/export/ai_titles.py）
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -39,14 +42,18 @@ except Exception:
 
 
 # 命理主题色（与界面一致）
-_C_ZHUSHA = colors.HexColor('#C45545')   # 朱砂
-_C_QINGHUA = colors.HexColor('#4A7A90')  # 青华
-_C_LIUJIN = colors.HexColor('#B88A30')    # 流金
-_C_BG = colors.HexColor('#F7F4EE')
-_C_CARD = colors.HexColor('#FFFFFF')
-_C_TEXT = colors.HexColor('#333333')
-_C_LINE = colors.HexColor('#D9CDB8')
-_C_MUTED = colors.HexColor('#8A7F6B')
+try:
+    _C_ZHUSHA = colors.HexColor('#C45545')   # 朱砂
+    _C_QINGHUA = colors.HexColor('#4A7A90')  # 青华
+    _C_LIUJIN = colors.HexColor('#B88A30')    # 流金
+    _C_BG = colors.HexColor('#F7F4EE')
+    _C_CARD = colors.HexColor('#FFFFFF')
+    _C_TEXT = colors.HexColor('#333333')
+    _C_LINE = colors.HexColor('#D9CDB8')
+    _C_MUTED = colors.HexColor('#8A7F6B')
+except NameError:
+    # reportlab 未安装时占位，实例化 PdfExporter 时会抛 RuntimeError
+    _C_ZHUSHA = _C_QINGHUA = _C_LIUJIN = _C_BG = _C_CARD = _C_TEXT = _C_LINE = _C_MUTED = None
 
 # AI 字段 -> 中文标题
 _AI_SECTIONS = [
@@ -547,7 +554,7 @@ class PdfExporter(BaseExporter):
         ai = data.get('ai_analysis', {}) or {}
         if not ai:
             return
-        self._section_title(story, '九、龙虎山大师兄分析预测')
+        self._section_title(story, _AI_SECTION_TITLE)
         # AI 有时会返回结构完整但各项均为空数组的结果，
         # 用该标志位在末尾补一句提示，避免读者以为是导出出错
         any_content = False

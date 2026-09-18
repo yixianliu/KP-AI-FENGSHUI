@@ -35,6 +35,9 @@ _AI_SECTIONS = [
     ('probability_stats', '概率统计'),
 ]
 
+# AI 分析区章节标题（与 ai_titles.py 保持一致）
+_AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+
 
 class ExcelExporter(BaseExporter):
     """Excel 导出器"""
@@ -466,7 +469,7 @@ class ExcelExporter(BaseExporter):
             None
         """
         ws.merge_cells(f'A{start_row}:B{start_row}')
-        title_cell = ws.cell(row=start_row, column=1, value='龙虎山大师兄分析预测')
+        title_cell = ws.cell(row=start_row, column=1, value=_AI_SECTION_TITLE)
         title_cell.font = self.styles['header']
         title_cell.alignment = self.styles['center']
         title_cell.fill = self.styles['fill_gold']

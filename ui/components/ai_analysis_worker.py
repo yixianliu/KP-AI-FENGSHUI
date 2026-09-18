@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal, QObject
 
 # NOTE: sys.path 已在 main.py 入口统一注入，此处不再重复 inject
 
-from core.analysis_storage import (
+from core.knowledge.analysis_storage import (
     AnalysisStorage,
     run_bazi_analysis,
     run_meihua_analysis,

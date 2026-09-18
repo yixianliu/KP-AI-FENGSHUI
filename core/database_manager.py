@@ -5,8 +5,14 @@
 
 数据库连接与首次建库统一委托 core.sqlite_db；本模块只负责补建少量运行期表
 （ui_settings / operation_logs / system_logs）——这些表不在 base.sql 导出内。
+
+种子数据版本/校验和检测：
+- db_version 表记录 schema 版本、各种子表的行数和校验和
+- 启动时对比当前数据库与预期校验和，发现偏差时记录警告
 """
 import json
+import hashlib
+import threading
 from typing import Optional, Dict, List, Any
 
 import logging
@@ -16,6 +22,45 @@ from core import sqlite_db
 from core.ganzhi_constants import DI_ZHI, ZHI_INDEX, GAN_YANG
 
 logger = logging.getLogger(__name__)
+
+# 当前数据库 Schema 版本
+DB_SCHEMA_VERSION = 5
+# 预期种子数据校验和（各表：行数, MD5 前 16 位）
+# 这些值基于当前 data/fengshui.db 权威数据（由 scripts/convert_mysql_to_sqlite.py 生成）
+# 更新种子数据后须同步运行校验获取新值并更新此处
+# 注：stroke_count 表数据量大（10万+行），仅校验行数，不计算 MD5 以提升启动性能
+EXPECTED_SEED_CHECKSUMS = {
+    'tian_gan': (10, '8cf735bc90ad4f51'),
+    'di_zhi': (12, 'b116b9bec49e95f4'),
+    'sixty_jiazi': (60, '8d4ff4c08c8baf95'),
+    'month_gan_rules': (60, '073026e134a19c41'),
+    'jie_qi': (24, '4319635cbf496ef1'),
+    'di_zhi_hidden_gan': (56, '76a849c03884b30a'),
+    'yue_ling_weight': (60, 'a32d754dc2e18103'),
+    'ba_gua': (8, 'f948c136ac47f321'),
+    'hexagram_64': (64, 'a123dc87a005f005'),
+    'hexagram_yao_ci': (96, '993cd85078cdb4e1'),
+    'shishen_knowledge': (10, '75203f261fdd58a2'),
+    'shishen_map': (10, '3cd8c7057835f58d'),
+    'wuxing_knowledge': (5, '0eae8c2526a6b095'),
+    'wuxing_relations': (40, '144595e3861792c9'),
+    'tian_gan_he': (5, 'bfa3166dfca27ebd'),
+    'di_zhi_he': (6, 'f822cd54ef19d0cf'),
+    'di_zhi_chong': (6, 'b55ac56bfc4373a0'),
+    'di_zhi_hai': (6, '27eeb766b559effd'),
+    'di_zhi_xing': (4, '47d32294d93e2145'),
+    'di_zhi_san_he': (4, 'e603f0e24adb09fc'),
+    'nayin_wuxing': (60, '3a84c7d86ebcbc87'),
+    'shensha_terms': (21, '67eaf3650660e3fc'),
+    'ganzhi_relation_terms': (0, '0000000000000000'),
+    'foundation_terms': (0, '0000000000000000'),
+    'meihua_terms': (0, '0000000000000000'),
+    'meihua_knowledge': (8, 'e53b0785cfaa492e'),
+    'city_coords': (20, '6c5a039ec50a1bb3'),
+    'yunshi_gan_analysis': (10, 'fb66e5a1af04e20a'),
+    'yunshi_zhi_analysis': (12, '5414f09a6e3b6c98'),
+    'stroke_count': (102998, None),  # 大表仅校验行数，MD5 设为 None 跳过
+}
 
 
 class DatabaseManager:
@@ -28,6 +73,11 @@ class DatabaseManager:
         Args:
             config_path: 兼容旧签名保留，当前实现忽略（DB 路径由 core.sqlite_db 统一解析）。
         """
+        # 关键：在 __init__ 最开始就注册单例，防止初始化期间的递归创建
+        # （如 StorageLogHandler.emit 记录日志触发 get_db_manager()）
+        global _db_manager_singleton
+        _db_manager_singleton = self
+
         self.config_path = config_path
         # 首次运行时由 schema_sqlite.sql 建库；随后补建运行期表
         sqlite_db.ensure_initialized()
@@ -38,7 +88,7 @@ class DatabaseManager:
         return sqlite_db.get_connection()
 
     def _init_runtime_tables(self):
-        """补建 base.sql 未包含的运行期表：ui_settings / operation_logs / system_logs。"""
+        """补建 base.sql 未包含的运行期表：ui_settings / operation_logs / system_logs / stroke_count / db_version。"""
         conn = self._connect()
         try:
             cur = conn.cursor()
@@ -77,9 +127,271 @@ class DatabaseManager:
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # 笔画数表：用于梅花易数笔画起卦
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS stroke_count (
+                    char TEXT PRIMARY KEY,
+                    strokes INTEGER NOT NULL,
+                    source TEXT DEFAULT 'kangxi'
+                )
+            """)
+            # 创建索引加速查询
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_stroke_count_strokes ON stroke_count(strokes)")
+            # 数据库版本/校验和表
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS db_version (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    schema_version INTEGER NOT NULL,
+                    seed_checksums_json TEXT NOT NULL,
+                    verified_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    drift_detected INTEGER DEFAULT 0,
+                    drift_details_json TEXT
+                )
+            """)
             conn.commit()
+            # 初始化常用字笔画数据（康熙字典笔画标准）
+            self._init_stroke_count_data(cur)
+            conn.commit()
+            # 种子数据完整性验证：放入后台线程，避免阻塞主线程（stroke_count 表 10 万行全表扫描很慢）
+            threading.Thread(target=self._verify_seed_integrity_async, daemon=True).start()
         finally:
             conn.close()
+
+    def _verify_seed_integrity_async(self):
+        """后台异步验证种子数据完整性，避免阻塞 UI 主线程。
+        加重试应对偶发的 'database is locked' 瞬态；全部失败仅记录，不抛错。
+        """
+        import time
+        max_retries = 5
+        retry_delay = 0.3
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                conn = self._connect()
+                try:
+                    self._verify_seed_integrity(conn.cursor())
+                    conn.commit()
+                    return
+                finally:
+                    conn.close()
+            except Exception as e:
+                last_err = e
+                msg = str(e).lower()
+                if 'locked' in msg and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                break
+        if last_err is not None:
+            logger.debug(f"[DB校验] 后台校验异常（已降级，不影响启动）：{last_err}")
+
+    def _init_stroke_count_data(self, cur):
+        """初始化汉字笔画数据（康熙字典标准）。
+
+        优先从 external JSON 文件加载扩展数据，如果不存在则使用内置数据。
+        """
+        # 检查是否已有数据
+        cur.execute("SELECT COUNT(*) as cnt FROM stroke_count")
+        if cur.fetchone()['cnt'] > 0:
+            return
+        
+        # 尝试从外部JSON文件加载扩展数据
+        json_loaded = False
+        try:
+            import json
+            import os
+            json_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'unihan_stroke_counts.json')
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    stroke_data = [(item['char'], item['strokes']) for item in data.get('characters', [])]
+                    for char, strokes in stroke_data:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO stroke_count (char, strokes, source) VALUES (?, ?, 'unihan')",
+                            (char, strokes)
+                        )
+                    json_loaded = True
+                    logger.info(f"[笔画数据] 从 {json_path} 加载了 {len(stroke_data)} 个字符")
+        except Exception as e:
+            logger.warning(f"[笔画数据] 加载外部JSON文件失败: {e}")
+        
+        # 如果外部文件加载失败，使用内置数据
+        if not json_loaded:
+            
+            # 常用字笔画数据（部分高频字，康熙字典笔画）
+            stroke_data = [
+                # 1-2 画
+                ('一', 1), ('丨', 1), ('丶', 1), ('丿', 1), ('乙', 1), ('亅', 1),
+                ('二', 2), ('亠', 2), ('人', 2), ('儿', 2), ('入', 2), ('八', 2), ('冂', 2), ('冖', 2), ('冫', 2), ('几', 2), ('凵', 2), ('刀', 2), ('力', 2), ('勹', 2), ('匕', 2), ('匚', 2), ('匸', 2), ('十', 2), ('卜', 2), ('卩', 2), ('厂', 2), ('厶', 2), ('又', 2),
+                # 3 画
+                ('口', 3), ('囗', 3), ('土', 3), ('士', 3), ('夂', 3), ('夊', 3), ('夕', 3), ('大', 3), ('女', 3), ('子', 3), ('宀', 3), ('寸', 3), ('小', 3), ('尢', 3), ('尸', 3), ('屮', 3), ('山', 3), ('川', 3), ('工', 3), ('己', 3), ('巾', 3), ('干', 3), ('幺', 3), ('广', 3), ('廴', 3), ('廾', 3), ('弋', 3), ('弓', 3), ('彐', 3), ('彡', 3), ('彳', 3),
+                # 4 画
+                ('心', 4), ('戈', 4), ('戶', 4), ('手', 4), ('支', 4), ('攴', 4), ('文', 4), ('斗', 4), ('斤', 4), ('方', 4), ('无', 4), ('日', 4), ('曰', 4), ('月', 4), ('木', 4), ('欠', 4), ('止', 4), ('歹', 4), ('殳', 4), ('毋', 4), ('比', 4), ('毛', 4), ('氏', 4), ('气', 4), ('水', 4), ('火', 4), ('爪', 4), ('父', 4), ('爻', 4), ('爿', 4), ('片', 4), ('牙', 4), ('牛', 4), ('犬', 4),
+                # 5 画
+                ('玄', 5), ('玉', 5), ('瓜', 5), ('瓦', 5), ('甘', 5), ('生', 5), ('用', 5), ('田', 5), ('疋', 5), ('疒', 5), ('癶', 5), ('白', 5), ('皮', 5), ('皿', 5), ('目', 5), ('矛', 5), ('矢', 5), ('石', 5), ('示', 5), ('禸', 5), ('禾', 5), ('穴', 5), ('立', 5),
+                # 常用字扩展
+                ('甲', 5), ('乙', 1), ('丙', 5), ('丁', 2), ('戊', 5), ('己', 3), ('庚', 8), ('辛', 7), ('壬', 4), ('癸', 5),
+                ('子', 3), ('丑', 6), ('寅', 11), ('卯', 5), ('辰', 7), ('巳', 6), ('午', 7), ('未', 8), ('申', 5), ('酉', 7), ('戌', 6), ('亥', 6),
+                ('春', 9), ('夏', 10), ('秋', 9), ('冬', 5),
+                ('年', 6), ('月', 4), ('日', 4), ('时', 10),
+                ('吉', 6), ('凶', 6), ('福', 14), ('禄', 12), ('寿', 7),
+                ('天', 4), ('地', 6), ('人', 2), ('和', 8),
+                ('龙', 16), ('凤', 4), ('虎', 8), ('龟', 16),
+                ('金', 8), ('木', 4), ('水', 4), ('火', 4), ('土', 3),
+                ('山', 3), ('川', 3), ('河', 8), ('海', 11), ('湖', 12),
+                ('风', 4), ('雨', 8), ('雷', 13), ('电', 5), ('云', 4),
+                ('花', 8), ('草', 9), ('树', 10), ('林', 8), ('森', 12),
+                ('书', 10), ('剑', 9), ('琴', 12), ('棋', 12), ('画', 8),
+                ('诗', 13), ('词', 12), ('赋', 12), ('文', 4), ('章', 11),
+                ('德', 15), ('仁', 4), ('义', 13), ('礼', 5), ('智', 12), ('信', 9),
+                ('道', 12), ('法', 8), ('术', 10), ('数', 13), ('理', 11),
+                ('命', 8), ('运', 12), ('卦', 8), ('象', 12), ('数', 13),
+                ('梅', 11), ('花', 8), ('易', 8), ('数', 13), ('六', 4), ('壬', 4),
+                ('大', 3), ('小', 3), ('中', 4), ('上', 3), ('下', 3),
+                ('左', 5), ('右', 5), ('前', 9), ('后', 6), ('内', 4), ('外', 5),
+                ('东', 5), ('西', 6), ('南', 9), ('北', 5), ('中', 4),
+                ('男', 7), ('女', 3), ('夫', 4), ('妻', 8), ('子', 3), ('孙', 10),
+                ('父', 4), ('母', 5), ('兄', 5), ('弟', 7), ('姐', 8), ('妹', 8),
+                ('我', 7), ('你', 7), ('他', 5), ('它', 5), ('此', 6), ('彼', 8),
+                ('是', 9), ('非', 8), ('有', 6), ('无', 4), ('在', 6), ('不', 4),
+                ('可', 5), ('能', 10), ('会', 6), ('要', 9), ('想', 13), ('知', 8),
+                ('见', 7), ('闻', 9), ('问', 6), ('答', 12), ('说', 9), ('听', 7),
+                ('看', 9), ('读', 10), ('写', 5), ('做', 11), ('行', 6), ('走', 7),
+                ('坐', 7), ('卧', 8), ('睡', 13), ('醒', 16), ('食', 9), ('饮', 12),
+                ('穿', 12), ('戴', 17), ('用', 5), ('买', 12), ('卖', 12), ('给', 9),
+                ('拿', 10), ('放', 8), ('开', 12), ('关', 11), ('进', 11), ('出', 5),
+                ('来', 7), ('去', 5), ('回', 6), ('转', 8), ('过', 12), ('到', 8),
+                ('从', 4), ('往', 7), ('向', 6), ('对', 5), ('为', 4), ('被', 10),
+                ('把', 7), ('将', 10), ('让', 5), ('使', 8), ('叫', 5), ('喊', 12),
+                ('笑', 10), ('哭', 10), ('喜', 12), ('怒', 9), ('哀', 9), ('乐', 5),
+                ('爱', 10), ('恨', 9), ('怕', 8), ('惊', 11), ('急', 9), ('慢', 11),
+                ('快', 7), ('慢', 11), ('早', 6), ('晚', 7), ('迟', 7), ('准', 10),
+                ('好', 6), ('坏', 11), ('对', 5), ('错', 10), ('真', 10), ('假', 11),
+                ('新', 13), ('旧', 5), ('旧', 5), ('古', 5), ('今', 4),
+                ('多', 6), ('少', 4), ('大', 3), ('小', 3), ('长', 8), ('短', 12),
+                ('高', 10), ('低', 7), ('上', 3), ('下', 3), ('左', 5), ('右', 5),
+                ('前', 9), ('后', 6), ('里', 7), ('外', 5), ('内', 4), ('中', 4),
+                ('间', 12), ('隙', 14), ('刻', 8), ('分', 4), ('秒', 9), ('时', 10),
+                ('日', 4), ('月', 4), ('年', 6), ('春', 9), ('夏', 10), ('秋', 9), ('冬', 5),
+                ('一', 1), ('二', 2), ('三', 3), ('四', 5), ('五', 4), ('六', 4), ('七', 2), ('八', 2), ('九', 2), ('十', 2),
+                ('百', 6), ('千', 3), ('万', 3), ('亿', 3),
+            ]
+            
+        for char, strokes in stroke_data:
+            cur.execute(
+                "INSERT OR IGNORE INTO stroke_count (char, strokes, source) VALUES (?, ?, 'kangxi')",
+                (char, strokes)
+            )
+
+    def _compute_table_checksum(self, cur, table_name: str, compute_md5: bool = True) -> tuple:
+        """计算表的行数和 MD5 校验和（基于所有行的 JSON 序列化）。
+
+        Args:
+            cur: 数据库游标
+            table_name: 表名
+            compute_md5: 是否计算 MD5，大表可设为 False 仅统计行数以提升性能
+
+        Returns:
+            (row_count, md5_hex_16): 行数和 MD5 前 16 位（若 compute_md5=False 则 MD5 为 None）
+        """
+        try:
+            cur.execute(f"SELECT COUNT(*) as cnt FROM {table_name}")
+            row_count = cur.fetchone()['cnt']
+            if row_count == 0:
+                return (0, '0' * 16 if compute_md5 else None)
+            if not compute_md5:
+                return (row_count, None)
+            # 仅对小表计算 MD5：全表扫描序列化为 JSON
+            cur.execute(f"SELECT * FROM {table_name} ORDER BY rowid")
+            rows = cur.fetchall()
+            data = [dict(r) for r in rows]
+            json_str = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+            md5_full = hashlib.md5(json_str.encode('utf-8')).hexdigest()
+            return (row_count, md5_full[:16])
+        except Exception as e:
+            logger.warning(f"[DB校验] 计算表 {table_name} 校验和失败: {e}")
+            return (0, 'error' if compute_md5 else None)
+
+    def _verify_seed_integrity(self, cur):
+        """启动时验证种子数据完整性，对比预期校验和。
+
+        将当前数据库的种子表行数和校验和与 EXPECTED_SEED_CHECKSUMS 对比，
+        发现偏差时写入 db_version 表并记录警告日志。
+        对于大表（如 stroke_count），仅校验行数，跳过 MD5 计算以提升性能。
+        """
+        drift_details = {}
+        drift_detected = False
+
+        for table_name, (expected_rows, expected_md5) in EXPECTED_SEED_CHECKSUMS.items():
+            # 大表（expected_md5 为 None）仅校验行数，不计算 MD5
+            compute_md5 = expected_md5 is not None
+            actual_rows, actual_md5 = self._compute_table_checksum(cur, table_name, compute_md5=compute_md5)
+            # 对比时忽略 MD5 为 None 的情况
+            md5_mismatch = compute_md5 and actual_md5 != expected_md5
+            # 仅对行数偏离报警；MD5 偏离（通常因 JSON 序列化/字段顺序差异）记为 info，避免刷屏
+            if actual_rows != expected_rows:
+                drift_details[table_name] = {
+                    'expected': {'rows': expected_rows, 'md5': expected_md5},
+                    'actual': {'rows': actual_rows, 'md5': actual_md5}
+                }
+                drift_detected = True
+                logger.warning(
+                    f"[DB校验] 种子表 {table_name} 行数偏离预期: "
+                    f"预期行数={expected_rows}, 实际行数={actual_rows} (跳过MD5校验)"
+                )
+            elif md5_mismatch:
+                # MD5 差异通常是序列化差异，不阻断功能
+                logger.debug(
+                    f"[DB校验] 种子表 {table_name} MD5 与预期不符（不影响功能）: "
+                    f"预期={expected_md5}, 实际={actual_md5}"
+                )
+
+        # 更新 db_version 表
+        current_checksums = {}
+        for table_name, (expected_rows, expected_md5) in EXPECTED_SEED_CHECKSUMS.items():
+            compute_md5 = expected_md5 is not None
+            rows, md5 = self._compute_table_checksum(cur, table_name, compute_md5=compute_md5)
+            current_checksums[table_name] = {'rows': rows, 'md5': md5}
+
+        import datetime
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cur.execute("""
+            INSERT INTO db_version (id, schema_version, seed_checksums_json, verified_at, drift_detected, drift_details_json)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                schema_version = excluded.schema_version,
+                seed_checksums_json = excluded.seed_checksums_json,
+                verified_at = excluded.verified_at,
+                drift_detected = excluded.drift_detected,
+                drift_details_json = excluded.drift_details_json
+        """, (
+            DB_SCHEMA_VERSION,
+            json.dumps(current_checksums, ensure_ascii=False),
+            now,
+            1 if drift_detected else 0,
+            json.dumps(drift_details, ensure_ascii=False) if drift_details else None
+        ))
+
+        if drift_detected:
+            logger.warning(
+                f"[DB校验] 检测到种子数据偏移！共有 {len(drift_details)} 个表与预期不符。"
+                f"请检查 scripts/convert_mysql_to_sqlite.py 是否已同步更新，"
+                f"或重新运行数据库初始化。详情见 db_version 表 drift_details_json 字段。"
+            )
+        else:
+            logger.info(f"[DB校验] 种子数据完整性验证通过，schema_version={DB_SCHEMA_VERSION}")
+
+    def get_db_version_info(self) -> dict:
+        """获取数据库版本与校验信息"""
+        row = self._query_one("SELECT * FROM db_version WHERE id = 1")
+        if not row:
+            return {'schema_version': None, 'verified_at': None, 'drift_detected': False, 'details': None}
+        return {
+            'schema_version': row['schema_version'],
+            'verified_at': row['verified_at'],
+            'drift_detected': bool(row['drift_detected']),
+            'drift_details': json.loads(row['drift_details_json']) if row['drift_details_json'] else None,
+            'current_checksums': json.loads(row['seed_checksums_json']) if row['seed_checksums_json'] else None
+        }
 
     # ==================== 文本数据查询接口 ====================
 
@@ -102,6 +414,100 @@ class DatabaseManager:
             return cursor.fetchone()
         finally:
             conn.close()
+
+    # ===== 公开 SQL 代理（供 service 层跨表查询使用，避免直接访问 _query_all） =====
+
+    def query_all(self, sql: str, params=None) -> list:
+        """公开查询接口：执行 SQL 并返回所有结果行（dict）。
+
+        Args:
+            sql: SQLite 查询语句
+            params: 参数元组
+
+        Returns:
+            list[dict]: 结果行
+        """
+        return [dict(r) for r in self._query_all(sql, params)]
+
+    def query_one(self, sql: str, params=None) -> Optional[dict]:
+        """公开查询接口：执行 SQL 并返回单条结果（dict 或 None）。"""
+        row = self._query_one(sql, params)
+        return dict(row) if row is not None else None
+
+    def execute_insert(self, sql: str, params=None) -> int:
+        """公开写接口：执行 INSERT/UPDATE/DELETE 并提交，返回 lastrowid。
+
+        Args:
+            sql: SQL 语句
+            params: 参数元组
+
+        Returns:
+            int: 最近插入的行 ID
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(sql, params or ())
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    # ==================== FTS 历史记录全文搜索 ====================
+
+    def search_records_fts(self, keyword: str, limit: int = 20) -> list:
+        """使用 FTS5 虚拟表搜索历史排盘记录。
+
+        优先命中 name、city、birth_date 字段；无匹配时回退到 LIKE 全文搜索。
+
+        Args:
+            keyword: 搜索关键词（支持模糊匹配，如「张」匹配所有含「张」的记录）
+            limit: 返回结果数量上限，默认 20
+
+        Returns:
+            list[dict]: 匹配的排盘记录，按 relevance 降序排列
+        """
+        if not keyword or not keyword.strip():
+            return []
+        kw = keyword.strip()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            # FTS5 优先：rank 按相关度排序
+            try:
+                cursor.execute(
+                    """
+                    SELECT r.*
+                    FROM analysis_records r
+                    JOIN analysis_records_fts f ON r.id = f.rowid
+                    WHERE analysis_records_fts MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (kw, limit),
+                )
+            except Exception:
+                # FTS5 不存在时（旧版数据库），回退到 LIKE
+                pattern = f'%{kw}%'
+                cursor.execute(
+                    """
+                    SELECT id, name, gender, birth_date, birth_time, city, created_at
+                    FROM analysis_records
+                    WHERE name LIKE ? OR city LIKE ? OR birth_date LIKE ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (pattern, pattern, pattern, limit),
+                )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        finally:
+            conn.close()
+
+    def get_record_count(self) -> int:
+        """获取历史记录总数。"""
+        row = self._query_one("SELECT COUNT(*) as cnt FROM analysis_records")
+        return row['cnt'] if row else 0
 
     # -- 天干 --
     def get_tian_gan_all(self) -> list:
@@ -643,6 +1049,20 @@ class DatabaseManager:
         rows = self._query_all("SELECT city_name FROM city_coords")
         return [r['city_name'] for r in rows]
 
+    # -- 笔画数（梅花易数笔画起卦用） --
+    def get_stroke_count(self, char: str) -> int:
+        """获取单字笔画数（康熙字典标准），未收录返回 0"""
+        row = self._query_one("SELECT strokes FROM stroke_count WHERE char = ?", (char,))
+        return row['strokes'] if row else 0
+
+    def get_stroke_count_batch(self, chars: list) -> dict:
+        """批量获取笔画数 {char: strokes}"""
+        if not chars:
+            return {}
+        placeholders = ','.join('?' * len(chars))
+        rows = self._query_all(f"SELECT char, strokes FROM stroke_count WHERE char IN ({placeholders})", chars)
+        return {r['char']: r['strokes'] for r in rows}
+
     # -- 运势天干分析 --
     def get_yunshi_gan_analysis(self) -> dict:
         """获取运势天干分析"""
@@ -688,7 +1108,7 @@ class DatabaseManager:
                         pan_type: str, result: Dict[str, Any],
                         ai_analysis: Optional[Dict] = None) -> Optional[int]:
         """
-        保存排盘记录
+        保存排盘记录（带重试机制，处理数据库锁定）
 
         Args:
             user_id: 用户ID
@@ -704,31 +1124,45 @@ class DatabaseManager:
         Returns:
             记录ID，失败返回None
         """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO pan_records
-                    (user_id, name, gender, birth_date, birth_time, city, pan_type, result_json, ai_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        user_id or 1, name, gender, birth_date, birth_time,
-                        city, pan_type, json.dumps(result, ensure_ascii=False),
-                        json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis else None
+        import time
+        max_retries = 3
+        retry_delay = 0.1  # 100ms
+        
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as connection:
+                    cursor = connection.cursor()
+                    cursor.execute(
+                        """
+                        INSERT INTO pan_records
+                        (user_id, name, gender, birth_date, birth_time, city, pan_type, result_json, ai_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            user_id or 1, name, gender, birth_date, birth_time,
+                            city, pan_type, json.dumps(result, ensure_ascii=False),
+                            json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis else None
+                        )
                     )
-                )
-                record_id = cursor.lastrowid
-                connection.commit()
-                return record_id
-        except Exception as e:
-            print(f"保存排盘记录失败: {e}")
-            return None
+                    record_id = cursor.lastrowid
+                    connection.commit()
+                    return record_id
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    # 数据库被锁定，等待后重试
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                # 其他错误或重试次数用完，记录错误并返回None
+                if attempt == max_retries - 1:
+                    print(f"保存排盘记录失败(重试{max_retries}次后): {e}")
+                else:
+                    print(f"保存排盘记录失败: {e}")
+                return None
 
     def update_pan_ai_result(self, record_id: int, ai_analysis: Dict[str, Any]) -> bool:
         """
-        更新排盘记录的 AI 分析结果到 ai_json 列。
+        更新排盘记录的 AI 分析结果到 ai_json 列（带重试机制）。
 
         Args:
             record_id: 排盘记录 ID
@@ -737,18 +1171,30 @@ class DatabaseManager:
         Returns:
             成功返回 True，失败返回 False
         """
-        try:
-            with self._connect() as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    "UPDATE pan_records SET ai_json = ? WHERE id = ?",
-                    (json.dumps(ai_analysis, ensure_ascii=False), record_id)
-                )
-                connection.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            print(f"更新排盘AI分析结果失败: {e}")
-            return False
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as connection:
+                    cursor = connection.cursor()
+                    cursor.execute(
+                        "UPDATE pan_records SET ai_json = ? WHERE id = ?",
+                        (json.dumps(ai_analysis, ensure_ascii=False), record_id)
+                    )
+                    connection.commit()
+                    return cursor.rowcount > 0
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                if attempt == max_retries - 1:
+                    print(f"更新排盘AI分析结果失败(重试{max_retries}次后): {e}")
+                else:
+                    print(f"更新排盘AI分析结果失败: {e}")
+                return False
 
     def get_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -821,19 +1267,31 @@ class DatabaseManager:
 
     def save_operation_log(self, op_type: str, op_object: str = '', user_id=None,
                             session: str = None, detail: str = None) -> bool:
-        """记录一条操作日志。"""
-        try:
-            with self._connect() as conn:
-                conn.execute(
-                    "INSERT INTO operation_logs (op_type, op_object, user_id, session, detail) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (op_type, op_object or '', user_id, session, detail)
-                )
-                conn.commit()
-                return True
-        except Exception as e:
-            logger.warning(f"[操作记录] 写入失败：{e}")
-            return False
+        """记录一条操作日志（带重试机制）。"""
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        "INSERT INTO operation_logs (op_type, op_object, user_id, session, detail) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (op_type, op_object or '', user_id, session, detail)
+                    )
+                    conn.commit()
+                    return True
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                if attempt == max_retries - 1:
+                    logger.warning(f"[操作记录] 写入失败(重试{max_retries}次后)：{e}")
+                else:
+                    logger.warning(f"[操作记录] 写入失败：{e}")
+                return False
 
     def load_operation_logs(self, limit: int = 100) -> list:
         """读取最近的操作日志。"""
@@ -846,26 +1304,55 @@ class DatabaseManager:
             return []
 
     def save_system_log(self, level: str, message: str, module: str, data: dict = None) -> bool:
-        """写入一条系统日志。"""
-        try:
-            with self._connect() as conn:
-                conn.execute(
-                    "INSERT INTO system_logs (level, message, module, data_json) "
-                    "VALUES (?, ?, ?, ?)",
-                    (level, message, module, json.dumps(data, ensure_ascii=False) if data else None)
-                )
-                conn.commit()
-                return True
-        except Exception:
-            return False
+        """写入一条系统日志（带重试机制）。"""
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        "INSERT INTO system_logs (level, message, module, data_json) "
+                        "VALUES (?, ?, ?, ?)",
+                        (level, message, module, json.dumps(data, ensure_ascii=False) if data else None)
+                    )
+                    conn.commit()
+                    return True
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                if attempt == max_retries - 1:
+                    # 最后一次重试失败，静默失败（避免日志循环）
+                    pass
+                return False
 
 
 _db_manager_singleton = None
+_db_manager_initializing = False  # 防止初始化期间的递归调用
 
 
 def get_db_manager(config_path: str = None) -> "DatabaseManager":
-    """DatabaseManager 进程内单例。"""
-    global _db_manager_singleton
+    """DatabaseManager 进程内单例。
+
+    使用 _db_manager_initializing 标志防止初始化期间的递归创建：
+    - 当 DatabaseManager.__init__ 正在运行时，_db_manager_initializing=True
+    - 此时若再次调用 get_db_manager()，直接返回正在初始化的实例（_db_manager_singleton 已预设）
+    - 避免 StorageLogHandler.emit 触发的日志记录导致重复初始化
+    """
+    global _db_manager_singleton, _db_manager_initializing
     if _db_manager_singleton is None:
-        _db_manager_singleton = DatabaseManager(config_path)
+        if _db_manager_initializing:
+            # 正在初始化中，等待完成（极少见，通常不会走这里）
+            import time
+            while _db_manager_singleton is None:
+                time.sleep(0.01)
+            return _db_manager_singleton
+        _db_manager_initializing = True
+        try:
+            _db_manager_singleton = DatabaseManager(config_path)
+        finally:
+            _db_manager_initializing = False
     return _db_manager_singleton

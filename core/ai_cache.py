@@ -16,6 +16,7 @@ core/ai_cache.py — AI 分析调用本地缓存层（P2-4）
 import hashlib
 import json
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from core import sqlite_db
@@ -129,6 +130,18 @@ def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any =
         ).fetchone()
         if row is None:
             logger.debug(f'[AI 缓存] 未命中 pan_type={pan_type} input_hash={key[1][:8]}...')
+            # 指标埋点：缓存未命中
+            try:
+                from api.ai_metrics import record_cache, CacheEvent
+                record_cache(CacheEvent(
+                    ts=time.time(),
+                    pan_type=pan_type,
+                    op='miss',
+                    input_hash=key[1],
+                    question_hash=key[2],
+                ))
+            except Exception:
+                pass
             return None
         ai_json = row['ai_json']
         hit_count = row['hit_count'] or 0
@@ -154,6 +167,18 @@ def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any =
         # 在返回结果上附加 _cache_hit 标记，便于上层 UI 渲染「缓存命中第 N 次」
         if isinstance(ai, dict):
             ai['_cache_hit_count'] = hit_count + 1
+        # 指标埋点（不计入数据库事务失败路径，避免热路径开销）
+        try:
+            from api.ai_metrics import record_cache, CacheEvent
+            record_cache(CacheEvent(
+                ts=time.time(),
+                pan_type=pan_type,
+                op='hit',
+                input_hash=key[1],
+                question_hash=key[2],
+            ))
+        except Exception:
+            pass
         return ai
     finally:
         con.close()
@@ -185,9 +210,33 @@ def save_to_cache(pan_type: str, input_data: Dict[str, Any], question: Any,
         con.commit()
         logger.info(f'[AI 缓存] 写入 pan_type={pan_type} input_hash={key[1][:8]}... '
                     f'question_len={len(question) if isinstance(question, str) else 0}')
+        # 指标埋点：写入成功
+        try:
+            from api.ai_metrics import record_cache, CacheEvent
+            record_cache(CacheEvent(
+                ts=time.time(),
+                pan_type=pan_type,
+                op='write',
+                input_hash=key[1],
+                question_hash=key[2],
+            ))
+        except Exception:
+            pass
         return True
     except Exception as e:
         logger.warning(f'[AI 缓存] 写入失败（忽略）: {e}')
+        # 指标埋点：写入失败
+        try:
+            from api.ai_metrics import record_cache, CacheEvent
+            record_cache(CacheEvent(
+                ts=time.time(),
+                pan_type=pan_type,
+                op='write_fail',
+                input_hash=key[1] if 'key' in dir() else '',
+                question_hash=key[2] if 'key' in dir() else '',
+            ))
+        except Exception:
+            pass
         return False
     finally:
         con.close()

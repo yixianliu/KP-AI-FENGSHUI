@@ -25,6 +25,30 @@ CREATE TABLE IF NOT EXISTS "analysis_records" (
     "input_json" TEXT NOT NULL,
     "created_at" TEXT NOT NULL
 );
+-- FTS5 虚拟表：为 analysis_records 提供全文搜索能力（W13-W14 任务 3.4）
+CREATE VIRTUAL TABLE IF NOT EXISTS "analysis_records_fts" USING fts5(
+    name,
+    city,
+    birth_date,
+    birth_time,
+    content='analysis_records',
+    content_rowid='id'
+);
+-- FTS 触发器：INSERT 时同步更新索引
+CREATE TRIGGER IF NOT EXISTS 'analysis_records_ai' AFTER INSERT ON 'analysis_records' BEGIN
+    INSERT INTO analysis_records_fts(rowid, name, city, birth_date, birth_time)
+    VALUES (new.id, new.name, new.city, new.birth_date, new.birth_time);
+END;
+-- FTS 触发器：UPDATE 时同步更新索引
+CREATE TRIGGER IF NOT EXISTS 'analysis_records_au' AFTER UPDATE ON 'analysis_records' BEGIN
+    UPDATE analysis_records_fts SET
+        name=new.name, city=new.city, birth_date=new.birth_date, birth_time=new.birth_time
+    WHERE rowid=new.id;
+END;
+-- FTS 触发器：DELETE 时同步删除索引
+CREATE TRIGGER IF NOT EXISTS 'analysis_records_ad' AFTER DELETE ON 'analysis_records' BEGIN
+    DELETE FROM analysis_records_fts WHERE rowid=old.id;
+END;
 CREATE TABLE IF NOT EXISTS "analysis_reports" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "report_type" TEXT NOT NULL,

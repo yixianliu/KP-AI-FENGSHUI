@@ -1,0 +1,1 @@
+& 'C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe' d:\PythonProject\KP-AI-FENGSHUI\main.py

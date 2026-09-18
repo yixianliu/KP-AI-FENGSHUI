@@ -1,14 +1,18 @@
-﻿"""
+"""
 关于对话框 — 增强视觉交互效果
 =====================================
-包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色
+包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色 · 支付二维码
 """
+import os
+import sys
+from pathlib import Path
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QFrame, QWidget, QMessageBox,
                                QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
-from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer
+from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer, QSize
 from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
-                           QLinearGradient, QPen, QPainterPath, QDesktopServices)
+                           QLinearGradient, QPen, QPainterPath, QDesktopServices,
+                           QPixmap, QPalette)
 
 from ui.styles import Colors, Fonts, Spacing
 
@@ -18,13 +22,15 @@ class AboutDialog(QDialog):
 
     QQ = '1153602036'
     PHONE = '19258585274'
+    # 支付二维码目录（绝对路径，用户自行放置图片）
+    QRCODE_DIR = Path(r'D:\PythonProject\qrcode')
     # 版本号单一权威源：从 app_version 读取，确保与程序实际版本完全一致。
     # 导入失败时回落到常量，保证对话框永远能打开。
     try:
-        from app_version import get_version_label
+        from core.app_version import get_version_label
         APP_VERSION = get_version_label()
     except Exception:
-        APP_VERSION = 'v5.0.3'
+        APP_VERSION = 'v5.0.6'
 
     # 卡片动画延迟参数
     _STAGGER_DELAY = 80      # 每张卡片延迟 ms
@@ -88,6 +94,11 @@ class AboutDialog(QDialog):
         contacts = self._contacts_section()
         self._cards.append((contacts, self._STAGGER_BASE + self._STAGGER_DELAY))
         body_layout.addWidget(contacts)
+
+        # 支付二维码（入场动画）
+        qrcode = self._qrcode_section()
+        self._cards.append((qrcode, self._STAGGER_BASE + 2 * self._STAGGER_DELAY))
+        body_layout.addWidget(qrcode)
 
         # 底部版权（stretch=0）
         footer = self._footer_text()
@@ -249,6 +260,93 @@ class AboutDialog(QDialog):
         inner.addWidget(hint)
 
         return card
+
+    # ======================== 支付二维码 ========================
+    def _qrcode_section(self) -> QFrame:
+        """构建「支持我们」支付二维码卡片，展示微信与支付宝二维码。"""
+        card = ShadowCard()
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(24, 16, 24, 16)
+        inner.setSpacing(14)
+
+        lbl = QLabel('支持我们')
+        lbl.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SECTION};
+            font-weight: {Fonts.W_BOLD};
+            color: {Colors.QINGHUA_DARK};
+            font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
+        """)
+        lbl.setAlignment(Qt.AlignCenter)
+        inner.addWidget(lbl)
+
+        # 双栏布局：微信 | 支付宝
+        qr_row = QHBoxLayout()
+        qr_row.setSpacing(20)
+
+        wx_item = self._qr_item('微信支付', 'wx-pay.png', Colors.SUCCESS)
+        alipay_item = self._qr_item('支付宝', 'ali-pay.png', Colors.QINGHUA)
+        qr_row.addWidget(wx_item)
+        qr_row.addWidget(alipay_item)
+
+        inner.addLayout(qr_row)
+
+        hint = QLabel('扫码支持本项目开发，感谢您的认可 🙏')
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet(f"""
+            font-size: {Fonts.SZ_MICRO};
+            color: {Colors.TEXT3};
+            font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+            padding: 2px 0;
+        """)
+        inner.addWidget(hint)
+
+        return card
+
+    def _qr_item(self, label: str, filename: str, accent: str) -> QWidget:
+        """生成单个支付二维码组件（图片 + 标签），含加载失败降级处理。
+
+        支持打包模式：通过 sys._MEIPASS 访问单文件exe提取的资源。
+
+        Args:
+            label: 支付方式名称（如 '微信支付'）。
+            filename: 图片文件名（相对于 QRCODE_DIR）。
+            accent: 强调色十六进制，用于图片底色装饰边框。
+        Returns:
+            包含 QPixmapLabel 和说明文字的组合 Widget。
+        """
+        grp = QWidget()
+        v = QVBoxLayout(grp)
+        v.setContentsMargins(4, 4, 4, 4)
+        v.setSpacing(6)
+        v.setAlignment(Qt.AlignCenter)
+
+        # 图片容器：固定尺寸，等比缩放，自动居中
+        img_lbl = QPixmapLabel(label=label, accent=accent)
+        v.addWidget(img_lbl)
+
+        # 文字标签
+        txt = QLabel(label)
+        txt.setAlignment(Qt.AlignCenter)
+        txt.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SMALL};
+            font-weight: {Fonts.W_BOLD};
+            color: {Colors.TEXT2};
+            font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+            padding: 2px 0;
+        """)
+        v.addWidget(txt)
+
+        # 尝试加载图片（同步，避免闪烁）
+        # 支持打包模式：优先检查 _MEIPASS（PyInstaller 提取目录）， fallback 到原始路径
+        img_path_in_meipas = Path(sys._MEIPASS) / "qrcode" / filename if getattr(sys, '_MEIPASS', None) else None
+        img_path = img_path_in_meipas if img_path_in_meipas and img_path_in_meipas.exists() else self.QRCODE_DIR / filename
+        if img_path.exists():
+            img_lbl.setPixmap(QPixmap(str(img_path)).scaled(
+                QSize(140, 140), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_lbl.setError(f'未找到\n{filename}')
+
+        return grp
 
     def _footer_text(self) -> QLabel:
         """生成底部版权说明文本（版本号 + 免责声明），居中小字。"""
@@ -473,7 +571,7 @@ class ContactButton(QWidget):
             name: 渠道名称（如 'QQ' / '手机'），用于标题与提示。
             icon: 图标 emoji 文本。
             value: 号码 / 账号文本，用于展示与复制。
-            link: 点击「联系」时唤起的协议链接（如 tencent://、tel:）。
+            link: 点击"联系"时唤起的协议链接（如 tencent://、tel:）。
             copy_name: 复制到剪贴板时提示用的名称。
             accent_color: 强调色（十六进制），用于图标底色与按钮主色。
         """
@@ -609,7 +707,7 @@ class ContactButton(QWidget):
         btn.released.connect(do_release)
 
     def _open_link(self, url: str, name: str):
-        """由「联系」按钮 clicked 触发：用系统默认应用打开协议链接，失败则弹窗提示。"""
+        """由"联系"按钮 clicked 触发：用系统默认应用打开协议链接，失败则弹窗提示。"""
         try:
             QDesktopServices.openUrl(QUrl(url))
         except Exception:
@@ -618,7 +716,7 @@ class ContactButton(QWidget):
                                 f'{name}: {self._value}')
 
     def _copy(self, value: str, name: str):
-        """由「复制」按钮 clicked 触发：将 value 写入系统剪贴板并提示已复制。"""
+        """由"复制"按钮 clicked 触发：将 value 写入系统剪贴板并提示已复制。"""
         from PySide6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         cb.setText(value)
@@ -630,3 +728,79 @@ class ContactButton(QWidget):
         msg.setInformativeText(value)
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
+
+
+# ======================== 支付二维码组件 ========================
+
+class QPixmapLabel(QLabel):
+    """支持等比缩放、错误降级占位图的图片标签。
+
+    加载成功时以 KeepAspectRatio 平滑缩放至固定尺寸；
+    加载失败或路径不存在时绘制带强调色的占位区域，提示"图片缺失"。
+    """
+
+    FIXED_SIZE = 140  # 固定显示尺寸（正方形）
+
+    def __init__(self, label: str = '', parent=None, accent: str = Colors.QINGHUA):
+        """初始化二维码占位标签。
+
+        Args:
+            label: 备用占位文字（图片加载失败时显示）。
+            parent: 父 widget。
+            accent: 强调色十六进制，用于占位区域的底边装饰条。
+        """
+        super().__init__(label, parent)
+        self._accent = accent
+        self._error_text = label
+        self.setMinimumSize(self.FIXED_SIZE, self.FIXED_SIZE)
+        self.setMaximumSize(self.FIXED_SIZE, self.FIXED_SIZE)
+        self.setAlignment(Qt.AlignCenter)
+        # 默认占位背景
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: {Colors.BG_DARK};
+                border: 2px solid {Colors.BORDER};
+                border-radius: {Spacing.RADIUS_SM};
+                font-size: 11px;
+                color: {Colors.TEXT3};
+                font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+            }}
+        """)
+
+    def setPixmap(self, pixmap: QPixmap):
+        """设置 pixmap 并平滑缩放到固定尺寸，保持宽高比。
+
+        Args:
+            pixmap: 原始 QPixmap 对象。若为空则切换为错误占位。
+        """
+        if pixmap.isNull():
+            self.setError(self._error_text)
+            return
+        scaled = pixmap.scaled(
+            self.FIXED_SIZE, self.FIXED_SIZE,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        super().setPixmap(scaled)
+        # 加载成功后移除边框样式，让图片完整展示
+        self.setStyleSheet("")
+
+    def setError(self, text: str):
+        """切换为错误占位状态，显示文字提示。
+
+        Args:
+            text: 占位区显示的说明文字，支持 \n 换行。
+        """
+        self._error_text = text
+        self.clear()
+        self.setStyleSheet(f"""
+            QLabel {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.CARD}, stop:1 {Colors.BG_DARK});
+                border: 2px dashed {self._accent}88;
+                border-radius: {Spacing.RADIUS_SM};
+                font-size: 11px;
+                color: {Colors.TEXT3};
+                font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+            }}
+        """)
+        self.setText(text)

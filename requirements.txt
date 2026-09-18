@@ -1,11 +1,49 @@
+# KP-AI-FENGSHUI Requirements
+# Python 3.10+ 推荐，managed Python 3.13.12 为打包目标版本
 
-PySide6>=6.6
-lunarcalendar==0.0.9
-# HTTP 请求（Agnes AI 客户端）
-requests>=2.28
+# ===== GUI 框架 =====
+# PySide6 6.10+ 的 Qt6Core 硬依赖 ICU 库（icuuc.dll）；wheel 不内置时
+# 需确保 conda 环境或系统已提供对应 ICU（如 conda install icu=73）。
+# 6.9.2 已验证在 Windows + Python 3.12 下无需额外 ICU 即可直接运行。
+PySide6>=6.9,<6.12
+
+# ===== 历法计算 =====
+lunarcalendar==0.0.9          # 农历转换
+numpy>=1.26                   # 向量化排盘计算
+pandas>=2.0                   # 数据处理
+
+# ===== 数据库 =====
+sqlite3                        # 内置，无需安装
+
+# ===== AI 接口 =====
+requests>=2.28                 # HTTP 请求（Agnes AI 客户端）
 urllib3>=2.0
-# AI 缓存与本地密钥混淆
-certifi>=2024.0
-openpyxl==3.1.5
-# PDF 报告导出
-reportlab==4.2.5
+
+# ===== 数据校验 =====
+pydantic>=2.0                  # Pydantic v2 数据校验
+
+# ===== AI RAG 知识库 =====
+langchain>=0.2                 # LangChain 框架
+langchain-community>=0.2       # LangChain 社区组件
+chromadb>=0.4                  # 本地向量数据库
+sentence-transformers>=3.0     # bge-small-zh 向量化
+
+# ===== 缓存与工具 =====
+certifi>=2024.0                # SSL 证书
+openpyxl==3.1.5                # Excel 导出
+reportlab==4.2.5               # PDF 导出
+openai>=1.0                    # OpenAI API 兼容接口
+deepseek>=1.0                  # DeepSeek API 兼容接口
+
+# ===== 测试框架 =====
+pytest>=8.0                    # 单元测试
+pytest-cov>=4.0                # 覆盖率报告
+hypothesis>=6.0                # 属性测试
+
+# ===== 打包 =====
+pyinstaller>=6.0               # EXE 打包
+
+# ===== 开发工具（可选） =====
+# black>=24.0                   # 代码格式化
+# flake8>=7.0                   # 代码风格检查
+# mypy>=1.0                     # 类型检查

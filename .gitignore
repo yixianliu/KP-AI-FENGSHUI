@@ -55,5 +55,9 @@ config.ini
 # 客户端本机设备标识
 device.json
 **/device.json
-tests
 api
+/images/
+/Lib/
+/pyside6_packages/
+/tests/
+/.github/

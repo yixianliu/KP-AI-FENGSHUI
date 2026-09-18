@@ -114,6 +114,9 @@ class SolarTimeCalculator:
 class JieQiCalculator:
     """节气计算器 - 计算二十四节气精确时刻"""
 
+    # 年份级节气缓存：{year: [datetime, ...] (24个节气时刻)}
+    _jieqi_cache: dict[int, list] = {}
+
     @property
     def JIE_QI_ANGLES(self):
         """返回二十四节气对应的黄经角度表（list[float]）。
@@ -258,21 +261,27 @@ class JieQiCalculator:
         return jieqi_time
 
     def get_jieqi_info(self, dt):
-        """获取指定日期的节气信息"""
+        """获取指定日期的节气信息（带年份级缓存加速批量调用）"""
         year = dt.year
-        
+
+        # 懒加载当年全部24个节气时刻（只计算一次）
+        if year not in JieQiCalculator._jieqi_cache:
+            JieQiCalculator._jieqi_cache[year] = [
+                self.calculate_jieqi(year, i) for i in range(24)
+            ]
+        jieqi_times = JieQiCalculator._jieqi_cache[year]
+
         last_jieqi = None
         last_index = None
-        
-        for i in range(24):
-            jieqi_time = self.calculate_jieqi(year, i)
+
+        for i, jieqi_time in enumerate(jieqi_times):
             if jieqi_time and dt >= jieqi_time:
                 if last_jieqi is None or jieqi_time > last_jieqi:
                     last_jieqi = jieqi_time
                     last_index = i
-        
-        if last_jieqi:
-            next_jieqi = self.calculate_jieqi(year, last_index + 1) if last_index + 1 < 24 else None
+
+        if last_jieqi is not None:
+            next_jieqi = jieqi_times[last_index + 1] if last_index + 1 < 24 else None
             return {
                 'current': JIE_QI_NAMES[last_index],
                 'index': last_index,
@@ -280,16 +289,21 @@ class JieQiCalculator:
                 'next': JIE_QI_NAMES[last_index + 1] if next_jieqi else None,
                 'next_time': next_jieqi
             }
-        
-        for i in range(24):
-            jieqi_time = self.calculate_jieqi(year - 1, i)
+
+        # 回退：检查上一年末尾节气（跨年情况，如1月1日在小寒前）
+        if year - 1 not in JieQiCalculator._jieqi_cache:
+            JieQiCalculator._jieqi_cache[year - 1] = [
+                self.calculate_jieqi(year - 1, i) for i in range(24)
+            ]
+        prev_times = JieQiCalculator._jieqi_cache[year - 1]
+        for i, jieqi_time in enumerate(prev_times):
             if jieqi_time and dt >= jieqi_time:
                 if last_jieqi is None or jieqi_time > last_jieqi:
                     last_jieqi = jieqi_time
                     last_index = i
-        
-        if last_jieqi:
-            next_jieqi = self.calculate_jieqi(year, 0) if last_index + 1 >= 24 else self.calculate_jieqi(year - 1, last_index + 1)
+
+        if last_jieqi is not None:
+            next_jieqi = jieqi_times[0] if last_index + 1 >= 24 else prev_times[last_index + 1]
             return {
                 'current': JIE_QI_NAMES[last_index],
                 'index': last_index,
@@ -297,7 +311,7 @@ class JieQiCalculator:
                 'next': JIE_QI_NAMES[(last_index + 1) % 24] if next_jieqi else None,
                 'next_time': next_jieqi
             }
-        
+
         return None
 
     def get_solar_term_month(self, dt):
@@ -504,7 +518,7 @@ class WuxingQuantifier:
     
     保留此类仅为兼容旧代码，实际逻辑已迁移至core.wuxing模块。
     """
-    from core.wuxing import WuXingAnalyzer as _WuXingAnalyzer, TIAN_GAN_WUXING, DI_ZHI_WUXING, DI_ZHI_HIDDEN_GAN_DETAIL, YUE_LING_WEIGHT
+    from core.bazi.wuxing import WuXingAnalyzer as _WuXingAnalyzer, TIAN_GAN_WUXING, DI_ZHI_WUXING, DI_ZHI_HIDDEN_GAN_DETAIL, YUE_LING_WEIGHT
     
     TIAN_GAN_WUXING = TIAN_GAN_WUXING
     DI_ZHI_WUXING = DI_ZHI_WUXING

@@ -48,8 +48,7 @@ class LunarConverter:
     def solar_to_lunar(self, year, month, day):
         """公历日期转农历日期。
 
-        底层返回的是「YYYY年M月D日」格式字符串，这里把三个汉字分隔符
-        统一替换为 '-' 后再切分，得到纯数字元组。
+        优先使用数值形式的农历日期字段；若不可用则尝试解析格式化字符串。
 
         Args:
             year: 公历年。
@@ -61,10 +60,17 @@ class LunarConverter:
         """
         try:
             result = self.core.calculate(year, month, day, 12, is_lunar=False)
-            lunar = result['lunar_date']
-            lunar = lunar.replace('年', '-').replace('月', '-').replace('日', '')
-            parts = lunar.split('-')
-            return (int(parts[0]), int(parts[1]), int(parts[2]))
+            # 优先使用数值字段（如果可用）
+            if 'lunar_year' in result and 'lunar_month' in result and 'lunar_day' in result:
+                return (int(result['lunar_year']), int(result['lunar_month']), int(result['lunar_day']))
+            # 降级：尝试解析格式化字符串（仅当字段存在时，以保持向后兼容）
+            if 'lunar_date' in result and result['lunar_date'] is not None:
+                lunar = result['lunar_date']
+                lunar = lunar.replace('年', '-').replace('月', '-').replace('日', '')
+                parts = lunar.split('-')
+                return (int(parts[0]), int(parts[1]), int(parts[2]))
+            # 如果都不可用，返回None表示失败
+            return None
         except Exception as exc:
             logger.warning('[农历转换] 公历转农历失败 %s-%s-%s: %s', year, month, day, exc)
             return None

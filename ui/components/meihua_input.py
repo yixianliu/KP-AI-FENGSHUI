@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                              QRadioButton, QGridLayout, QSizePolicy)
 from PySide6.QtCore import Qt
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from core.meihua import YAO_NAMES
+from core.divination.meihua import YAO_NAMES
 
 METHODS = [
     ('time', '时间起卦'), ('number', '数字起卦'),
@@ -321,7 +321,8 @@ class MeihuaInputPanel(QWidget):
         compass_widget, self._compass_update = self._build_compass()
         dir_lay.addWidget(compass_widget)
 
-        dir_group.setLayout(dir_lay)
+        # 注意：QVBoxLayout(group_box) 已自动将 dir_lay 安装到 dir_group，
+        # 此处不能再 setLayout，否则会触发 "QLayout '' to QWidget '' which already has a layout" 警告
         dl.addWidget(dir_group)
 
         # 实时卦象预览
@@ -358,7 +359,7 @@ class MeihuaInputPanel(QWidget):
 
         self._build_text_feedback(text_lay)
 
-        text_group.setLayout(text_lay)
+        # 注意：QVBoxLayout(group_box) 已自动安装到 text_group，此处不能再 setLayout
         xl.addWidget(text_group)
 
         # 实时卦象预览
@@ -418,8 +419,8 @@ class MeihuaInputPanel(QWidget):
         # 构建期连接一次即可（避免切换方式时反复 disconnect 触发 libpyside 警告）
         self.auto_coin_btn.clicked.connect(self._auto_fill_coins)
         coin_lay.addWidget(self.auto_coin_btn)
-        
-        coin_group.setLayout(coin_lay)
+
+        # 注意：QVBoxLayout(group_box) 已自动安装到 coin_group，此处不能再 setLayout
         ccl.addWidget(coin_group, 1)
         ccl.setSizeConstraint(QVBoxLayout.SetMinimumSize)
         
@@ -456,7 +457,7 @@ class MeihuaInputPanel(QWidget):
         stroke_hint.setWordWrap(True)
         stroke_lay.addWidget(stroke_hint, 2, 0, 1, 2)
 
-        stroke_group.setLayout(stroke_lay)
+        # 注意：QVBoxLayout(group_box) 已自动安装到 stroke_group，此处不能再 setLayout
         sl.addWidget(stroke_group)
 
         # 实时卦象预览
@@ -583,9 +584,9 @@ class MeihuaInputPanel(QWidget):
         elif method == 'time':
             time_str = self.time_edit.text().strip()
             d['time_str'] = time_str
+            from datetime import datetime as dt
             if not time_str:
                 # 时间留空则用当前时间（这是合理行为，非兜底）
-                from datetime import datetime as dt
                 now = dt.now()
                 d['year'] = now.year
                 d['month'] = now.month
@@ -801,10 +802,10 @@ class MeihuaInputPanel(QWidget):
         return widget, update
 
     def _compass_cell_style(self, active):
-        """方位罗盘单元格样式：选中态用青花蓝高亮，普通态为浅边框卡片。"""
+        """方位罗盘单元格样式：选中态用青花蓝高亮、深蓝色字，普通态为浅边框卡片。"""
         if active:
             return (
-                f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT_INV}; background:{Colors.QINGHUA}; "
+                f"font-size:{Fonts.SZ_MICRO}; color:{Colors.QINGHUA_DARK}; background:{Colors.QINGHUA_LIGHT}; "
                 f"border:1px solid {Colors.QINGHUA}; border-radius:{Spacing.RADIUS_SM}; "
                 f"padding:6px; font-weight:{Fonts.W_BOLD};"
             )

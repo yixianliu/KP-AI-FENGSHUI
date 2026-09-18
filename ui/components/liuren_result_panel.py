@@ -1,4 +1,4 @@
-﻿"""
+"""
 大六壬起课结果展示面板
 展示：基本信息 / 天地盘 / 四课 / 三传（门法）/ 十二天将 / 神煞 / 智能 解读。
 """
@@ -8,15 +8,40 @@ from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
-                                          highlight_label, probability_stats_widget)
+                                          highlight_label, probability_stats_widget,
+                                          loading_panel, ResponsiveFlow,
+                                          set_all_cards_collapsed)
+
+# 文案常量：优先使用 ai_analysis_renderer 维护的单一权威源；缺失时退回本地兜底
+try:  # 兼容独立导入 / API 层独立打包场景
+    from ui.components.ai_analysis_renderer import (
+        FINAL_VERDICT_TITLE,
+        DISCLAIMER_TITLE,
+        AI_SECTION_TITLE,
+        _as_text,
+    )
+except Exception:
+    FINAL_VERDICT_TITLE = '总体判断'
+    DISCLAIMER_TITLE = '免责声明'
+    AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+    def _as_text(v):
+        # 兜底简化实现
+        if v is None:
+            return ''
+        if isinstance(v, (list, tuple)):
+            return '\n'.join(str(x) for x in v if x)
+        if isinstance(v, dict):
+            return '\n'.join(f'{k}: {v2}' for k, v2 in v.items())
+        return str(v).strip()
+
 # 地支五行对照表复用排盘引擎的定义，展示层不再自建一份
-from core.liuren import ZHI_WX
+from core.divination.liuren import ZHI_WX
 from core.ganzhi_constants import DI_ZHI
 
 #: 五行 → 颜色（本地 hex，避免引用未定义样式属性）
 WX_COLOR = {
     '木': '#3a7d44', '火': '#c0392b', '土': '#b9770e',
-    '金': '#7f8c8d', '水': '#2471a3',
+    '金': '#5a5a5a', '水': '#2471a3',
 }
 
 #: 地盘绘制顺序（罗盘顺时针，自北「子」起），复用权威地支表
@@ -122,6 +147,15 @@ class LiurenResultPanel(QWidget):
         self.export_btn.setVisible(False)
         self.export_btn.clicked.connect(self._on_export_click)
         header_layout.addWidget(self.export_btn)
+
+        # 全部卡片 收起/展开 切换按钮
+        self.collapse_all_btn = QPushButton('▾ 全部收起')
+        self.collapse_all_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
+        self.collapse_all_btn.setCursor(Qt.PointingHandCursor)
+        self.collapse_all_btn.setVisible(False)
+        self.collapse_all_btn.clicked.connect(self._toggle_collapse_all)
+        header_layout.addWidget(self.collapse_all_btn)
+
         main_layout.addLayout(header_layout)
 
         # 状态栏
@@ -154,6 +188,7 @@ class LiurenResultPanel(QWidget):
 
         self.content_widget = QWidget()
         self.content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(18)
@@ -192,15 +227,32 @@ class LiurenResultPanel(QWidget):
         layout.addWidget(subtitle)
         return widget
 
+    def _toggle_collapse_all(self):
+        """一键收起/展开全部结果卡片，并联动按钮文案。"""
+        cards = self.content_widget.findChildren(CollapsibleCard)
+        any_expanded = any(not c.is_collapsed() for c in cards)
+        set_all_cards_collapsed(self.content_widget, collapsed=any_expanded)
+        self.collapse_all_btn.setText('▸ 全部展开' if any_expanded else '▾ 全部收起')
+
     # ---------- 通用卡片（统一复用 CollapsibleCard） ----------
     def _create_result_card(self, title, icon, content_widget, highlight=False):
         """创建结果卡片（统一复用 CollapsibleCard：左侧强调色条 + 图标 + 标题，可折叠）。
 
         配色：排盘类卡片用青色条(Colors.QINGHUA)，AI/强调类用鎏金色条(Colors.LIUJIN)，
         与八字、梅花易数面板保持一致。
+
+        占位卡片（标题为 AI_SECTION_TITLE）会额外打上 objectName 锚点，
+        供 _clear_ai_placeholder 精准删除，避免遍历整个布局寻找。
         """
         accent = Colors.LIUJIN if highlight else Colors.QINGHUA
         card = CollapsibleCard(title, icon, accent_color=accent, collapsed=False)
+        if title == AI_SECTION_TITLE:
+            card.setObjectName(self._AI_PLACEHOLDER_OBJECT_NAME)
+            # 内容 widget 上保留原属性作为兼容查询路径（不会成为主路径）
+            try:
+                content_widget.setProperty('is_placeholder', True)
+            except Exception:
+                pass
         card.set_content(content_widget)
         return card
 
@@ -277,9 +329,11 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 天地盘 ----------
     def _tiandi_card(self, r):
-        """构建「天地盘」卡片：展示十二地支宫位下的天盘支与临宫天将（罗盘式布局）。
+        """构建「天地盘」卡片：十二宫位卡片化展示（地盘宫 / 天盘支 / 临宫天将）。
 
-        天盘为日辰加临后各宫所临地支，天将为人盘十二神将，是六壬推演的盘面基础。
+        天盘为月将加时后各宫所临地支，天将为人盘十二神将。
+        宽屏一行 12 宫（罗盘式），窄屏自动降为 6 列 / 4 列；
+        日支所在宫以鎏金描边高亮，便于快速定位课体枢纽。
 
         Args:
             r: 起课结果字典。
@@ -288,34 +342,80 @@ class LiurenResultPanel(QWidget):
             渲染好的 QWidget。
         """
         tian_pan = r.get('tian_pan', {})
-        # 预建「宫位→天将」映射，便于按地支列快速取对应天将
+        # 预建「宫位→天将」映射，便于按地支宫快速取对应天将
         tian_jiang = {t['pos']: t['jiang'] for t in r.get('tian_jiang', [])}
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(4)
-        # 表头：地盘12宫
-        for c, dz in enumerate(ZHI_ORDER):
-            h = QLabel(dz)
-            h.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD};")
-            h.setAlignment(Qt.AlignCenter)
-            grid.addWidget(h, 0, c)
-        # 天盘支
-        for c, dz in enumerate(ZHI_ORDER):
+        ri_zhi = r.get('ri_zhi', '')
+
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        vlay = QVBoxLayout(w)
+        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setSpacing(10)
+
+        # 图例
+        legend = QLabel('▍地盘为宫位（小字灰）｜天盘为加临之支（大字朱）｜天将为临宫神将')
+        legend.setStyleSheet(
+            f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT_TERTIARY}; "
+            f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+        legend.setWordWrap(True)
+        vlay.addWidget(legend)
+
+        # 响应式宫位流：min 64px → 宽屏 12 列、中屏 6 列、窄屏 4 列
+        flow = ResponsiveFlow(min_item_width=72, max_cols=12, min_cols=4, spacing=6)
+        for dz in ZHI_ORDER:
             tp = tian_pan.get(dz, dz)
-            cell = QLabel(tp)
-            cell.setStyleSheet(f"font-size: 16px; color: {Colors.ACCENT}; font-family: {Fonts.FAMILY_SERIF}; font-weight: {Fonts.WEIGHT_BOLD};")
-            cell.setAlignment(Qt.AlignCenter)
-            cell.setFixedHeight(28)
-            grid.addWidget(cell, 1, c)
-        # 天将
-        for c, dz in enumerate(ZHI_ORDER):
             jiang = tian_jiang.get(dz, '')
-            cell = QLabel(jiang)
-            cell.setStyleSheet(f"font-size: {Fonts.SIZE_MICRO}; color: {Colors.TEXT_SECONDARY}; font-family: {Fonts.FAMILY_CN};")
-            cell.setAlignment(Qt.AlignCenter)
-            cell.setFixedHeight(20)
-            grid.addWidget(cell, 2, c)
-        w = QWidget(); w.setLayout(grid)
+            is_ri = bool(ri_zhi) and dz == ri_zhi
+
+            cell = QFrame()
+            if is_ri:
+                cell.setStyleSheet(f"""
+                    QFrame {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #FFFBF0, stop:1 #FFF5E0);
+                        border: 1.5px solid {Colors.LIUJIN};
+                        border-radius: {Spacing.RADIUS_SM};
+                    }}
+                """)
+            else:
+                cell.setStyleSheet(f"""
+                    QFrame {{
+                        background: {Colors.BG};
+                        border: 1px solid {Colors.BORDER_LIGHT};
+                        border-radius: {Spacing.RADIUS_SM};
+                    }}
+                    QFrame:hover {{
+                        border-color: {Colors.QINGHUA_LIGHT};
+                    }}
+                """)
+            cl = QVBoxLayout(cell)
+            cl.setContentsMargins(2, 6, 2, 6)
+            cl.setSpacing(2)
+
+            # 地盘宫位（灰小字）
+            gong = QLabel(dz + ('·日' if is_ri else ''))
+            gong.setAlignment(Qt.AlignCenter)
+            gong.setStyleSheet(
+                f"font-size: {Fonts.SZ_MICRO}; color: {Colors.LIUJIN if is_ri else Colors.TEXT_TERTIARY}; "
+                f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+            # 天盘支（朱红大字）
+            tian = QLabel(tp)
+            tian.setAlignment(Qt.AlignCenter)
+            tian.setStyleSheet(
+                f"font-size: 17px; color: {Colors.ZHUSHA}; font-family: {Fonts.FAMILY_SERIF}; "
+                f"font-weight: {Fonts.WEIGHT_BOLD}; background: transparent;")
+            # 天将（青灰小字）
+            jiang_lbl = QLabel(jiang)
+            jiang_lbl.setAlignment(Qt.AlignCenter)
+            jiang_lbl.setStyleSheet(
+                f"font-size: {Fonts.SZ_MICRO}; color: {Colors.QINGHUA}; "
+                f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+            cl.addWidget(gong)
+            cl.addWidget(tian)
+            cl.addWidget(jiang_lbl)
+            flow.add_widget(cell)
+
+        vlay.addWidget(flow)
         return w
 
     # ---------- 四课 ----------
@@ -368,36 +468,88 @@ class LiurenResultPanel(QWidget):
         """
         sc = r.get('san_chuan', {})
         gate = sc.get('gate', '')
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
-        items = [('初传', sc.get('chu', '')), ('中传', sc.get('zhong', '')), ('末传', sc.get('mo', ''))]
-        for c, (label, val) in enumerate(items):
-            col = QVBoxLayout()
-            col.setSpacing(4)
-            lab = QLabel(label)
-            lab.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN};")
-            lab.setAlignment(Qt.AlignCenter)
-            val_lab = QLabel(val)
-            val_lab.setStyleSheet(f"""
-                font-size: 22px; color: {Colors.ACCENT}; font-family: {Fonts.FAMILY_SERIF};
-                font-weight: {Fonts.WEIGHT_BOLD};
+
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        vlay = QVBoxLayout(w)
+        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setSpacing(10)
+
+        # 门法徽章（置顶）
+        if gate:
+            gate_row = QHBoxLayout()
+            gate_row.setAlignment(Qt.AlignCenter)
+            gate_lab = QLabel(f'⌘ 取用法：{gate}')
+            gate_lab.setStyleSheet(f"""
+                font-size: {Fonts.SIZE_SMALL}; color: {Colors.LIUJIN};
+                font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD};
+                background: {Colors.HIGHLIGHT_GLOW};
+                border: 1px solid {Colors.LIUJIN};
+                border-radius: {Spacing.RADIUS_SM}; padding: 4px 14px;
             """)
+            gate_row.addWidget(gate_lab)
+            vlay.addLayout(gate_row)
+
+        # 三传响应式卡片：宽屏横排、窄屏纵向堆叠
+        flow = ResponsiveFlow(min_item_width=170, max_cols=3, min_cols=1, spacing=12)
+        items = [('初传 · 发端', sc.get('chu', ''), True),
+                 ('中传 · 过程', sc.get('zhong', ''), False),
+                 ('末传 · 归结', sc.get('mo', ''), False)]
+        for label, val, is_chu in items:
+            card = QFrame()
+            if is_chu:
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #FFFBF0, stop:1 #FFF5E0);
+                        border: 1.5px solid {Colors.LIUJIN};
+                        border-radius: {Spacing.RADIUS};
+                    }}
+                """)
+                val_color = Colors.LIUJIN
+            else:
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background: {Colors.BG};
+                        border: 1px solid {Colors.BORDER_LIGHT};
+                        border-radius: {Spacing.RADIUS};
+                    }}
+                """)
+                val_color = Colors.ZHUSHA
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(10, 10, 10, 10)
+            cl.setSpacing(4)
+            lab = QLabel(label)
+            lab.setAlignment(Qt.AlignCenter)
+            lab.setStyleSheet(
+                f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; "
+                f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+            val_lab = QLabel(val or '—')
             val_lab.setAlignment(Qt.AlignCenter)
-            col.addWidget(lab)
-            col.addWidget(val_lab)
-            grid.addLayout(col, 0, c)
-        # 门法说明
-        gate_lab = QLabel(f"取用法：{gate}")
-        gate_lab.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_SECONDARY}; font-family: {Fonts.FAMILY_CN};")
-        gate_lab.setAlignment(Qt.AlignCenter)
-        grid.addWidget(gate_lab, 1, 0, 1, 3)
-        w = QWidget(); w.setLayout(grid)
+            val_lab.setStyleSheet(
+                f"font-size: 24px; color: {val_color}; font-family: {Fonts.FAMILY_SERIF}; "
+                f"font-weight: {Fonts.WEIGHT_BOLD}; background: transparent;")
+            cl.addWidget(lab)
+            cl.addWidget(val_lab)
+            flow.add_widget(card)
+        vlay.addWidget(flow)
+
+        tip = QLabel('※ 初传主事之发端、中传主事之中途变化、末传主事之最终结局。')
+        tip.setWordWrap(True)
+        tip.setStyleSheet(
+            f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT_TERTIARY}; "
+            f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+        vlay.addWidget(tip)
         return w
 
     # ---------- 十二天将 ----------
+    #: 天将吉凶分类（传统六壬：贵人/六合/青龙/太常/太阴/天后为吉将；
+    #: 螣蛇/朱雀/勾陈/天空/白虎/玄武为凶将，朱雀亦主文书）
+    _JIANG_GOOD = {'贵人', '六合', '青龙', '太常', '太阴', '天后'}
+    _JIANG_BAD = {'螣蛇', '腾蛇', '朱雀', '勾陈', '天空', '白虎', '玄武'}
+
     def _tianjiang_card(self, r):
-        """构建「十二天将」卡片：以宫位—天盘—天将三元组逐行展示人盘十二神将布局。
+        """构建「十二天将」卡片：宫位—天盘—天将三元组卡片化展示，吉将绿、凶将红。
 
         Args:
             r: 起课结果字典。
@@ -405,24 +557,60 @@ class LiurenResultPanel(QWidget):
         Returns:
             渲染好的 QWidget。
         """
-        layout = QGridLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.setColumnStretch(0, 1)
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(2, 1)
-        for i, t in enumerate(r.get('tian_jiang', [])):
-            row = i // 3
-            col = i % 3
-            cell = QLabel(f"{t['pos']}　{t['tianpan']}　{t['jiang']}")
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        vlay = QVBoxLayout(w)
+        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setSpacing(8)
+
+        legend = QLabel('▍吉将（贵人/六合/青龙/太常/太阴/天后）标绿｜凶将（螣蛇/朱雀/勾陈/天空/白虎/玄武）标红')
+        legend.setWordWrap(True)
+        legend.setStyleSheet(
+            f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT_TERTIARY}; "
+            f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+        vlay.addWidget(legend)
+
+        flow = ResponsiveFlow(min_item_width=200, max_cols=3, min_cols=1, spacing=8)
+        for t in r.get('tian_jiang', []):
+            jiang = t.get('jiang', '')
+            is_good = jiang in self._JIANG_GOOD
+            is_bad = jiang in self._JIANG_BAD
+            if is_good:
+                bg, fg, border = Colors.SUCCESS_LIGHT, Colors.SUCCESS, Colors.SUCCESS
+            elif is_bad:
+                bg, fg, border = Colors.DANGER_LIGHT, Colors.DANGER, Colors.DANGER
+            else:
+                bg, fg, border = Colors.QINGHUA_LIGHT, Colors.QINGHUA, Colors.QINGHUA_LIGHT
+
+            cell = QFrame()
             cell.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_PRIMARY};
-                font-family: {Fonts.FAMILY_CN}; background: {Colors.QINGHUA_LIGHT};
-                border-radius: 4px; padding: 6px 8px;
+                QFrame {{
+                    background: {bg};
+                    border: 1px solid {border};
+                    border-radius: {Spacing.RADIUS_SM};
+                }}
             """)
-            cell.setAlignment(Qt.AlignCenter)
-            layout.addWidget(cell, row, col)
-        w = QWidget(); w.setLayout(layout)
+            cl = QHBoxLayout(cell)
+            cl.setContentsMargins(10, 6, 10, 6)
+            cl.setSpacing(8)
+            pos_lbl = QLabel(f"{t.get('pos', '')}宫")
+            pos_lbl.setStyleSheet(
+                f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT_TERTIARY}; "
+                f"font-family: {Fonts.FAMILY_CN}; background: transparent;")
+            tp_lbl = QLabel(t.get('tianpan', ''))
+            tp_lbl.setStyleSheet(
+                f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_PRIMARY}; "
+                f"font-family: {Fonts.FAMILY_SERIF}; font-weight: {Fonts.WEIGHT_BOLD}; background: transparent;")
+            jiang_lbl = QLabel(jiang)
+            jiang_lbl.setStyleSheet(
+                f"font-size: {Fonts.SIZE_SMALL}; color: {fg}; "
+                f"font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD}; background: transparent;")
+            cl.addWidget(pos_lbl)
+            cl.addStretch()
+            cl.addWidget(tp_lbl)
+            cl.addWidget(jiang_lbl)
+            flow.add_widget(cell)
+        vlay.addWidget(flow)
         return w
 
     # ---------- 神煞 ----------
@@ -481,41 +669,74 @@ class LiurenResultPanel(QWidget):
             pass
 
     # ---------- 智能 解读占位 ----------
+    # 占位卡片稳定锚点：_clear_ai_placeholder 靠此 objectName 精准定位并删除，
+    # 不依赖不可靠的 dynamicProperty 或 windowTitle，避免出现死循环导致白屏卡死。
+    _AI_PLACEHOLDER_OBJECT_NAME = 'ai_placeholder_card_liuren'
+
     def _placeholder(self):
-        """创建「KP模型智能解读」卡片的占位内容，提示解读将在起课后生成。"""
+        """创建 AI_SECTION_TITLE 卡片的占位内容，提示解读将在起课后生成。"""
         w = QWidget()
+        w.setProperty('is_placeholder', True)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        layout.addWidget(self._muted('龙虎山大师兄分析预测将在起课后自动生成，或点击右上角「重新解读」。'))
+        layout.addWidget(self._muted(f'{AI_SECTION_TITLE}将在起课后自动生成，或点击右上角「重新解读」。'))
         return w
 
     # ---------- 对外入口 ----------
-    def show_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
-        """显示加载状态：太极动画 + 状态栏文案。
+    def _clear_dynamic_content(self):
+        """清理动态内容控件（empty_state 为持久控件，绝不可删除）。"""
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            w = item.widget()
+            if w and w is not self.empty_state:
+                w.deleteLater()
+
+    def show_loading(self, text='正在起课，请稍候…', ai: bool = False):
+        """显示加载状态：内容区旋转太极动画 + 状态栏文案。
 
         Args:
-            text: 状态栏提示文案，默认「龙虎山大师兄正在解读六壬玄机…」；
-                  传入「起课中」类文案时会自动覆盖为起课加载状态。
+            text: 主提示文案。
+            ai:   True 为龙虎山大师兄解读加载（鎏金主题）；
+                  False 为起课加载（青花蓝主题）。
         """
         self.status_label.setText('⏳ ' + text)
         self.status_label.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
-            font-family: {Fonts.FAMILY_CN};
+            font-size: {Fonts.SIZE_BODY}; color: {Colors.LIUJIN if ai else Colors.TEXT_SECONDARY};
+            font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD if ai else Fonts.WEIGHT_NORMAL};
         """)
         self._safe_set_visible(self.empty_state, False)
         self.smart_analyze_btn.setVisible(False)
         self.export_btn.setVisible(False)
-        """更新状态栏为「龙虎山大师兄解读中」，供业务层在发起 大师兄 解读时调用。
+        if hasattr(self, 'collapse_all_btn'):
+            self.collapse_all_btn.setVisible(False)
+
+        # 清理旧动态内容后挂载加载面板
+        self._clear_dynamic_content()
+        if ai:
+            panel = loading_panel(
+                message=text or '龙虎山大师兄正在解读六壬玄机…',
+                sub='请稍候，大师兄正依四课三传、天将神煞逐项推演',
+                color=Colors.LIUJIN,
+                hints=['大师兄正凝神审课…', '正在推敲四课生克…',
+                       '正在研判三传发用与门法…', '正在参详天将吉凶与应期…'])
+        else:
+            panel = loading_panel(
+                message=text or '正在起课，请稍候…',
+                sub='月将加时，天地盘排布中',
+                color=Colors.QINGHUA,
+                hints=['正在排布天地盘…', '正在立四课…',
+                       '正在发三传、定门法…', '正在布十二天将与神煞…'])
+        panel.setMinimumHeight(360)
+        self.content_layout.addWidget(panel)
+
+    def show_ai_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
+        """显示 AI 解读加载状态（鎏金主题，供主窗口统一调用）。
 
         Args:
-            text: 状态提示文案，默认为六壬解读提示。
+            text: 主提示文案。
         """
-        self.status_label.setText('⏳ ' + text)
-        self.status_label.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
-            font-family: {Fonts.FAMILY_CN};
-        """)
+        self.show_loading(text, ai=True)
 
     def display_result(self, result_data):
         """对外入口：接收起课结果并渲染全部卡片（基本信息/天地盘/四课/三传/天将/神煞/智能 占位）。
@@ -524,19 +745,15 @@ class LiurenResultPanel(QWidget):
             result_data: 排盘引擎返回的起课结果字典。
         """
         try:
-            # 清理旧内容（含加载动画）
-            if hasattr(self, 'taiji_animation'):
-                self.taiji_animation.stop()
-            # 清理动态内容；empty_state 是持久控件，绝不可 deleteLater，否则后续 setVisible 会命中已销毁的 C++ 对象
-            while self.content_layout.count():
-                item = self.content_layout.takeAt(0)
-                w = item.widget()
-                if w and w is not self.empty_state:
-                    w.deleteLater()
+            # 清理旧内容（含加载动画）；empty_state 是持久控件，绝不可 deleteLater
+            self._clear_dynamic_content()
             self._current_result = result_data
             self._safe_set_visible(self.empty_state, False)
             if hasattr(self, 'export_btn'):
                 self.export_btn.setVisible(True)
+            if hasattr(self, 'collapse_all_btn'):
+                self.collapse_all_btn.setVisible(True)
+                self.collapse_all_btn.setText('▾ 全部收起')
 
             self.status_label.setText('✓ 起课完成，天地盘已生成')
             self.status_label.setStyleSheet(f"""
@@ -558,74 +775,113 @@ class LiurenResultPanel(QWidget):
                 self._create_result_card('神煞', '✨', self._shensha_card(result_data)))
             # 智能 占位
             self.content_layout.addWidget(
-                self._create_result_card('龙虎山大师兄分析预测', '🧙', self._placeholder(), highlight=True))
+                self._create_result_card(AI_SECTION_TITLE, '🧙', self._placeholder(), highlight=True))
 
             self.smart_analyze_btn.setVisible(True)
             self.smart_analyze_btn.setEnabled(True)
         except Exception as e:
             import traceback
             traceback.print_exc()
+
+    def _clear_ai_placeholder(self):
+        """移除 AI_SECTION_TITLE 占位卡片，为 AI 结果腾出位置。
+
+        实现要点（修复历史白屏卡死）：
+        1. 优先按 objectName 锚点（_AI_PLACEHOLDER_OBJECT_NAME）精确删除，单次匹配即退出。
+        2. 找不到时回退按标题匹配，同样只删首个匹配项，绝不进入 while 死循环。
+        3. 整个遍历最多扫一遍布局（最多 N 次），不会出现「永不退出」的 while 循环。
+        """
+        removed = False
+        # 主路径：按 objectName 精确锚点
+        placeholder = self.findChild(QWidget, self._AI_PLACEHOLDER_OBJECT_NAME)
+        if placeholder is not None:
+            self.content_layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            removed = True
+        if removed:
+            return
+
+        # 兜底路径：从后向前扫描一次，按标题匹配第一个占位卡
+        for i in range(self.content_layout.count() - 1, -1, -1):
+            item = self.content_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if w is None:
+                continue
+            # 占位卡是 CollapsibleCard，外层无 windowTitle，靠子 QLabel 文本判定
+            # 同时仍兼容旧的 is_placeholder 属性
+            if w.property('is_placeholder'):
+                self.content_layout.removeWidget(w)
+                w.deleteLater()
+                return
+            # 标题文本匹配：扫描子 QLabel
+            for lbl in w.findChildren(QLabel):
+                if AI_SECTION_TITLE in (lbl.text() or ''):
+                    self.content_layout.removeWidget(w)
+                    w.deleteLater()
+                    return
 
     def display_ai_analysis_result(self, smart_analysis):
         """显示智能分析结果（别名方法，兼容调用方使用 display_ai_analysis_result 的情况）"""
         self.display_analysis_result(smart_analysis)
 
     def display_analysis_result(self, smart_analysis):
-        """将 智能 结构化解读渲染到「智能 智能解读」卡片。"""
+        """将AI结构化解读渲染到面板。
+
+        修复点：
+        1. 渲染前先清掉「占位卡」与历史 AI 渲染容器（ai_analysis_container），
+           防止多次起课或旧 worker 完成回调产生两份 AI 解读；
+        2. 渲染后恢复状态栏文案与样式，提示「解读完成」，
+           避免「解读中…」一直挂着的体验问题。
+        """
+        # 若 AI 未配置，则不显示龙虎山大师兄分析预测
         try:
-            if not smart_analysis:
-                self.status_label.setText('⚠ 龙虎山大师兄解读为空')
+            from core.ai_config import is_ai_configured
+            if not is_ai_configured():
+                self._clear_ai_placeholder()
+                self._clear_prev_ai_container()
                 return
-            # 用 智能 内容替换最后一个 智能 卡片
-            if hasattr(self, 'taiji_animation'):
-                self.taiji_animation.stop()
-            # 移除 智能 占位卡片（最后一个），重建为解读内容
-            if self.content_layout.count():
-                last = self.content_layout.itemAt(self.content_layout.count() - 1)
-                w = last.widget()
-                if w:
-                    w.deleteLater()
-                    self.content_layout.removeWidget(w)
+        except Exception:
+            pass
+        # 1) 清掉占位卡 + 历次 AI 渲染容器，避免重复追加
+        self._clear_ai_placeholder()
+        self._clear_prev_ai_container()
+        # 缓存解读结果供导出（PDF/Excel/CSV）复用
+        if isinstance(smart_analysis, dict):
+            self._current_智能 = smart_analysis
+        from ui.components.ai_analysis_renderer import render_analysis as render
+        render('liuren', smart_analysis, self.content_layout)
 
-            # 构建 智能 结果容器：金色分隔标题 + 各子项折叠卡片（与八字/梅花面板一致）
-            cards = self._body(smart_analysis)
-            container = QWidget()
-            cv = QVBoxLayout(container)
-            cv.setContentsMargins(0, 0, 0, 0)
-            cv.setSpacing(12)
-            # 设置最大宽度约束，防止内容超出滚动区域
-            cv_container_max = QWidget()
-            cv_container_max_layout = QVBoxLayout(cv_container_max)
-            cv_container_max_layout.setContentsMargins(0, 0, 0, 0)
-            cv_container_max_layout.setSpacing(0)
-            cv_container_max.setMaximumWidth(800)
-            cv_container_max_layout.addWidget(ai_section_header('龙虎山大师兄分析预测'))
-
-            key_points = smart_analysis.get('key_points')
-            if isinstance(key_points, (list, tuple)):
-                kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
-            elif isinstance(key_points, str):
-                kp_text = key_points
-            else:
-                kp_text = ''
-            if kp_text and kp_text.strip():
-                cv_container_max_layout.addWidget(highlight_label('【重点提示】\n' + kp_text.strip(), Colors.LIUJIN))
-
-            for c in cards:
-                cv_container_max_layout.addWidget(c)
-
-            cv.addWidget(cv_container_max)
-            self.content_layout.addWidget(container)
+        # 2) 恢复顶部状态栏：AI 已完成（不再停留在「解读中…」）
+        try:
             self.status_label.setText('✓ 龙虎山大师兄解读完成')
             self.status_label.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY}; color: {Colors.SUCCESS};
-                font-family: {Fonts.FAMILY_CN}; font-weight: {Fonts.WEIGHT_BOLD};
+                font-size: {Fonts.SIZE_BODY};
+                color: {Colors.SUCCESS};
+                font-family: {Fonts.FAMILY_CN};
+                font-weight: {Fonts.WEIGHT_BOLD};
             """)
-            self.smart_analyze_btn.setVisible(True)
-            self.smart_analyze_btn.setEnabled(True)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            pass
+
+    def _clear_prev_ai_container(self):
+        """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
+        防止连续起课/重复完成回调导致两份 AI 解读并存。"""
+        try:
+            for i in range(self.content_layout.count() - 1, -1, -1):
+                item = self.content_layout.itemAt(i)
+                if item is None:
+                    continue
+                w = item.widget()
+                if w is None:
+                    continue
+                if w.objectName() == 'ai_analysis_container':
+                    self.content_layout.removeWidget(w)
+                    w.deleteLater()
+                    return
+        except Exception:
+            pass
 
     def _body(self, ai):
         """返回 智能 各子项的折叠卡片列表（与八字/梅花面板一致）。
@@ -639,58 +895,58 @@ class LiurenResultPanel(QWidget):
         """
         cards = []
         sections = [
-            ('总体判断', '🎯', Colors.QINGHUA, ai.get('final_verdict')),
+            (FINAL_VERDICT_TITLE, '🎯', Colors.QINGHUA, ai.get('final_verdict')),
             ('课体分析', '☯', Colors.LIUJIN, ai.get('analysis')),
             ('综合建议', '✨', Colors.ZHUSHA, ai.get('scenario_advice')),
             ('应期时机', '⏳', Colors.SUCCESS, ai.get('timing')),
             ('历史案例', '📚', Colors.QINGHUA, ai.get('historical_cases')),
             ('概率统计', '📊', Colors.LIUJIN, ai.get('probability_stats')),
-            ('免责声明', '⚠', Colors.TEXT_TERTIARY, ai.get('disclaimer')),
+            (DISCLAIMER_TITLE, '⚠', Colors.TEXT_TERTIARY, ai.get('disclaimer')),
         ]
+        _PROBABILITY_TITLE = '概率统计'
         for title, icon, color, text in sections:
             if text is None:
                 continue
             # 概率统计需要可视化展示（标签+进度条+说明），不走纯文本
             if title == '概率统计':
-                items = text if isinstance(text, (list, tuple)) else [str(text)]
-                items = [str(x) for x in items if x and str(x).strip()]
+                if isinstance(text, (list, tuple)):
+                    items = [_as_text(x) for x in text if _as_text(x).strip()]
+                else:
+                    items = [_as_text(text)]
+                items = [i for i in items if i and i.strip()]
                 if not items:
                     continue
                 card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
                 card.set_content(probability_stats_widget(items, color))
                 cards.append(card)
                 continue
-            # AI 返回字段可能为字符串列表（如课体分析 / 三传精解），统一 join 成可读文本
-            if isinstance(text, (list, tuple)):
-                text = '\n'.join(str(t) for t in text if t)
-            if not str(text).strip():
+            # 统一使用归一化函数处理 dict/list/str，避免 JSON repr 显示
+            text = _as_text(text).strip()
+            if not text:
                 continue
-            body = QLabel(str(text))
-            body.setStyleSheet(f"""
-                font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_SECONDARY};
-                font-family: {Fonts.FAMILY_CN}; line-height: 1.7;
-            """)
-            body.setWordWrap(True)
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
-            card.set_content(body)
+
+            # 结论段落优先级更高亮；正文走统一重点提示渲染
+            if title == '总体判断':
+                card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+                card.set_content(conclusion_block(text, color))
+            else:
+                card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+                card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
             cards.append(card)
         return cards
 
     def clear(self):
         """清空面板：移除动态内容、恢复空状态占位与初始提示文案，并隐藏操作按钮。"""
-        if hasattr(self, 'taiji_animation'):
-            self.taiji_animation.stop()
         # 清理动态内容；empty_state 持久控件不可删除
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            w = item.widget()
-            if w and w is not self.empty_state:
-                w.deleteLater()
+        self._clear_dynamic_content()
         # 仅当 empty_state 不在布局中时才挂载（避免重复 addWidget）
         if self.content_layout.indexOf(self.empty_state) == -1:
             self.content_layout.addWidget(self.empty_state)
         self._safe_set_visible(self.empty_state, True)
         self.smart_analyze_btn.setVisible(False)
+        self.export_btn.setVisible(False)
+        if hasattr(self, 'collapse_all_btn'):
+            self.collapse_all_btn.setVisible(False)
         self.status_label.setText('请完善左侧起课参数')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_TERTIARY};
@@ -727,7 +983,7 @@ class LiurenResultPanel(QWidget):
                 'mo': sc.get('mo', ''),
                 'gate': sc.get('gate', ''),
             },
-            'tian_jiang': [f"{t['pos']}{t['tianpan']}{t['jiang']}" for t in r.get('tian_jiang', [])],
+            'tian_jiang': r.get('tian_jiang', []),  # 保留 dict 列表，供 AI fallback 分析使用
             'shen_sha': r.get('shen_sha', {}),
         }
 
@@ -748,9 +1004,9 @@ class LiurenResultPanel(QWidget):
             'liuren_data': dict(rd),
             'basic_info': {'pan_type': '大六壬'},
         }
-        智能 = getattr(self, '_current_ai', None)
-        if 智能 and isinstance(智能, dict):
-            export_data['liuren_ai'] = ai
+        智能 = getattr(self, '_current_智能', None)
+        if isinstance(智能, dict) and 智能:
+            export_data['liuren_ai'] = 智能
 
         dialog = ExportDialog(export_data, parent=self)
         dialog.filename_edit.setText('大六壬')

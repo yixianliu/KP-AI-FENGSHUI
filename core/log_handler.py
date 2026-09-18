@@ -21,6 +21,10 @@ from core.path_utils import get_logs_dir
 
 # NOTE: sys.path 统一在 main.py 入口处注入，此处不再重复 inject
 
+# 顶层模块 logger：兼容历史代码 `from core.log_handler import logger`
+# （UI 子模块早期曾这样写，迁移后保留符号避免外部 import 失败）
+logger = logging.getLogger(__name__)
+
 
 class StorageLogHandler(logging.Handler):
     """将日志记录写入本地 SQLite 数据库的 system_logs 表。"""

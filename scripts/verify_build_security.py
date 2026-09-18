@@ -56,6 +56,44 @@ _PUBLIC_KEYS = ('APP_KEYS',)
 # 扫描时跳过的超大无关文件后缀（纯资源，不可能含密钥）
 _SKIP_SUFFIXES = {'.qm', '.ttf', '.otf', '.png', '.jpg', '.jpeg', '.ico', '.svg'}
 
+# 跳过的文件 basename 集合：第三方库的预编译二进制，其内部字节可能被通用正则误报
+# 包括 Qt conda DLL、系统 API 桥接 DLL、字体渲染二进制等
+_SKIP_BASENAMES = {
+    # Qt / PySide6 二进制
+    'Qt5Core_conda.dll', 'Qt5Gui_conda.dll', 'Qt5Widgets_conda.dll',
+    'Qt5Network_conda.dll', 'Qt5Svg_conda.dll', 'Qt5Sql_conda.dll',
+    'Qt5Xml_conda.dll', 'Qt5Concurrent_conda.dll', 'Qt5Multimedia_conda.dll',
+    'Qt5WebEngineCore_conda.dll', 'Qt5WebEngineWidgets_conda.dll',
+    'Qt5WebChannel_conda.dll', 'Qt5Positioning_conda.dll',
+    'Qt5PrintSupport_conda.dll', 'Qt5WinExtras_conda.dll',
+    'Qt5Help_conda.dll', 'Qt5XmlPatterns_conda.dll',
+    # Qt6 预编译二进制（含硬编码字符串，非机密，避免误报）
+    'Qt6Quick3DHelpersImpl.dll', 'Qt6WebEngineCore.dll',
+    'Qt6WebEngineQuick.dll', 'Qt6WebEngineWidgets.dll',
+    'Qt6WebEngineQuickDelegatesQml.dll',
+    'Qt6PositioningQuick.dll', 'Qt6WebView.dll', 'Qt6WebViewQuick.dll',
+    'Qt6WebChannelQuick.dll', 'Qt6WebSockets.dll', 'Qt6WebChannel.dll',
+    'Qt6QuickTimelineBlendTrees.dll', 'Qt6QuickVectorImage*.dll',
+    # VC 运行时
+    'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140.dll', 'vccorlib140.dll',
+    # Windows API 桥接（api-ms-win-*.dll 是系统组件，不会含密钥）
+}
+
+
+def _should_skip(name: str, path: Path) -> bool:
+    """判断文件是否应跳过密钥扫描（第三方预编译二进制）。"""
+    if path.suffix.lower() in _SKIP_SUFFIXES:
+        return True
+    for pat in _SKIP_BASENAMES:
+        if '*' in pat:
+            import fnmatch
+            if fnmatch.fnmatch(path.name, pat):
+                return True
+        else:
+            if path.name == pat:
+                return True
+    return False
+
 _CHUNK = 4 * 1024 * 1024
 
 
@@ -169,6 +207,9 @@ def scan(dist: Path, env_path: Path) -> int:
 
     for name, data in iter_scan_targets(dist):
         if not data:
+            continue
+        # 跳过第三方预编译二进制（避免 Qt DLL 内部常量被误报为密钥）
+        if _should_skip(name, dist / name):
             continue
         scanned += 1
 

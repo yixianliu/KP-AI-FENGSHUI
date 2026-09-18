@@ -10,34 +10,39 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QIcon
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from core.path_utils import get_resource_path
-from app_version import get_version_label, APP_NAME
+from core.app_version import get_version_label, APP_NAME
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
 from ui.components.meihua_input import MeihuaInputPanel
 from ui.components.meihua_result_panel import MeihuaResultPanel
 from ui.components.liuren_input import LiurenInputPanel
 from ui.components.liuren_result_panel import LiurenResultPanel
+from ui.components.xuan_kong_input import XuanKongInputPanel
+from ui.components.xuan_kong_result_panel import XuanKongResultPanel
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
-from core.bazi_calculator import BaziCalculator
+from core.bazi.bazi_calculator import BaziCalculator
 from core.lunar_converter import LunarConverter
 from core.calendar_utils import SolarTimeCalculator
 from core.location_db import LocationDB
-from core.meihua import MeiHuaCalculator
-from core.hexagram_analyzer import HexagramAnalyzer
-from core.liuren import LiuRenCalculator
+from core.divination.meihua import MeiHuaCalculator
+from core.divination.hexagram_analyzer import HexagramAnalyzer
+from core.divination.liuren import LiuRenCalculator
+from core.fengshui.xuan_kong import XuanKongCalculator, xuan_kong_divination
 from core.database_manager import DatabaseManager
 from core.log_handler import setup_app_logging
 from datetime import datetime
 import traceback
 import logging
 import uuid
+import sys
 
 NAV = [
     {'id': 'bazi', 'name': '八字排盘', 'icon': '☯'},
     {'id': 'meihua', 'name': '梅花易数', 'icon': '⚊'},
     {'id': 'liuren', 'name': '大六壬', 'icon': '☵'},
+    {'id': 'xuan_kong', 'name': '玄空飞星', 'icon': '⛰'},
 ]
 
 
@@ -82,10 +87,15 @@ class MainWindow(QMainWindow):
         self._restore_ui_settings()
         self._switch('bazi')
 
+    def showEvent(self, event):
+        super().showEvent(event)
+
     def _init_fonts(self):
         """设置全局默认字体（微软雅黑）与工具提示样式表。"""
         QApplication.setFont(QFont("Microsoft YaHei", 10))
-        QApplication.instance().setStyleSheet(Stylesheets.TOOLTIP)
+        # 追加工具提示样式而不是替换整个样式表
+        current_style = QApplication.instance().styleSheet()
+        QApplication.instance().setStyleSheet(current_style + Stylesheets.TOOLTIP)
 
     def _init_core(self):
         """初始化 core 业务层与数据库，并准备 AI 状态管理。
@@ -110,12 +120,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"数据库初始化失败: {e}")
             self.db_manager = None
+        # Service 层：业务编排，支持校验、落库、综合建议
+        try:
+            from service.bazi_service import BaziService
+            self.bazi_service = BaziService()
+        except Exception:
+            self.bazi_service = None
         # 最近一次排盘记录 ID（供 AI 回调更新 ai_json）
         self._last_bazi_record_id = None
         self._last_meihua_record_id = None
         self._last_liuren_record_id = None
         # 最近一次八字输入（含出生日期/地点）
         self._last_bazi_input = None
+        # 最近一次大六壬完整排盘结果（供 AI 解读使用）
+        self._last_liuren_hr = None
         # ===== R4: AI 降级检测 + 配置热更新订阅 =====
         self._ai_available = self._check_ai_availability()
         self._update_ai_buttons_state()
@@ -215,9 +233,8 @@ class MainWindow(QMainWindow):
                 pass
 
     def closeEvent(self, event):
-        """关闭窗口前停止轮询定时器并安全终止所有 AI 线程。"""
+        # 安全退出：停止所有 AI worker 并保存界面设置
         self._shutdown_workers()
-        # 退出前持久化界面配置到当前激活存储后端
         self._save_ui_settings()
         super().closeEvent(event)
 
@@ -379,18 +396,20 @@ class MainWindow(QMainWindow):
         self.module_hint = None  # 预留：当前模块提示
 
     def _create_navbar(self, parent):
-        """创建顶部导航栏：Logo、胶囊式板块切换按钮组、设置与关于按钮。
+        """创建顶部导航栏：浅色国风简约风格。
+
+        白色底色 + 金色点缀，底部细线分割，导航按钮以「图标+文字」横向排列，
+        选中态青花蓝填充，悬停态金色文字，整体干净清爽不突兀。
 
         Args:
             parent: 承载导航栏的父布局（根垂直布局）
         """
         bar = QFrame()
-        bar.setFixedHeight(56)
+        bar.setFixedHeight(54)
         bar.setStyleSheet(f"""
             QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #FFFFFF, stop:1 {Colors.GRADIENT_NAV_END});
-                border-bottom: none;
+                background: {Colors.CARD};
+                border-bottom: 1px solid {Colors.DIVIDER};
             }}
         """)
 
@@ -398,66 +417,68 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(20, 0, 16, 0)
         h.setSpacing(0)
 
-        # Logo区
+        # Logo区：鎏金太极图标 + 宋体标题
         logo_container = QFrame()
-        logo_container.setStyleSheet("background: transparent; border: none;")
+        logo_container.setStyleSheet("background: #1a1a2e; border: none;")
         logo_hl = QHBoxLayout(logo_container)
         logo_hl.setContentsMargins(0, 0, 0, 0)
-        logo_hl.setSpacing(6)
+        logo_hl.setSpacing(8)
 
-        logo = QLabel('☯')
-        logo.setStyleSheet(f"font-size: 22px; color: {Colors.LIUJIN};")
+        logo_icon = QLabel('☯')
+        logo_icon.setStyleSheet(f"font-size: 20px; color: {Colors.LIUJIN};")
 
-        title = QLabel('风水排盘')
-        title.setStyleSheet(f"""
-            font-size: 17px;
+        logo_title = QLabel('风水排盘')
+        logo_title.setStyleSheet(f"""
+            font-size: 15px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: {Fonts.TITLE};
             letter-spacing: 2px;
         """)
 
-        logo_hl.addWidget(logo)
-        logo_hl.addWidget(title)
+        logo_hl.addWidget(logo_icon)
+        logo_hl.addWidget(logo_title)
         h.addWidget(logo_container)
-        h.addSpacing(28)
+        h.addSpacing(24)
 
-        # 导航按钮组 - 改为胶囊式切换
+        # 分隔竖线（淡金色）
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(24)
+        sep.setStyleSheet(f"background-color: {Colors.LIUJIN_LIGHT};")
+        h.addWidget(sep)
+        h.addSpacing(16)
+
+        # 导航按钮组：无边框胶囊，简洁横向排列
         nav_container = QFrame()
-        nav_container.setStyleSheet(f"""
-            background: {Colors.HOVER};
-            border: 1px solid {Colors.BORDER};
-            border-radius: {Spacing.RADIUS_LG};
-            padding: 2px;
-        """)
+        nav_container.setStyleSheet("background: transparent; border: none;")
         nav_hl = QHBoxLayout(nav_container)
-        nav_hl.setContentsMargins(4, 4, 4, 4)
+        nav_hl.setContentsMargins(0, 0, 0, 0)
         nav_hl.setSpacing(0)
 
         self.nav_btns = {}
         for item in NAV:
-            btn = QPushButton(item['icon'] + ' ' + item['name'])
+            btn = QPushButton(item['icon'] + '  ' + item['name'])
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(34)
+            btn.setFixedHeight(32)
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent;
                     color: {Colors.TEXT2};
                     border: none;
                     border-radius: {Spacing.RADIUS};
-                    font-size: {Fonts.SZ_BODY};
+                    font-size: 13px;
                     font-family: {Fonts.BODY};
-                    padding: 4px 20px;
+                    padding: 0 16px;
                 }}
                 QPushButton:hover {{
-                    color: {Colors.TEXT};
-                    background: {Colors.CARD};
+                    color: {Colors.LIUJIN};
+                    background: {Colors.LIUJIN_GLOW};
                 }}
                 QPushButton:checked {{
                     color: {Colors.TEXT_INV};
                     background: {Colors.QINGHUA};
-                    font-weight: {Fonts.W_MEDIUM};
                 }}
             """)
             self.nav_btns[item['id']] = btn
@@ -467,40 +488,45 @@ class MainWindow(QMainWindow):
         h.addWidget(nav_container)
         h.addStretch()
 
-        # 设置按钮（存储后端切换 / 界面配置）
+        # 设置按钮（简洁图标，无描边）
         self.settings_btn = QPushButton('⚙')
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.setFixedSize(30, 30)
-        self.settings_btn.setToolTip('设置 · 龙虎山大师兄配置')
+        self.settings_btn.setToolTip('设置 · AI模型配置')
         self.settings_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                color: {Colors.QINGHUA};
-                border: 1px solid {Colors.QINGHUA_LIGHT};
+                color: {Colors.TEXT3};
+                border: none;
                 border-radius: {Spacing.RADIUS_SM};
-                font-size: 16px;
+                font-size: 14px;
+                padding: 0;
             }}
             QPushButton:hover {{
+                color: {Colors.QINGHUA};
                 background: {Colors.QINGHUA_GLOW};
             }}
         """)
         self.settings_btn.clicked.connect(self._show_settings_dialog)
         h.addWidget(self.settings_btn)
 
-        # 关于按钮
-        self.about_btn = QPushButton('\U0001F4CB')
+        # 关于按钮（简洁图标，无描边）
+        self.about_btn = QPushButton('i')
         self.about_btn.setCursor(Qt.PointingHandCursor)
         self.about_btn.setFixedSize(30, 30)
         self.about_btn.setToolTip('关于 / 联系我')
         self.about_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                color: {Colors.QINGHUA};
-                border: 1px solid {Colors.QINGHUA_LIGHT};
+                color: {Colors.TEXT3};
+                border: none;
                 border-radius: {Spacing.RADIUS_SM};
-                font-size: 16px;
+                font-size: 13px;
+                font-weight: {Fonts.W_BOLD};
+                padding: 0;
             }}
             QPushButton:hover {{
+                color: {Colors.QINGHUA};
                 background: {Colors.QINGHUA_GLOW};
             }}
         """)
@@ -510,22 +536,26 @@ class MainWindow(QMainWindow):
         parent.addWidget(bar)
 
     def _build_left(self):
-        """构建左侧输入面板栈：依次加入八字/梅花/六壬三个输入面板。"""
+        """构建左侧输入面板栈：依次加入八字/梅花/六壬/玄空飞星四个输入面板。"""
         self.bazi_input = InputPanel()
         self.left_stack.addWidget(self.bazi_input)
         self.meihua_input = MeihuaInputPanel()
         self.left_stack.addWidget(self.meihua_input)
         self.liuren_input = LiurenInputPanel()
         self.left_stack.addWidget(self.liuren_input)
+        self.xuan_kong_input = XuanKongInputPanel()
+        self.left_stack.addWidget(self.xuan_kong_input)
 
     def _build_right(self):
-        """构建右侧结果面板栈：依次加入八字/梅花/六壬三个结果面板。"""
+        """构建右侧结果面板栈：依次加入八字/梅花/六壬/玄空飞星四个结果面板。"""
         self.bazi_result = ResultPanel()
         self.right_stack.addWidget(self.bazi_result)
         self.meihua_result = MeihuaResultPanel()
         self.right_stack.addWidget(self.meihua_result)
         self.liuren_result = LiurenResultPanel()
         self.right_stack.addWidget(self.liuren_result)
+        self.xuan_kong_result = XuanKongResultPanel()
+        self.right_stack.addWidget(self.xuan_kong_result)
 
     def _apply_splitter_ratio(self):
         """按约 34%/66% 初始化左右分栏尺寸，并尊重最小/最大宽度约束。
@@ -546,13 +576,13 @@ class MainWindow(QMainWindow):
         """切换当前激活板块。
 
         Args:
-            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'
+            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'/'xuan_kong'
 
         同步高亮导航按钮，切换左右堆叠控件的当前页，并记录切换操作。
         """
         for k, b in self.nav_btns.items():
             b.setChecked(k == pid)
-        idx = {'bazi': 0, 'meihua': 1, 'liuren': 2}
+        idx = {'bazi': 0, 'meihua': 1, 'liuren': 2, 'xuan_kong': 3}
         self.left_stack.setCurrentIndex(idx.get(pid, 0))
         self.right_stack.setCurrentIndex(idx.get(pid, 0))
         self._log_op('switch_module', pid)
@@ -569,6 +599,9 @@ class MainWindow(QMainWindow):
         self.liuren_input.submit_btn.clicked.connect(self._on_liuren)
         self.liuren_input.reset_btn.clicked.connect(self._on_liuren_reset)
         self.liuren_result.smart_analyze_btn.clicked.connect(self._on_liuren_ai_analyze)
+        self.xuan_kong_input.submit_btn.clicked.connect(self._on_xuan_kong)
+        self.xuan_kong_input.reset_btn.clicked.connect(self._on_xuan_kong_reset)
+        self.xuan_kong_result.refresh_btn.clicked.connect(self._on_xuan_kong)
 
     def _show_settings_dialog(self):
         """打开 AI 模型配置对话框（保存后热生效，无需重启）。"""
@@ -646,7 +679,8 @@ class MainWindow(QMainWindow):
 
     # ===== 八字 =====
     def _on_bazi(self):
-        """八字『开始排盘』按钮槽：读取输入、展示加载态，并延迟调用 _do_bazi 执行排盘。"""
+        """八字『开始排盘』按钮槽：先弹出关于对话框，再执行排盘。"""
+        self._show_about_dialog()
         try:
             data = self.bazi_input.get_data()
             task_id = str(uuid.uuid4())
@@ -668,6 +702,50 @@ class MainWindow(QMainWindow):
         保存记录 → 展示结果 → 自动触发龙虎山大师兄（AI）分析。
         """
         try:
+            # 优先走 Service 层：业务编排（校验/计算/综合建议/落库/事件）
+            if getattr(self, 'bazi_service', None):
+                try:
+                    service_result = self.bazi_service.calculate(
+                        year=int(data.get('year', 0)),
+                        month=int(data.get('month', 1)),
+                        day=int(data.get('day', 1)),
+                        hour=int(data.get('hour', 0)),
+                        minute=int(data.get('minute', 0)),
+                        longitude=float(data.get('longitude', 120.0)),
+                        gender=data.get('gender', '男'),
+                        save=True,
+                        name=data.get('name', '')
+                    )
+                    self._last_bazi_record_id = service_result.get('record_id')
+                    # 补充 UI 专属字段：basic_info、lunar_date、hour、location 等
+                    y = service_result.get('basic_info', {}).get('year', int(data.get('year', 0)))
+                    m = service_result.get('basic_info', {}).get('month', int(data.get('month', 1)))
+                    d = service_result.get('basic_info', {}).get('day', int(data.get('day', 1)))
+                    try:
+                        dt = datetime(y, m, d, int(data.get('hour', 0)), int(data.get('minute', 0)))
+                        sdt = self.solar_calc.get_true_solar_time(dt, float(data.get('longitude', 120.0)))
+                        hour_str = f"{sdt.hour:02d}:{sdt.minute:02d}"
+                    except Exception:
+                        hour_str = f"{data.get('hour', 0):02d}:{data.get('minute', 0):02d}"
+                    li = self.lunar_conv.solar_to_lunar(y, m, d)
+                    basic = service_result.get('basic_info', {})
+                    basic.update({
+                        'solar_date': f"{y}年{m}月{d}日",
+                        'lunar_date': f"{li[0]}年{li[1]}月{li[2]}日" if li else basic.get('lunar_date', '-'),
+                        'hour': hour_str,
+                        'location': data.get('location') or '-',
+                        'longitude': float(data.get('longitude', 120.0)),
+                        'latitude': float(data.get('latitude', 30.0)),
+                    })
+                    service_result['basic_info'] = basic
+                    self.bazi_result.display_result(service_result)
+                    self.statusBar().showMessage('八字排盘完成 · Service层综合建议生成')
+                    QTimer.singleShot(300, self._trigger_bazi_auto_ai)
+                    return
+                except Exception as e:
+                    self._logger.warning(f"[Service] BaziService 计算失败，回退 core 流程: {e}")
+
+            # 回退：原始 core 流程（兼容）
             y, m, d, hh, mm = data['year'], data['month'], data['day'], data['hour'], data['minute']
             longitude = data['longitude']
             latitude = data.get('latitude', 30.0)
@@ -702,7 +780,7 @@ class MainWindow(QMainWindow):
 
             # 计算大运流年（使用YunShiCalculator）
             try:
-                from core.yunshi import YunShiCalculator
+                from core.bazi.yunshi import YunShiCalculator
                 yunshi_calc = YunShiCalculator()
                 dayun = yunshi_calc.calculate_major_fortune(bazi, gender, y, birth_dt=sdt)
                 liunian = yunshi_calc.calculate_annual_fortune(bazi, start_year=datetime.now().year, years_count=10)
@@ -729,7 +807,7 @@ class MainWindow(QMainWindow):
 
             # ★ 运程总结：事业 / 财运 / 健康 / 感情（规则引擎，离线可跑）
             try:
-                from core.yuncheng import YunChengAnalyzer
+                from core.bazi.yuncheng import YunChengAnalyzer
                 yuncheng = YunChengAnalyzer().analyze(bazi, wx, ss, bazi_types)
             except Exception as e:
                 self._logger.warning(f"[八字] 运程总结生成失败: {e}")
@@ -794,6 +872,10 @@ class MainWindow(QMainWindow):
     def _trigger_bazi_auto_ai(self):
         """排盘完成后自动触发AI深度分析"""
         try:
+            # 修复：AI 未配置时跳过自动解读，避免发起注定失败的网络请求造成白屏
+            if not getattr(self, '_ai_available', False):
+                self._logger.debug("[AI] 自动AI分析跳过: AI 未配置")
+                return
             input_data = self.bazi_input.get_data()
             chart_data = self.bazi_result.get_chart_data_for_ai()
 
@@ -920,7 +1002,7 @@ class MainWindow(QMainWindow):
         并补全每种类型的含义与用途，使『类型』字段在排盘结果中具备参考价值。
         格局分析依赖数据库命理数据，失败仅跳过类型展示，不影响主排盘。
         """
-        from core.bazi_types import get_bazi_types_payload
+        from core.bazi.bazi_types import get_bazi_types_payload
 
         strength = ''
         geju_type = ''
@@ -929,7 +1011,7 @@ class MainWindow(QMainWindow):
         rizhu_wx = wx.get('rizhu_wx', '') if isinstance(wx, dict) else ''
 
         try:
-            from core.geju_analyzer import GeJuAnalyzer
+            from core.bazi.geju_analyzer import GeJuAnalyzer
             analyzer = GeJuAnalyzer()
             geju = analyzer.analyze(bazi, wx, bazi.get('month_zhi'))
             wangshuai = geju.get('wangshuai', {}) or {}
@@ -943,7 +1025,7 @@ class MainWindow(QMainWindow):
 
         wuxing_summary = wx.get('summary', '') if isinstance(wx, dict) else ''
 
-        from core.bazi_types import get_yongshen
+        from core.bazi.bazi_types import get_yongshen
         yongshen = get_yongshen(rizhu_wx, strength) if rizhu_wx else {}
 
         return get_bazi_types_payload(
@@ -964,7 +1046,8 @@ class MainWindow(QMainWindow):
 
     # ===== 梅花 =====
     def _on_meihua(self):
-        """梅花易数『起卦』按钮槽：读取输入、展示加载态，并延迟调用 _do_meihua 起卦。"""
+        """梅花易数『起卦』按钮槽：先弹出关于对话框，再执行起卦。"""
+        self._show_about_dialog()
         try:
             data = self.meihua_input.get_data()
             task_id = str(uuid.uuid4())
@@ -1031,7 +1114,8 @@ class MainWindow(QMainWindow):
                 month = data.get('month')
                 day = data.get('day')
                 hour = data.get('hour')
-                if not all([year, month, day, hour]):
+                # 检查是否为 None（0 时是有效值，不能用 all() 判断）
+                if any(v is None for v in (year, month, day, hour)):
                     raise ValueError("时间起卦需要完整的年月日时")
                 hr = self.meihua_calc.time_divination(year, month, day, hour, q)
             else:
@@ -1042,14 +1126,63 @@ class MainWindow(QMainWindow):
 
             all_hex = self.meihua_calc.generate_all_hexagrams(hr)
             analysis = self.hexagram_analyzer.analyze_divination(hr, all_hex)
-            base = analysis.get('base', {})
+            base_raw = analysis.get('base', {})
+            hu_raw = analysis.get('hu', {})
+            bian_raw = analysis.get('bian', {})
+            cuo_raw = analysis.get('cuo', {})
+            zong_raw = analysis.get('zong', {})
+
+            def _enrich_hexagram_info(raw):
+                if not raw:
+                    return {}
+                enriched = raw.copy()
+                upper_num = raw.get('upper_num')
+                lower_num = raw.get('lower_num')
+                upper_info = self.hexagram_analyzer.bagua.get(upper_num, {}) if upper_num is not None else {}
+                lower_info = self.hexagram_analyzer.bagua.get(lower_num, {}) if lower_num is not None else {}
+                enriched['symbol'] = upper_info.get('symbol', '') + lower_info.get('symbol', '')
+                enriched['explanation'] = raw.get('description', '')
+                enriched['upper_gua'] = upper_info.get('name', '')
+                enriched['lower_gua'] = lower_info.get('name', '')
+                return enriched
+
+            ben_gua = _enrich_hexagram_info(base_raw)
+            hu_gua = _enrich_hexagram_info(hu_raw)
+            bian_gua = _enrich_hexagram_info(bian_raw)
+            cuo_gua = _enrich_hexagram_info(cuo_raw)
+            zong_gua = _enrich_hexagram_info(zong_raw)
+
+            # Build yao list with moving flag
+            yao_list_raw = base_raw.get('yao_ci', [])
+            changing_yao = base_raw.get('changing_yao', 0)
+            yao_list = []
+            for idx, yao in enumerate(yao_list_raw, start=1):
+                yao_list.append({
+                    'name': yao.get('yao', ''),
+                    'text': yao.get('text', ''),
+                    'explanation': yao.get('meaning', ''),
+                    'is_moving': (idx == changing_yao)
+                })
+
             result = {
-                'basic_info': {'method': hr.get('method', ''), 'question': q, 'time': datetime.now().strftime('%Y年%m月%d日 %H:%M'), 'moving_yao': ''},
-                'overall': {'level': analysis.get('overall_judgment', '平'), 'overall': base.get('description', '')},
-                'ben_gua': base, 'hu_gua': analysis.get('hu', {}), 'bian_gua': analysis.get('bian', {}),
-                'cuo_gua': analysis.get('cuo', {}), 'zong_gua': analysis.get('zong', {}),
-                'yao_list': base.get('yao_ci', []), 'suggestions': analysis.get('suggestions', []),
-                'divination_extra': hr,  # 保存完整起卦结果（含铜钱摇卦six_lines/笔画起卦char等），供AI分析使用
+                'basic_info': {
+                    'method': hr.get('method', ''),
+                    'question': q,
+                    'time': datetime.now().strftime('%Y年%m月%d日 %H:%M'),
+                    'moving_yao': str(changing_yao) if changing_yao else ''
+                },
+                'overall': {
+                    'level': analysis.get('overall_judgment', '平'),
+                    'overall': base_raw.get('description', '')
+                },
+                'ben_gua': ben_gua,
+                'hu_gua': hu_gua,
+                'bian_gua': bian_gua,
+                'cuo_gua': cuo_gua,
+                'zong_gua': zong_gua,
+                'yao_list': yao_list,
+                'suggestions': analysis.get('suggestions', []),
+                'divination_extra': hr,
             }
             self.meihua_result.display_result(result)
             self.statusBar().showMessage('梅花易数起卦完成')
@@ -1072,6 +1205,10 @@ class MainWindow(QMainWindow):
     def _trigger_meihua_auto_ai(self):
         """起卦完成后自动触发AI深度解读"""
         try:
+            # 修复：AI 未配置时跳过自动解读，避免发起注定失败的网络请求造成白屏
+            if not getattr(self, '_ai_available', False):
+                self._logger.debug("[AI] 自动AI解读跳过: AI 未配置")
+                return
             input_data = self.meihua_input.get_data()
             hexagram_data = self.meihua_result.get_hexagram_data_for_ai()
 
@@ -1100,11 +1237,14 @@ class MainWindow(QMainWindow):
 
     # ===== 大六壬 =====
     def _on_liuren(self):
-        """大六壬『起课』按钮槽：读取输入、展示加载态，并延迟调用 _do_liuren 起课。"""
+        """大六壬『起课』按钮槽：先弹出关于对话框，再执行起课。"""
+        self._show_about_dialog()
         try:
             data = self.liuren_input.get_data()
             task_id = str(uuid.uuid4())
-            self.liuren_result.show_loading()
+            # 若已有有效排盘结果则直接复用，避免 show_loading 清空已渲染内容导致白屏
+            if not getattr(self.liuren_result, '_current_result', None):
+                self.liuren_result.show_loading()
             QTimer.singleShot(80, lambda: self._do_liuren(data, task_id))
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
@@ -1134,6 +1274,7 @@ class MainWindow(QMainWindow):
                 zhan_shi=data.get('zhan_shi'),
             )
             if not hr:
+                self.liuren_result.clear()
                 return
             self.liuren_result.display_result(hr)
             self.statusBar().showMessage('大六壬起课完成')
@@ -1141,18 +1282,30 @@ class MainWindow(QMainWindow):
             if record_id:
                 self.statusBar().showMessage(f'大六壬起课完成 · 记录ID: {record_id}')
             self._log_op('liuren_divination', method, f"question={q}" if q else f"method={method}")
+            # 保存完整排盘结果供 AI 解读使用
+            self._last_liuren_hr = hr
             QTimer.singleShot(300, self._trigger_liuren_auto_ai)
         except Exception as e:
+            # 异常时恢复 empty_state，防止布局处于空状态导致白屏
+            self.liuren_result.clear()
             self.statusBar().showMessage(f'起课错误: {e}')
             traceback.print_exc()
 
     def _trigger_liuren_auto_ai(self):
         """起课后自动触发AI深度解读"""
         try:
+            # 修复：AI 未配置时跳过自动解读，避免发起注定失败的网络请求造成白屏
+            if not getattr(self, '_ai_available', False):
+                self._logger.debug("[AI] 自动AI解读跳过: AI 未配置")
+                return
             input_data = self.liuren_input.get_data()
-            liuren_data = self.liuren_result.get_liuren_data_for_ai()
+            # 优先使用完整排盘结果（含天地盘/四课/三传/天将/神煞），避免 AI 因数据不全返回空结果导致白屏
+            chart_data = getattr(self, '_last_liuren_hr', None) or self.liuren_result._current_result
+            if not chart_data:
+                self._logger.warning("[AI] 自动AI解读跳过: 无可用排盘数据")
+                return
 
-            if not liuren_data or not liuren_data.get('san_chuan'):
+            if not chart_data.get('san_chuan'):
                 self._logger.debug("[AI] 自动AI解读跳过: 起课数据不完整")
                 return
 
@@ -1160,7 +1313,7 @@ class MainWindow(QMainWindow):
 
             task_id = str(uuid.uuid4())
 
-            self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, liuren_data, task_id)
+            self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, chart_data, task_id)
             self._liuren_ai_worker.progress_updated.connect(self._on_liuren_ai_progress)
             self._liuren_ai_worker.analysis_finished.connect(self._on_liuren_ai_finished)
             self._liuren_ai_worker.analysis_failed.connect(self._on_liuren_ai_failed)
@@ -1173,6 +1326,46 @@ class MainWindow(QMainWindow):
         """大六壬『重置』按钮槽：清空输入面板与结果面板。"""
         self.liuren_input.clear()
         self.liuren_result.clear()
+
+    # ===== 玄空飞星 =====
+
+    def _on_xuan_kong(self):
+        """玄空飞星『起盘』按钮槽：执行排盘流程。"""
+        try:
+            data = self.xuan_kong_input.get_data()
+            self.xuan_kong_result.show_loading() if hasattr(self.xuan_kong_result, 'show_loading') else None
+            QTimer.singleShot(50, lambda: self._do_xuan_kong(data))
+        except Exception as e:
+            self.statusBar().showMessage(f'参数错误: {e}')
+            traceback.print_exc()
+
+    def _do_xuan_kong(self, data, task_id=None):
+        """执行玄空飞星排盘流程。
+
+        Args:
+            data: 输入面板数据（坐向、建造年份、当前年份）
+        """
+        try:
+            sui_xiang = data['sui_xiang']
+            build_year = data['build_year']
+            current_year = data.get('current_year', build_year)
+            calc = XuanKongCalculator()
+            result = calc.calculate(sui_xiang=sui_xiang, build_year=build_year, current_year=current_year)
+            self.xuan_kong_result.display_result(result)
+            self.statusBar().showMessage(f"玄空飞星排盘完成 · 坐向{sui_xiang} · 运序{result.get('yun', '-')}")
+            record_id = self._save_pan_record(data, result, '玄空飞星')
+            if record_id:
+                self.statusBar().showMessage(f"玄空飞星排盘完成 · 记录ID: {record_id}")
+            self._log_op('xuan_kong_divination', sui_xiang, f"build_year={build_year}")
+        except Exception as e:
+            self._logger.error("[玄空] 排盘失败: %s", e, exc_info=True)
+            self.statusBar().showMessage(f"玄空飞星排盘失败: {e}")
+            self.xuan_kong_result.clear() if hasattr(self.xuan_kong_result, 'clear') else None
+
+    def _on_xuan_kong_reset(self):
+        """玄空飞星『重置』按钮槽：清空输入面板与结果面板。"""
+        self.xuan_kong_input.clear()
+        self.xuan_kong_result.clear()
 
     def _on_liuren_ai_analyze(self):
         """大六壬AI分析按钮点击处理"""
@@ -1223,9 +1416,9 @@ class MainWindow(QMainWindow):
 
             ai_analysis = result.get('ai_analysis', {})
             self.liuren_result.display_ai_analysis_result(ai_analysis)
-            # 缓存 AI 结论供大六壬面板导出复用
+            # 缓存 AI 结论供大六壬面板导出复用（键名与面板内部 _current_智能 保持一致）
             try:
-                self.liuren_result._current_ai = dict(ai_analysis or {})
+                self.liuren_result._current_智能 = dict(ai_analysis or {})
             except Exception:
                 pass
 
@@ -1252,7 +1445,7 @@ class MainWindow(QMainWindow):
 
     def _on_liuren_ai_failed(self, error_type: str, error_message: str):
         """大六壬AI分析失败"""
-        self.liuren_result.display_result(getattr(self.liuren_result, '_current_result', {}))
+        # AI 失败不覆盖已渲染的排盘结果，只恢复按钮可点击状态
         self.liuren_result.smart_analyze_btn.setVisible(True)
         self.liuren_result.smart_analyze_btn.setEnabled(True)
         self.statusBar().showMessage(f'龙虎山大师兄解读失败: {error_type}')

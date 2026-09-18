@@ -126,7 +126,7 @@ class AIProfile:
     max_retries: int = 2
     retry_delay: int = 5
     temperature: float = 0.7
-    max_tokens: int = 2048
+    max_tokens: int = 4096
     send_no_think: bool = False
     verify_ssl: bool = True
 
@@ -518,6 +518,16 @@ class AIConfigManager:
             if p.is_usable():
                 return copy.deepcopy(p)
         return self._debug_fallback_profile()
+
+    def get_active_version(self) -> int:
+        """返回当前生效配置档的版本号（用于客户端单例比对是否需要重建）。
+
+        Returns:
+            当前配置版本号，未加载时返回 0。
+        """
+        self.load()
+        with self._lock:
+            return self._version
 
     def _debug_fallback_profile(self) -> Optional[AIProfile]:
         """调试模式兜底：从 core.debug_keys 读取本地密钥（内存态、不落盘）。"""

@@ -25,10 +25,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PY = "C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/python.exe"
-SPEC = ROOT / "build_release.spec"
+PY = sys.executable
+SPEC = ROOT / "scripts" / "build_release.spec"
 DIST = ROOT / "dist"
 GENIE_TRASH = "C:/Program Files/WorkBuddy/resources/vendor/genie-trash/win32-x64.exe"
+VERSION_INFO = ROOT / "version_info.txt"
 
 
 def run(cmd, **kw):
@@ -43,6 +44,76 @@ def run(cmd, **kw):
     """
     print(">>> " + " ".join(str(c) for c in cmd))
     return subprocess.run(cmd, **kw)
+
+
+def _write_version_info() -> bool:
+    """依据 app_version.py 的单一权威版本号，生成 PyInstaller 版本资源文件。
+
+    保证 EXE 文件属性中的版本号与界面、程序实际版本完全一致，版本升级时
+    只需改 app_version.py，重新构建即自动同步，无需手工维护 version_info.txt。
+
+    Returns:
+        bool: 生成成功返回 True；app_version 不可用时返回 False（构建应中止）。
+    """
+    sys.path.insert(0, str(ROOT))
+    try:
+        from core.app_version import get_version, get_version_tuple
+    except Exception as exc:
+        print("[错误] 无法读取 app_version：%s" % exc)
+        return False
+
+    ver_str = get_version()                 # 例如 '5.0.3'
+    major, minor, patch, _ = get_version_tuple()
+    quad = "%d.%d.%d.0" % (major, minor, patch)
+
+    # 040904B0 = 简体中文(2052) + Unicode(1200)；2052,1200 为十进制对应
+    content = (
+        "# UTF-8\n"
+        "# 本文件由 scripts/build_release.py 依据 app_version.py 自动生成，请勿手工维护。\n"
+        "# http://msdn.microsoft.com/en-us/library/ms646997.aspx\n"
+        "VSVersionInfo(\n"
+        "  ffi=FixedFileInfo(\n"
+        "    filevers=(%d, %d, %d, 0),\n"
+        "    prodvers=(%d, %d, %d, 0),\n"
+        "    mask=0x3f,\n"
+        "    flags=0x0,\n"
+        "    OS=0x40004,\n"
+        "    fileType=0x1,\n"
+        "    subtype=0x0,\n"
+        "    date=(0, 0)\n"
+        "  ),\n"
+        "  kids=[\n"
+        "    StringFileInfo(\n"
+        "      [\n"
+        "        StringTable(\n"
+        "          u'040904B0',\n"
+        "          [\n"
+        "            StringStruct(u'CompanyName', u'KP工作室'),\n"
+        "            StringStruct(u'FileDescription', u'风水排盘专业工具'),\n"
+        "            StringStruct(u'FileVersion', u'%s'),\n"
+        "            StringStruct(u'InternalName', u'风水排盘专业工具'),\n"
+        "            StringStruct(u'LegalCopyright', u'Copyright © 2024-2026 KP工作室'),\n"
+        "            StringStruct(u'OriginalFilename', u'风水排盘专业工具.exe'),\n"
+        "            StringStruct(u'ProductName', u'风水排盘专业工具'),\n"
+        "            StringStruct(u'ProductVersion', u'%s')\n"
+        "          ]\n"
+        "        )\n"
+        "      ]\n"
+        "    ),\n"
+        "    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])\n"
+        "  ]\n"
+        ")\n"
+    ) % (major, minor, patch, major, minor, patch, quad, quad)
+
+    try:
+        VERSION_INFO.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        print("[错误] 写入 version_info.txt 失败：%s" % exc)
+        return False
+
+    print("[构建] 已生成 EXE 版本资源 version_info.txt (v%s)" % ver_str)
+    return True
+
 
 
 def _remove_stray_root_exe() -> None:
@@ -127,6 +198,11 @@ def main() -> int:
     if DIST.exists():
         _rmtree_win32(DIST)
         print("[构建] 已清理旧 dist")
+
+    # 2.1 依据 app_version.py 生成 EXE 版本资源（与界面版本自动同步）
+    if not _write_version_info():
+        print("[错误] 版本资源生成失败，已中止构建。")
+        return 1
 
     # 3. 打包
     code = run([PY, "-m", "PyInstaller", str(SPEC), "--noconfirm"],
