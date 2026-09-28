@@ -6,7 +6,9 @@ Excel 导出器
 过滤 data，本导出器再按数据键是否存在逐项渲染。
 """
 from typing import Dict, Any
-from .base_exporter import BaseExporter, has_chapter
+from .base_exporter import (BaseExporter, has_chapter, normalize_shensha,
+                            extract_pillars, extract_wuxing,
+                            PILLAR_FIELDS, PILLAR_LABELS)
 
 # 惰性导入：未安装 openpyxl 时仅置为 None，不影响本模块导入与 app 启动；
 # 只有在真正实例化 / 调用 Excel 导出时才提示安装。
@@ -71,7 +73,10 @@ class ExcelExporter(BaseExporter):
                 bottom=Side(style='thin', color='FFD4AF37')
             ),
             'fill_gold': PatternFill(start_color='FFD4AF37', end_color='FFD4AF37', fill_type='solid'),
-            'fill_light': PatternFill(start_color='FFFFF8E7', end_color='FFFFF8E7', fill_type='solid')
+            'fill_light': PatternFill(start_color='FFFFF8E7', end_color='FFFFF8E7', fill_type='solid'),
+            # T6.5：A 列标签用金底白字；B 列数值走斑马纹（奇偶行两种米色交替）
+            'label': Font(name='微软雅黑', size=11, bold=True, color='FFFFFFFF'),
+            'fill_zebra': PatternFill(start_color='FFF5E9C8', end_color='FFF5E9C8', fill_type='solid'),
         }
 
     def export(self, data: Dict[str, Any], file_path: str) -> bool:
@@ -122,13 +127,19 @@ class ExcelExporter(BaseExporter):
             if has_chapter(data, 'bazi_types'):
                 row = self._add_bazi_types_section(ws, row, data.get('bazi_types', {})) + 2
 
-            # 四柱八字
+            # 四柱八字（Service 路径四柱在顶层，统一走 extract_pillars；
+            # 同时把英文字段名换成中文标签，避免导出件出现 year_pillar）
             if has_chapter(data, 'bazi'):
-                row = self._add_section(ws, row, '四柱八字', data.get('bazi', {})) + 2
+                bz = extract_pillars(data)
+                row = self._add_section(
+                    ws, row, '四柱八字',
+                    {PILLAR_LABELS.get(k, k): bz[k]
+                     for k in PILLAR_FIELDS if k in bz}) + 2
 
-            # 五行分析
+            # 五行分析（Service 路径走 wuxing_detail，统一走 extract_wuxing）
             if has_chapter(data, 'wuxing'):
-                row = self._add_wuxing_section(ws, row, '五行分析', data.get('wuxing', {})) + 2
+                row = self._add_wuxing_section(
+                    ws, row, '五行分析', extract_wuxing(data)) + 2
 
             # 十神分析
             if has_chapter(data, 'shishen'):
@@ -146,11 +157,14 @@ class ExcelExporter(BaseExporter):
             # 神煞属于 filter_export_data 中始终保留的旧字段，不在 CHAPTERS
             # 章节清单里，因此这里不走 has_chapter 而是直接判断列表是否为空
             mingli = data.get('mingli', {}) or {}
-            shensha = mingli.get('shensha', [])
-            if shensha:
-                self._add_shensha_section(ws, row, '神煞', shensha)
-                # 该方法无返回值，游标只能按「标题 1 行 + 数据 N 行 + 间隔」自行推算
-                row += len(shensha) + 3
+            shensha = mingli.get('shensha', []) if isinstance(mingli, dict) else []
+            # 归一化后再判空：分组字典恒为真，直接 if shensha 会为空分组也写出标题
+            shensha_items = self._normalize_shensha(shensha)
+            if shensha_items:
+                self._add_shensha_section(ws, row, '神煞', shensha_items)
+                # 该方法无返回值，游标按归一化条数推算（不能用 len(shensha)——
+                # 上游是分组字典时其长度是组数而非神煞条数）
+                row += len(shensha_items) + 3
 
             # 吉凶批注
             analysis = data.get('analysis', []) or []
@@ -181,6 +195,9 @@ class ExcelExporter(BaseExporter):
             ws.column_dimensions['A'].width = 22
             ws.column_dimensions['B'].width = 60
 
+            # T6.5 新增「五行分析」独立工作表，带条件格式色阶图
+            self._add_wuxing_sheet(wb, data)
+
             wb.save(file_path)
             return True
         except Exception as e:
@@ -188,6 +205,78 @@ class ExcelExporter(BaseExporter):
             # 统一吞掉异常并以返回值告知调用方
             print(f"Excel 导出失败: {e}")
             return False
+
+    def _add_wuxing_sheet(self, wb, data: Dict[str, Any]):
+        """T6.5 新增「五行分析」工作表：五行得分 + 三色条件格式色阶。
+
+        色阶用 openpyxl 的 ColorScaleRule，低分蓝 → 中分黄 → 高分红，
+        打开 Excel 即可直观看出哪一行最旺，无需逐字比对数字。
+
+        数据来源与 PDF 导出保持一致的兜底顺序：优先 data['wuxing']，
+        为空则回退 data['wuxing_detail']（Service 路径的真实结构，
+        形如 {'火': {'percentage': 17.0, 'score': 1.28, ...}}）。
+
+        Args:
+            wb: openpyxl 工作簿对象
+            data: 完整排盘结果字典
+
+        Returns:
+            None；两个来源都取不到时不建表
+        """
+        wx = data.get('wuxing') or {}
+        if not wx and isinstance(data.get('wuxing_detail'), dict):
+            wx = {}
+            for name, info in data['wuxing_detail'].items():
+                if isinstance(info, dict):
+                    val = info.get('percentage')
+                    if val is None:
+                        val = info.get('score')
+                    wx[name] = val if isinstance(val, (int, float)) else 0.0
+                else:
+                    wx[name] = info
+        if not wx:
+            return
+        try:
+            from openpyxl.formatting.rule import ColorScaleRule
+        except Exception:
+            return
+
+        ws = wb.create_sheet('五行分析')
+        ws.cell(row=1, column=1, value='五行')
+        ws.cell(row=1, column=2, value='得分')
+        for c in (1, 2):
+            h = ws.cell(row=1, column=c)
+            h.font = self.styles['label']
+            h.fill = self.styles['fill_gold']
+            h.border = self.styles['border']
+            h.alignment = self.styles['center']
+
+        # 固定按相生顺序输出，保证每次导出排列一致
+        order = ['木', '火', '土', '金', '水']
+        row = 2
+        for name in order:
+            if name not in wx:
+                continue
+            self._cell(ws, row, 1, name, align='center')
+            try:
+                score = float(wx.get(name))
+            except (TypeError, ValueError):
+                score = 0.0
+            self._cell(ws, row, 2, score)
+            row += 1
+        if row == 2:  # 五行名一个都没命中时不留空表头
+            wb.remove(ws)
+            return
+
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 14
+        # 色阶作用于实际写入的得分区域（B2 到末行）
+        ws.conditional_formatting.add(
+            f'B2:B{row - 1}',
+            ColorScaleRule(start_type='min', start_color='FF8AC8E8',
+                           mid_type='percentile', mid_value=50, mid_color='FFF2D98C',
+                           end_type='max', end_color='FFC45545'),
+        )
 
     def _add_section(self, ws, start_row, title, data: dict) -> int:
         """添加键值区块，返回下一空行行号"""
@@ -395,17 +484,32 @@ class ExcelExporter(BaseExporter):
             row += 1
         return row
 
+    @staticmethod
+    def _normalize_shensha(shensha):
+        """把神煞数据归一化为 [(名称, 释义), ...]，兼容三种上游形态。
+
+        实现已上提到 base_exporter.normalize_shensha（CSV/Excel 共用），
+        此处仅保留同名委托，避免破坏既有调用点。
+
+        Args:
+            shensha: 神煞原始数据（分组 dict / list of dict / list of str）
+
+        Returns:
+            list[tuple[str, str]]: 归一化后的 (名称, 释义) 列表
+        """
+        return normalize_shensha(shensha)
+
     def _add_shensha_section(self, ws, start_row, title, shensha_list):
         """写入「神煞」区块：逐条列出神煞名称与释义。
 
-        与其他区块不同，本方法不返回行号，调用方按 len(shensha_list)
-        自行推算游标。
+        与其他区块不同，本方法不返回行号，调用方按归一化后的条数自行推算游标。
 
         Args:
             ws: openpyxl 工作表对象
             start_row: 本区块标题所在行号
             title: 区块标题文案
-            shensha_list: 神煞列表，元素为含 name / description 的字典
+            shensha_list: 神煞原始数据，形态见 _normalize_shensha
+                （分组 dict / list of dict / list of str）
 
         Returns:
             None
@@ -418,9 +522,9 @@ class ExcelExporter(BaseExporter):
         title_cell.border = self.styles['border']
 
         row = start_row + 1
-        for ss in shensha_list:
-            self._cell(ws, row, 1, str(ss.get('name', '')), align='left')
-            self._cell(ws, row, 2, str(ss.get('description', '')), align='left')
+        for name, desc in self._normalize_shensha(shensha_list):
+            self._cell(ws, row, 1, name, align='left')
+            self._cell(ws, row, 2, desc, align='left')
             row += 1
 
     def _add_analysis_section(self, ws, start_row, title, analysis_list):
@@ -494,10 +598,18 @@ class ExcelExporter(BaseExporter):
                 self._cell(ws, row, 2, str(it), align='left')
                 row += 1
 
+    # T6.5：非标签内容的 A 列取值（项目符号/占位空串），不套金底标签样式
+    _NON_LABEL_VALUES = ('•', '')
+
     def _cell(self, ws, r, c, value, align='left', fill=None):
         """写入一个正文单元格并套用统一的字体、对齐与边框。
 
         所有区块的数据行都经由此方法落笔，是保证整张表样式一致的唯一出口。
+
+        T6.5 升级：本方法按列角色自动套样式，各 _add_* 调用点无需改动——
+          - A 列（标签列）：金色底 + 白色加粗字，与界面设计系统的标签语义一致；
+            显式传 fill（如吉凶批注的类型色）或值为项目符号/空串时不覆盖。
+          - B 列（数值列）：按行号奇偶套斑马纹底色，长表格逐行阅读不易串行。
 
         Args:
             ws: openpyxl 工作表对象
@@ -512,11 +624,21 @@ class ExcelExporter(BaseExporter):
             None
         """
         cell = ws.cell(row=r, column=c, value=value)
-        cell.font = self.styles['content']
+        # 是否为「A 列标签」：显式填充优先，其次排除项目符号行与空值
+        is_label = (c == 1 and fill is None
+                    and str(value) not in self._NON_LABEL_VALUES)
+        if is_label:
+            cell.font = self.styles['label']
+            cell.fill = self.styles['fill_gold']
+        else:
+            cell.font = self.styles['content']
+            if fill:
+                cell.fill = PatternFill(start_color=fill, end_color=fill, fill_type='solid')
+            elif c == 2 and r % 2 == 0:
+                # 斑马纹：偶数行铺浅米色，奇数行保持白底
+                cell.fill = self.styles['fill_zebra']
         cell.alignment = self.styles[align]
         cell.border = self.styles['border']
-        if fill:
-            cell.fill = PatternFill(start_color=fill, end_color=fill, fill_type='solid')
 
     def _add_zonghe_section(self, ws, start_row, z: dict):
         """写入「综合建议」区块：AI 融合八字/梅花/六壬三方结论后的统一判断。

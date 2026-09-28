@@ -11,11 +11,179 @@ from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush
 from ui.styles import Colors, Fonts, Spacing, Stylesheets
 
 
+def _clear_layout(layout):
+    """清空布局中的全部子项（兼容 PySide6：无 takeAll，须逐个 takeAt）。"""
+    while layout.count() > 0:
+        item = layout.takeAt(0)
+        widget = item.widget()
+        if widget is not None:
+            widget.deleteLater()
+        del item
+
+
+# 吉凶盘面着色：吉=朱红 / 凶=深靛蓝 / 中=古金（走 Colors 令牌，勿写裸 hex）
 _CELL_COLORS = {
-    '吉': '#8b0000',   # 朱红
-    '凶': '#4a5a8a',   # 靛蓝（深色底可读）
-    '中': '#c9a227',   # 古金
+    '吉': Colors.ZHONGYI,
+    '凶': Colors.INDIGO_DEEP,
+    '中': Colors.GOLD,
 }
+
+# 五行背景色：取 Colors 的 *_DARK 版（深色底提亮以保可读性，
+# 与 styles.py 五行色单一权威源对齐，勿在面板内另建一份）
+_WUXING_COLORS = {
+    '木': Colors.WOOD_DARK,
+    '火': Colors.FIRE_DARK,
+    '土': Colors.EARTH_DARK,
+    '金': Colors.METAL_DARK,
+    '水': Colors.WATER_DARK,
+}
+
+
+class _GridCanvas(QWidget):
+    """洛书九宫格自绘画布：五行背景 + 吉凶着色 + 中宫放大 + 星名标注。
+
+    通过 paintEvent 重绘，避免 QPainter 直接挂在临时 lambda（原实现把 paint
+    赋给 widget.paintEvent 不可靠）。支持数据缺失时仅画宫位名占位。
+
+    9.2 升级：鼠标悬停高亮当前宫边框（鎏金发光）+ 显示该宫星数解读 ToolTip。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._result = None
+        self._hover_idx = -1  # 当前悬停的宫索引（0~8，-1 无）
+        self.setFixedSize(380, 380)
+        self.setMouseTracking(True)
+        self.setStyleSheet(f"background-color: {Colors.BG_DARK}; border-radius: 8px;")
+
+    def set_result(self, result: dict):
+        self._result = result
+        self._hover_idx = -1
+        self.setToolTip('')
+        self.update()
+
+    def _cell_geometry(self):
+        """返回 (positions, cell_rects)，cell_rects[idx] = QRect 像素矩形。"""
+        W, H = self.width(), self.height()
+        grid_w, grid_h = W - 8, H - 8
+        cx, cy = 4, 4
+        cell_w, cell_h = grid_w // 3, grid_h // 3
+        positions = ['巽', '离', '坤', '震', '中', '兑', '艮', '坎', '乾']
+        rects = []
+        for r in range(3):
+            for c in range(3):
+                idx = r * 3 + c
+                x = cx + c * cell_w + 1
+                y = cy + r * cell_h + 1
+                rects.append((x, y, cell_w - 2, cell_h - 2, positions[idx]))
+        return positions, rects
+
+    def _cell_at(self, px, py):
+        """返回鼠标坐标命中的宫索引，未命中返回 -1。"""
+        _, rects = self._cell_geometry()
+        for idx, (x, y, w, h, _) in enumerate(rects):
+            if x <= px <= x + w and y <= py <= y + h:
+                return idx
+        return -1
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        idx = self._cell_at(event.position().x(), event.position().y())
+        if idx != self._hover_idx:
+            self._hover_idx = idx
+            self._update_tooltip(idx)
+            self.update()
+
+    def leaveEvent(self, event):  # noqa: N802
+        if self._hover_idx != -1:
+            self._hover_idx = -1
+            self.setToolTip('')
+            self.update()
+
+    def _update_tooltip(self, idx):
+        if idx < 0 or not self._result:
+            self.setToolTip('')
+            return
+        positions, _ = self._cell_geometry()
+        pos_name = positions[idx]
+        cell = next((cc for cc in self._result.get('grid', [])
+                     if cc.get('position') == pos_name), None)
+        if not cell:
+            self.setToolTip(pos_name)
+            return
+        tip = (f"{pos_name}宫\n运星 {cell.get('yun', '-')}（{cell.get('yun_star_name', '')}）\n"
+               f"山星 {cell.get('shan', '-')}（{cell.get('shan_star_name', '')}）\n"
+               f"向星 {cell.get('xiang', '-')}（{cell.get('xiang_star_name', '')}）\n"
+               f"五行 {cell.get('wuxing', '-')} · {cell.get('jixiong', '-')}")
+        self.setToolTip(tip)
+
+    def paintEvent(self, event):  # noqa: N802
+        from PySide6.QtGui import QPainter, QPen, QBrush, QFont, QColor
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        positions, rects = self._cell_geometry()
+
+        cells = (self._result or {}).get('grid', []) if self._result else []
+
+        for idx, (x, y, w, h, pos_name) in enumerate(rects):
+            is_center = pos_name == '中'
+            is_hover = idx == self._hover_idx
+
+            # 五行背景（中宫略深）
+            cell = next((cc for cc in cells if cc.get('position') == pos_name), None)
+            wuxing = (cell or {}).get('wuxing', '')
+            jixiong = (cell or {}).get('jixiong', '')
+            bg_hex = _WUXING_COLORS.get(wuxing, Colors.MO_DARK)
+            bg = QColor(bg_hex)
+            if is_center:
+                bg.setAlpha(200)
+            else:
+                bg.setAlpha(140)
+            painter.fillRect(x, y, w, h, QBrush(bg))
+
+            # 边框：悬停 > 中宫 > 普通
+            if is_hover:
+                painter.setPen(QPen(QColor(Colors.LIUJIN_LIGHT), 3))
+                painter.drawRect(x - 1, y - 1, w + 2, h + 2)
+            elif is_center:
+                painter.setPen(QPen(QColor(Colors.LIUJIN), 2))
+                painter.drawRect(x, y, w, h)
+            else:
+                painter.setPen(QPen(QColor(Colors.BORDER), 1))
+                painter.drawRect(x, y, w, h)
+
+            # 宫位名（左上角小字）
+            painter.setFont(QFont(Fonts.BODY, 9, QFont.Bold))
+            painter.setPen(QPen(QColor(Colors.TEXT), 1))
+            painter.drawText(x + 5, y + 16, pos_name)
+
+            if cell:
+                # 星数字（大）：运星用吉凶色，山星向星用浅色
+                star_color = QColor(_CELL_COLORS.get(jixiong, Colors.TEXT3))
+                yun_v = cell.get('yun', '-')
+                shan_v = cell.get('shan', '-')
+                xiang_v = cell.get('xiang', '-')
+
+                painter.setFont(QFont(Fonts.TITLE, 22, QFont.Bold))
+                painter.setPen(QPen(star_color, 1))
+                painter.drawText(x + w // 2 - 8, y + h // 2 + 8, str(yun_v))
+
+                painter.setFont(QFont(Fonts.BODY, 10))
+                painter.setPen(QPen(QColor(Colors.TEXT2), 1))
+                painter.drawText(x + w // 2 - 16, y + h - 26, f"山{shan_v} 向{xiang_v}")
+
+                # 星名（小字）
+                painter.setFont(QFont(Fonts.BODY, 8))
+                painter.setPen(QPen(QColor(Colors.TEXT3), 1))
+                star_names = f"{cell.get('yun_star_name','')}·{cell.get('shan_star_name','')}·{cell.get('xiang_star_name','')}"
+                painter.drawText(x + 5, y + h - 12, star_names[:14])
+            else:
+                # 占位：仅宫位名居中
+                painter.setFont(QFont(Fonts.BODY, 11))
+                painter.setPen(QPen(QColor(Colors.TEXT3), 1))
+                painter.drawText(x + w // 2 - 8, y + h // 2 + 4, pos_name)
+
+        painter.end()
 
 
 class XuanKongResultPanel(QWidget):
@@ -33,12 +201,12 @@ class XuanKongResultPanel(QWidget):
     def _build(self):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 12, 16, 12)
-        lay.setSpacing(10)
+        lay.setSpacing(Spacing.S3)
 
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.S2)
         icon = QLabel('⛰')
-        icon.setStyleSheet(f"font-size: 14px; color: {Colors.LIUJIN};")
+        icon.setStyleSheet(f"font-size: 13px; color: {Colors.LIUJIN};")
         title = QLabel('玄空飞星排盘结果')
         title.setStyleSheet(f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
                             f"color: {Colors.TEXT}; font-family: {Fonts.TITLE};")
@@ -54,8 +222,12 @@ class XuanKongResultPanel(QWidget):
 
         # 九宫格画布
         self.grid_canvas = QFrame()
-        self.grid_canvas.setStyleSheet("background-color: #0f0f1a; border-radius: 8px;")
+        # 圆角 8px 无对应整数令牌（RADIUS_SM_INT=6 / RADIUS_INT=10），
+        # 保留裸值以严格零视觉变化；色值已归位 Colors.CANVAS_DARK
+        self.grid_canvas.setStyleSheet(
+            f"background-color: {Colors.CANVAS_DARK}; border-radius: 8px;")
         grid_lay = QHBoxLayout(self.grid_canvas)
+        grid_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         grid_lay.setContentsMargins(12, 12, 12, 12)
         grid_lay.addWidget(QLabel('九宫飞星盘'))
         grid_lay.addStretch()
@@ -68,7 +240,7 @@ class XuanKongResultPanel(QWidget):
         self.detail_content = QWidget()
         self.detail_layout = QVBoxLayout(self.detail_content)
         self.detail_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_layout.setSpacing(6)
+        self.detail_layout.setSpacing(Spacing.S2)
         self.detail_area.setWidget(self.detail_content)
         lay.addWidget(self.detail_area)
 
@@ -76,7 +248,7 @@ class XuanKongResultPanel(QWidget):
 
         # 底部按钮
         btn_hl = QHBoxLayout()
-        btn_hl.setSpacing(8)
+        btn_hl.setSpacing(Spacing.S2)
         self.refresh_btn = QPushButton('刷新')
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
@@ -93,7 +265,7 @@ class XuanKongResultPanel(QWidget):
             result: XuanKongCalculator.calculate 返回的字典
         """
         self._current_result = result
-        self.detail_layout.takeAll()
+        _clear_layout(self.detail_layout)
         # 基本信息
         self._add_section('基本信息')
         self._add_para(f"坐向：{result.get('sui_xiang', '-')}")
@@ -146,76 +318,26 @@ class XuanKongResultPanel(QWidget):
         self.detail_layout.addWidget(d)
 
     def _redraw_grid(self, result=None):
-        """用独立画布（QWidget + QPainter）重绘九宫格。"""
+        """用独立画布（_GridCanvas + QPainter）重绘九宫格。"""
         layout = self.grid_canvas.layout()
         if layout:
-            # 先清空 grid_canvas 中的内容
-            # 用 count() 判断而非 while layout()（layout 对象始终为真值，会死循环）
             while layout.count() > 0:
                 item = layout.takeAt(0)
                 w = item.widget() if item else None
                 if w:
                     w.deleteLater()
-                # QWidgetItem 没有 deleteLater 方法；takeAt 已将其从 layout 移除，
-                # C++ 端随 GC 自动回收，无需手动删除。
+                del item
 
-        # 创建画布 widget
-        canvas_w, canvas_h = 360, 360
-        canvas = QWidget()
-        canvas.setFixedSize(canvas_w, canvas_h)
-        canvas.setStyleSheet("background-color: #0f0f1a; border-radius: 8px;")
-
-        def paint(event):
-            painter = QPainter(canvas)
-            painter.setRenderHint(QPainter.Antialiasing)
-            cw = canvas_w // 3
-            ch = canvas_h // 3
-            gap = 2
-            # 画 3x3 网格
-            for r in range(3):
-                for c in range(3):
-                    x = c * cw + gap // 2
-                    y = r * ch + gap // 2
-                    w = cw - gap
-                    h = ch - gap
-                    painter.setPen(QPen(QColor(Colors.LIUJIN_LIGHT), 1))
-                    painter.drawRect(x, y, w, h)
-                    # 九宫位置名
-                    positions = ['巽', '离', '坤', '震', '中', '兑', '艮', '坎', '乾']
-                    idx = r * 3 + c
-                    pos_name = positions[idx]
-                    # 中宫高亮
-                    if pos_name == '中':
-                        painter.fillRect(x, y, w, h, QBrush(QColor(Colors.CARD_HOVER)))
-                    # 填充九宫数据
-                    if result:
-                        cells = result.get('grid', [])
-                        cell = next((c for c in cells if c.get('position') == pos_name), None)
-                        if cell:
-                            jx = cell.get('jixiong', '')
-                            color = QColor(_CELL_COLORS.get(jx, Colors.TEXT3))
-                            painter.setPen(QPen(color, 2))
-                            yun_v = cell.get('yun', '-')
-                            shan_v = cell.get('shan', '-')
-                            xiang_v = cell.get('xiang', '-')
-                            painter.setFont(QFont(Fonts.BODY, 11, QFont.Bold))
-                            painter.drawText(x + 4, y + ch // 2 - 6,
-                                             f"运{yun_v} 山{shan_v} 向{xiang_v}")
-                            painter.setFont(QFont(Fonts.BODY, 8))
-                            painter.drawText(x + 4, y + ch // 2 + 10, pos_name)
-                    else:
-                        painter.setFont(QFont(Fonts.BODY, 9))
-                        painter.setPen(QPen(Colors.TEXT3, 1))
-                        painter.drawText(x + w // 2 - 10, y + h // 2 + 3, pos_name)
-            painter.end()
-
-        canvas.paintEvent = paint
-        layout.addWidget(canvas)
+        # 使用自绘画布 widget（五行背景 + 吉凶着色 + 中宫放大）
+        canvas = _GridCanvas()
+        canvas.set_result(result)
+        layout.addWidget(canvas, alignment=Qt.AlignHCenter)
+        self._grid_canvas_widget = canvas
 
     def clear(self):
         """清空结果。"""
         self._current_result = None
-        self.detail_layout.takeAll()
+        _clear_layout(self.detail_layout)
         self._redraw_grid()
 
     def get_chart_data_for_ai(self) -> dict:

@@ -76,14 +76,20 @@ def _resolve_default_log_dir() -> Path:
 
 def setup_app_logging(log_dir=None, console_level=logging.WARNING,
                      storage_level=logging.WARNING,
-                     file_level=logging.INFO):
+                     file_level=logging.INFO,
+                     max_bytes=5 * 1024 * 1024,
+                     backup_count=5):
     """配置全局日志：本地文件 + 存储后端（system_logs）。
+
+    使用 RotatingFileHandler 实现日志切割，避免单文件无限增长淹没磁盘。
 
     Args:
         log_dir: 本地日志目录（忽略，统一使用 path_utils.get_logs_dir()）
         console_level: 控制台输出级别
         storage_level: 写入存储后端的级别
         file_level: 本地文件级别
+        max_bytes: 单个日志文件最大字节数，默认 5MB
+        backup_count: 保留的历史文件数量，默认 5
     """
     log_dir = get_logs_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -99,9 +105,13 @@ def setup_app_logging(log_dir=None, console_level=logging.WARNING,
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # 1) 本地文件
+    # 1) 本地文件：使用 RotatingFileHandler 实现切割
+    from logging.handlers import RotatingFileHandler
     global_file = log_dir / f'app_{datetime.now().strftime("%Y%m%d")}.log'
-    file_handler = logging.FileHandler(str(global_file), encoding='utf-8')
+    file_handler = RotatingFileHandler(
+        str(global_file), encoding='utf-8',
+        maxBytes=max_bytes, backupCount=backup_count
+    )
     file_handler.setLevel(file_level)
     file_handler.setFormatter(fmt)
     root.addHandler(file_handler)

@@ -129,8 +129,27 @@ class AIProfile:
     max_tokens: int = 4096
     send_no_think: bool = False
     verify_ssl: bool = True
+    # 内部标记：当前 api_key 是否曾经落盘过（用于区分「未填写」与「失效」）
+    # init=False：不进入构造参数；repr/compare=False：不出现在 repr 与 == 比较中
+    _key_was_stored: bool = field(default=False, init=False, repr=False, compare=False)
 
     # ---------- 校验 ----------
+    def key_status(self) -> str:
+        """返回 api_key 的状态码，供 UI 精确区分不同失效原因。
+
+        Returns:
+            'ok'         : 密钥有效且可用
+            'empty'      : 密钥从未填写（用户尚未输入）
+            'corrupted'  : 密钥曾落盘但当前无法还原（跨设备迁移 / 指纹变更 / 文件损坏）
+            'not_needed' : 当前 provider 无需密钥
+        """
+        preset = PROVIDER_PRESETS.get(self.provider)
+        if preset is not None and not preset.needs_key:
+            return 'not_needed'
+        if not self.api_key.strip():
+            return 'corrupted' if self._key_was_stored else 'empty'
+        return 'ok'
+
     def validate(self) -> Optional[str]:
         """返回错误信息；通过校验返回 None。"""
         if not self.name.strip():
@@ -143,6 +162,9 @@ class AIProfile:
             return '模型名称不能为空'
         preset = PROVIDER_PRESETS.get(self.provider)
         if (preset is None or preset.needs_key) and not self.api_key.strip():
+            # 区分「从未填写」与「密钥已损坏无法还原」，方便用户对症下药
+            if self._key_was_stored:
+                return '认证密钥已失效（可能来自其他设备或文件损坏），请重新填写'
             return '认证密钥不能为空'
         if not (1 <= self.timeout <= 3600):
             return '请求超时须在 1~3600 秒之间'
@@ -205,6 +227,7 @@ class AIProfile:
             AIProfile: 字段相同但 id 不同、可独立编辑的新配置档。
         """
         data = asdict(self)
+        data.pop('_key_was_stored', None)  # 内部标记不随 clone 传播
         data['id'] = uuid.uuid4().hex[:12]
         if new_name:
             data['name'] = new_name
@@ -216,22 +239,31 @@ class AIProfile:
         """宽容解析：忽略未知字段，缺失字段回落默认值，类型错误不致命。"""
         valid = {f.name: f for f in dataclass_fields(cls)}
         kwargs: Dict[str, Any] = {}
+        init_kwargs: Dict[str, Any] = {}
         for key, spec in valid.items():
             if key not in data:
                 continue
             raw = data[key]
             try:
                 if spec.type in ('int', int):
-                    kwargs[key] = int(raw)
+                    val: Any = int(raw)
                 elif spec.type in ('float', float):
-                    kwargs[key] = float(raw)
+                    val = float(raw)
                 elif spec.type in ('bool', bool):
-                    kwargs[key] = bool(raw)
+                    val = bool(raw)
                 else:
-                    kwargs[key] = str(raw) if raw is not None else ''
+                    val = str(raw) if raw is not None else ''
             except (TypeError, ValueError):
                 continue
-        return cls(**kwargs)
+            if spec.init:
+                init_kwargs[key] = val
+            else:
+                # init=False 的字段不参与构造，单独保存供赋值
+                kwargs[key] = val
+        instance = cls(**init_kwargs)
+        for k, v in kwargs.items():
+            setattr(instance, k, v)
+        return instance
 
 
 # ================================================================
@@ -269,7 +301,11 @@ def encrypt_key(plain: str) -> str:
 
 
 def decrypt_key(stored: str) -> str:
-    """还原落盘密钥。非本机生成 / 损坏时返回空串（触发重新配置）。"""
+    """还原落盘密钥。非本机生成 / 损坏时返回空串（触发重新配置）。
+
+    【安全约束】空串本身不携带语义，调用方需自行判断「空是因为未落盘」还是
+    「空是因为解密失败」——通过 `_apply_raw` 中 `enc` 是否为空即可区分。
+    """
     if not stored:
         return ''
     if not stored.startswith(_ENC_PREFIX):
@@ -278,8 +314,9 @@ def decrypt_key(stored: str) -> str:
     try:
         blob = base64.b64decode(stored[len(_ENC_PREFIX):])
         return _xor(blob, _device_key()).decode('utf-8')
-    except Exception:
-        logger.warning('[AI配置] 密钥无法还原（可能来自其他设备），请重新填写')
+    except Exception as e:
+        logger.error('[AI配置] 密钥无法还原（可能来自其他设备或指纹变更），'
+                     '请重新填写：exc=%s', e)
         return ''
 
 

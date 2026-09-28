@@ -16,6 +16,37 @@ METHODS = [
     ('copper_coin', '铜钱摇卦'), ('stroke', '笔画起卦'),
 ]
 
+# T3.3 起卦方式图标（与 METHODS 一一对齐，用于 Tab 式选择器）
+_METHOD_ICONS = {
+    'time': '⏰', 'number': '🔢', 'direction': '🧭',
+    'text': '📝', 'copper_coin': '🪙', 'stroke': '✍',
+}
+
+# T3.3 Tab 式选择器样式：选中态用「底部 3px 金色下划线」作指示器，
+# 而非整体填充背景，视觉更轻、更接近专业工具的页签观感。
+_METHOD_TAB_STYLE = f"""
+    QPushButton {{
+        background: transparent;
+        color: {Colors.TEXT3};
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0px;
+        font-size: {Fonts.SZ_SMALL};
+        font-family: {Fonts.BODY};
+        padding: 6px 2px;
+    }}
+    QPushButton:hover {{
+        color: {Colors.TEXT};
+        background: {Colors.HOVER};
+    }}
+    QPushButton:checked {{
+        color: {Colors.LIUJIN};
+        background: {Colors.LIUJIN_GLOW};
+        border-bottom: 3px solid {Colors.LIUJIN};
+        font-weight: {Fonts.W_BOLD};
+    }}
+"""
+
 
 class _AdaptiveStack(QStackedWidget):
     """参数堆叠容器：只按 *当前页* 的自然尺寸和最小尺寸预留空间。
@@ -126,13 +157,13 @@ class MeihuaInputPanel(QWidget):
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
         lay.setContentsMargins(24, 18, 24, 18)
-        lay.setSpacing(12)
+        lay.setSpacing(Spacing.S3)
 
         # 标题
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.S2)
         icon = QLabel('⚊')
-        icon.setStyleSheet(f"font-size: 14px; color: {Colors.LIUJIN};")
+        icon.setStyleSheet(f"font-size: 13px; color: {Colors.LIUJIN};")
         title = QLabel('梅花易数参数')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD};
@@ -145,21 +176,22 @@ class MeihuaInputPanel(QWidget):
         div.setStyleSheet(f"background-color: {Colors.QINGHUA_LIGHT};")
         lay.addWidget(div)
 
-        # 起卦方式（网格布局，避免窄屏单行被压窄/截断）
+        # 起卦方式 — T3.3 升级为 Tab 式选择器（图标 + 文字，选中态底部金色下划线）
         method_lay = QVBoxLayout()
-        method_lay.setSpacing(6)
+        method_lay.setSpacing(Spacing.S2)
         method_lay.addWidget(self._label('方式'))
         grid = QGridLayout()
-        grid.setSpacing(6)
+        grid.setSpacing(Spacing.S2)
         self.method_btns = []
         self.method_grp = QButtonGroup(self)
         self.method_grp.setExclusive(True)
         cols = 3
         for i, (v, n) in enumerate(METHODS):
-            b = QPushButton(n)
-            b.setStyleSheet(Stylesheets.BTN_SWITCH)
+            icon = _METHOD_ICONS.get(v, '◉')
+            b = QPushButton(f'{icon} {n}')
+            b.setStyleSheet(_METHOD_TAB_STYLE)
             b.setCheckable(True); b.setCursor(Qt.PointingHandCursor)
-            b.setMinimumHeight(30)
+            b.setMinimumHeight(32)
             self.method_grp.addButton(b, i)
             r, c = divmod(i, cols)
             grid.addWidget(b, r, c)
@@ -176,13 +208,13 @@ class MeihuaInputPanel(QWidget):
         self.question_category.setStyleSheet(Stylesheets.COMBO)
         for cat in ['不限', '事业', '财运', '感情', '健康', '出行', '学业', '婚姻', '家宅', '运势']:
             self.question_category.addItem(cat)
-        q_cat_row = QHBoxLayout(); q_cat_row.setSpacing(8)
+        q_cat_row = QHBoxLayout(); q_cat_row.setSpacing(Spacing.S2)
         q_cat_row.addWidget(self._label('分类'))
         q_cat_row.addWidget(self.question_category, 1)
         lay.addLayout(q_cat_row)
 
         # 占问
-        row = QHBoxLayout(); row.setSpacing(8)
+        row = QHBoxLayout(); row.setSpacing(Spacing.S2)
         row.addWidget(self._label('占问'))
         self.question = QLineEdit()
         self.question.setStyleSheet(Stylesheets.INPUT)
@@ -199,16 +231,16 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式1: 时间起卦 ==========
         tw = QWidget(); tw.setStyleSheet("background: transparent;")
-        tl = QVBoxLayout(tw); tl.setContentsMargins(0,0,0,0); tl.setSpacing(12)
+        tl = QVBoxLayout(tw); tl.setContentsMargins(0,0,0,0); tl.setSpacing(Spacing.S3)
         
         # 历法 + 时间输入
         cal_group = QGroupBox('时间设置')
         cal_lay = QVBoxLayout(cal_group)
         cal_lay.setContentsMargins(12, 12, 12, 12)
-        cal_lay.setSpacing(10)
+        cal_lay.setSpacing(Spacing.S3)
         
         # 历法单选：公历 / 农历
-        cal_row = QHBoxLayout(); cal_row.setSpacing(16)
+        cal_row = QHBoxLayout(); cal_row.setSpacing(Spacing.S4)
         cal_row.addWidget(QLabel('历法:'))
         self.calendar_btn_group = QButtonGroup(self)
         self.calendar_btn_group.setExclusive(True)
@@ -225,7 +257,7 @@ class MeihuaInputPanel(QWidget):
         cal_lay.addLayout(cal_row)
         
         # 时间输入
-        time_row = QHBoxLayout(); time_row.setSpacing(12)
+        time_row = QHBoxLayout(); time_row.setSpacing(Spacing.S3)
         time_row.addWidget(QLabel('时间:'))
         self.time_edit = QLineEdit()
         self.time_edit.setStyleSheet(Stylesheets.INPUT)
@@ -239,7 +271,7 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式2: 数字起卦 ==========
         nw = QWidget(); nw.setStyleSheet("background: transparent;")
-        nl = QVBoxLayout(nw); nl.setContentsMargins(0,0,0,0); nl.setSpacing(8)
+        nl = QVBoxLayout(nw); nl.setContentsMargins(0,0,0,0); nl.setSpacing(Spacing.S2)
 
         # 交互提示（实时说明，提升数据录入清晰度）
         num_tip = QLabel('输入 2~3 个数字，依次作为上卦 / 下卦 / 动爻（动爻可留空）；'
@@ -259,6 +291,7 @@ class MeihuaInputPanel(QWidget):
             }}
         """)
         num_grid = QGridLayout(num_card)
+        num_grid.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         num_grid.setContentsMargins(14, 14, 14, 14)
         num_grid.setHorizontalSpacing(10)
         num_grid.setVerticalSpacing(8)
@@ -304,11 +337,11 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式3: 方位起卦 ==========
         dw = QWidget(); dw.setStyleSheet("background: transparent;")
-        dl = QVBoxLayout(dw); dl.setContentsMargins(0,0,0,0); dl.setSpacing(10)
+        dl = QVBoxLayout(dw); dl.setContentsMargins(0,0,0,0); dl.setSpacing(Spacing.S3)
 
         dir_group = QGroupBox('方位选择')
         dir_lay = QVBoxLayout(dir_group)
-        dir_lay.setSpacing(10)
+        dir_lay.setSpacing(Spacing.S3)
         dir_lay.setContentsMargins(12, 12, 12, 12)
 
         self.dir_combo = QComboBox()
@@ -337,11 +370,11 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式4: 文字起卦 ==========
         xw = QWidget(); xw.setStyleSheet("background: transparent;")
-        xl = QVBoxLayout(xw); xl.setContentsMargins(0,0,0,0); xl.setSpacing(10)
+        xl = QVBoxLayout(xw); xl.setContentsMargins(0,0,0,0); xl.setSpacing(Spacing.S3)
 
         text_group = QGroupBox('文字设置')
         text_lay = QGridLayout(text_group)
-        text_lay.setSpacing(8)
+        text_lay.setSpacing(Spacing.S2)
         text_lay.setContentsMargins(12, 12, 12, 12)
 
         self.char_mode_combo = QComboBox()
@@ -372,11 +405,11 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式5: 铜钱摇卦 ==========
         ccw = QWidget(); ccw.setStyleSheet("background: transparent;")
-        ccl = QVBoxLayout(ccw); ccl.setContentsMargins(0,0,0,0); ccl.setSpacing(12)
+        ccl = QVBoxLayout(ccw); ccl.setContentsMargins(0,0,0,0); ccl.setSpacing(Spacing.S3)
         
         coin_group = QGroupBox('铜钱摇卦')
         coin_lay = QVBoxLayout(coin_group)
-        coin_lay.setSpacing(8)
+        coin_lay.setSpacing(Spacing.S2)
         coin_lay.setContentsMargins(12, 12, 12, 12)
         
         coin_hint = QLabel('摇6次铜钱（从初爻到上爻）：\n● 少阳(1背2面) ○ 老阴(3背) ● 少阴(2背1面) ✕ 老阳(3面)\n默认初始：每次点击"自动"随机生成')
@@ -388,14 +421,14 @@ class MeihuaInputPanel(QWidget):
         self.coin_radio_buttons = []  # 6爻 × 4选项
         for i in range(6):
             row_lay = QHBoxLayout()
-            row_lay.setSpacing(10)
+            row_lay.setSpacing(Spacing.S3)
             name_lbl = QLabel(f'{YAO_NAMES[i]}:')
             name_lbl.setFixedWidth(42)
             name_lbl.setStyleSheet(f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.BODY};")
             row_lay.addWidget(name_lbl)
             # 4 个爻选项改为 2×2 网格，窄宽度下可收缩不溢出
             rgrid = QGridLayout()
-            rgrid.setSpacing(6)
+            rgrid.setSpacing(Spacing.S2)
             rgrid.setContentsMargins(0, 0, 0, 0)
             yao_buttons = []
             for j, yao_type in enumerate(['少阳', '老阴', '少阴', '老阳']):
@@ -428,11 +461,11 @@ class MeihuaInputPanel(QWidget):
 
         # ========== 方式6: 笔画起卦 ==========
         sw = QWidget(); sw.setStyleSheet("background: transparent;")
-        sl = QVBoxLayout(sw); sl.setContentsMargins(0,0,0,0); sl.setSpacing(10)
+        sl = QVBoxLayout(sw); sl.setContentsMargins(0,0,0,0); sl.setSpacing(Spacing.S3)
 
         stroke_group = QGroupBox('笔画起卦')
         stroke_lay = QGridLayout(stroke_group)
-        stroke_lay.setSpacing(8)
+        stroke_lay.setSpacing(Spacing.S2)
         stroke_lay.setContentsMargins(12, 12, 12, 12)
 
         stroke_label = QLabel('输入汉字:')
@@ -471,7 +504,7 @@ class MeihuaInputPanel(QWidget):
         lay.addWidget(self.params)
 
         # 按钮
-        btn_row = QHBoxLayout(); btn_row.setSpacing(12)
+        btn_row = QHBoxLayout(); btn_row.setSpacing(Spacing.S3)
         self.submit_btn = QPushButton('起卦')
         self.submit_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
         self.submit_btn.setCursor(Qt.PointingHandCursor)
@@ -487,6 +520,7 @@ class MeihuaInputPanel(QWidget):
 
         scroll.setWidget(content)
         outer = QVBoxLayout(self)
+        outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
@@ -698,6 +732,7 @@ class MeihuaInputPanel(QWidget):
             }}
         """)
         gl = QGridLayout(card)
+        gl.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         gl.setContentsMargins(14, 12, 14, 12)
         gl.setHorizontalSpacing(0)
         gl.setVerticalSpacing(6)
@@ -714,7 +749,7 @@ class MeihuaInputPanel(QWidget):
             box.setStyleSheet("background: transparent;")
             bl = QVBoxLayout(box)
             bl.setContentsMargins(0, 0, 0, 0)
-            bl.setSpacing(3)
+            bl.setSpacing(Spacing.S1)
             t = QLabel(title)
             t.setAlignment(Qt.AlignCenter)
             t.setStyleSheet(
@@ -769,7 +804,7 @@ class MeihuaInputPanel(QWidget):
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         grid = QGridLayout(widget)
-        grid.setSpacing(4)
+        grid.setSpacing(Spacing.S1)
         grid.setContentsMargins(0, 0, 0, 0)
 
         center = QLabel('占')

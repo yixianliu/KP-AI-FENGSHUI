@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QEvent,
 from PySide6.QtGui import QFont, QCursor
 
 from ui.styles import Colors, Fonts, Spacing
+from ui.components.badge import Badge
 
 # 天干/地支五行 -> 主题色
 WUXING_COLOR = {
@@ -25,12 +26,15 @@ WUXING_COLOR = {
     '金': Colors.METAL, '水': Colors.WATER,
 }
 
-# 关系 -> (标签, 主色, 浅色glow)
+# 关系 -> (标签, Badge 语义色键, 图标)
+# 语义色键对齐 ui.components.badge._BADGE_COLORS：warning/success/info。
+# 关系吉凶本就是徽章语义（克我=慎→警示，生我/比和=吉→成功，平→中性信息），
+# 统一走 Badge 组件即可复用其药丸圆角 + 自动前景色对比（WCAG AA 小字 ≥4.5:1）。
 RELATION_STYLE = {
-    '克我': ('慎', Colors.WARNING, Colors.WARNING_LIGHT, '⚠'),
-    '生我': ('吉', Colors.SUCCESS, Colors.SUCCESS_LIGHT, '✓'),
-    '比和': ('吉', Colors.SUCCESS, Colors.SUCCESS_LIGHT, '✓'),
-    '平':  ('平', Colors.QINGHUA, Colors.QINGHUA_GLOW, '～'),
+    '克我': ('慎', 'warning', '⚠'),
+    '生我': ('吉', 'success', '✓'),
+    '比和': ('吉', 'success', '✓'),
+    '平':  ('平', 'info', '～'),
 }
 
 
@@ -85,19 +89,19 @@ class _DayunRow(QFrame):
         self.setStyleSheet("background: transparent;")
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
+        self.main_layout.setSpacing(Spacing.S0)
 
         # ---- 顶部摘要行（始终可见） ----
         self.summary = QWidget()
         self.summary.setStyleSheet("background: transparent;")
         sl = QHBoxLayout(self.summary)
         sl.setContentsMargins(0, 0, 0, 0)
-        sl.setSpacing(12)
+        sl.setSpacing(Spacing.S3)
 
         # 左：节点列（圆点 + 主轴）
         self.node_col = QVBoxLayout()
         self.node_col.setContentsMargins(0, 0, 0, 0)
-        self.node_col.setSpacing(0)
+        self.node_col.setSpacing(Spacing.S0)
 
         detailed = self.period.get('detailed_analysis') or {}
         gan_wx = detailed.get('gan_wx', '')
@@ -130,10 +134,10 @@ class _DayunRow(QFrame):
         self._apply_card_style()
         cv = QVBoxLayout(self.card)
         cv.setContentsMargins(10, 10, 10, 10)
-        cv.setSpacing(6)
+        cv.setSpacing(Spacing.S2)
 
         head = QHBoxLayout()
-        head.setSpacing(8)
+        head.setSpacing(Spacing.S2)
 
         ganzhi = QLabel(self.period.get('ganzhi', ''))
         ganzhi.setStyleSheet(f"""
@@ -153,16 +157,12 @@ class _DayunRow(QFrame):
         years.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
         head.addWidget(years)
 
-        # 趋势 badge
-        label, badge_color, badge_glow, icon = _relation_to_level(
+        # 趋势徽章：统一走 Badge 组件（M4-T4 适配部分）
+        # 原实现为手搓 QLabel + 浅色底 + 饱和字；现改标准 Badge 复用其药丸圆角
+        # 与自动前景色对比，与全 UI 徽章视觉语言一致。
+        label, badge_semantic, icon = _relation_to_level(
             detailed.get('gan_relation'), detailed.get('zhi_relation'))
-        badge = QLabel(f'{icon} {label}')
-        badge.setStyleSheet(f"""
-            background:{badge_glow}; color:{badge_color};
-            font-size:{Fonts.SZ_MICRO}; font-weight:{Fonts.W_MEDIUM};
-            border-radius:{Spacing.RADIUS_SM}; padding:2px 8px;
-            font-family:{Fonts.BODY};
-        """)
+        badge = Badge(f'{icon} {label}', semantic=badge_semantic)
         head.addWidget(badge)
 
         # 展开提示
@@ -208,7 +208,7 @@ class _DayunRow(QFrame):
                 f"padding:6px 8px;")
             detail_layout = QVBoxLayout(detail_container)
             detail_layout.setContentsMargins(0, 0, 0, 0)
-            detail_layout.setSpacing(2)
+            detail_layout.setSpacing(Spacing.S1)
             
             # 五行生克标题
             title_lbl = QLabel('五行生克')
@@ -237,7 +237,7 @@ class _DayunRow(QFrame):
         self.detail_container.setVisible(False)
         dl = QVBoxLayout(self.detail_container)
         dl.setContentsMargins(12, 8, 12, 8)
-        dl.setSpacing(8)
+        dl.setSpacing(Spacing.S2)
 
         # 详细分析内容
         if detailed:
@@ -249,7 +249,7 @@ class _DayunRow(QFrame):
                     row.setStyleSheet("background: transparent;")
                     rl = QHBoxLayout(row)
                     rl.setContentsMargins(0, 0, 0, 0)
-                    rl.setSpacing(8)
+                    rl.setSpacing(Spacing.S2)
                     k_lbl = QLabel(f'{key}：')
                     k_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; font-weight:{Fonts.W_MEDIUM};")
                     k_lbl.setFixedWidth(80)
@@ -275,19 +275,11 @@ class _DayunRow(QFrame):
 
     def enterEvent(self, event):
         self._apply_card_style(hover=True)
-        # 轻微放大动画
-        self._animate_scale(1.01)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._apply_card_style(hover=False)
-        self._animate_scale(1.0)
         super().leaveEvent(event)
-
-    def _animate_scale(self, scale):
-        """简单的缩放动画（通过改变边距模拟）."""
-        # Qt 不直接支持 transform，用动画改变 contentsMargins 模拟
-        pass  # 保留接口，后续可接入 QGraphicsView 实现真缩放
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -349,10 +341,10 @@ class _LiunianFilter(QWidget):
     def _setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(8)
+        layout.setSpacing(Spacing.S2)
 
         icon = QLabel('🔍')
-        icon.setStyleSheet(f"font-size:14px; color:{Colors.TEXT3};")
+        icon.setStyleSheet(f"font-size:13px; color:{Colors.TEXT3};")
         layout.addWidget(icon)
 
         self.input = QLineEdit()
@@ -370,7 +362,7 @@ class _LiunianFilter(QWidget):
         layout.addWidget(self.input, 1)
 
         self.clear_btn = QLabel('✕')
-        self.clear_btn.setStyleSheet(f"font-size:14px; color:{Colors.TEXT3}; padding:0 6px;")
+        self.clear_btn.setStyleSheet(f"font-size:13px; color:{Colors.TEXT3}; padding:0 6px;")
         self.clear_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.clear_btn.setVisible(False)
         self.clear_btn.mousePressEvent = lambda e: self.input.clear()
@@ -404,7 +396,7 @@ def fortune_timeline_widget(dayun, liunian, color=Colors.LIUJIN):
     container.setStyleSheet("background: transparent;")
     root = QVBoxLayout(container)
     root.setContentsMargins(4, 4, 4, 4)
-    root.setSpacing(14)
+    root.setSpacing(Spacing.S4)
 
     # ---------- 起运关键节点 ----------
     qiyun_text = dayun.get('qiyun_text')
@@ -413,10 +405,10 @@ def fortune_timeline_widget(dayun, liunian, color=Colors.LIUJIN):
         qy = QWidget()
         qy_l = QHBoxLayout(qy)
         qy_l.setContentsMargins(0, 0, 0, 0)
-        qy_l.setSpacing(10)
+        qy_l.setSpacing(Spacing.S3)
 
         dot = QLabel('◉')
-        dot.setStyleSheet(f"color:{Colors.LIUJIN}; font-size:16px;")
+        dot.setStyleSheet(f"color:{Colors.LIUJIN}; font-size:15px;")
         dot.setFixedSize(22, 22)
         dot.setAlignment(Qt.AlignCenter)
         qy_l.addWidget(dot)
@@ -443,6 +435,7 @@ def fortune_timeline_widget(dayun, liunian, color=Colors.LIUJIN):
     # ---------- 大运时间轴 ----------
     if periods:
         title_row = QHBoxLayout()
+        title_row.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         title = QLabel('大运走势')
         title.setStyleSheet(
             f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
@@ -494,6 +487,7 @@ def fortune_timeline_widget(dayun, liunian, color=Colors.LIUJIN):
         root.addWidget(flow_title)
 
         grid = QGridLayout()
+        grid.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
@@ -561,7 +555,7 @@ def _build_liunian_cell(year_data, index=0):
     """)
     cl = QHBoxLayout(cell)
     cl.setContentsMargins(0, 0, 0, 0)
-    cl.setSpacing(8)
+    cl.setSpacing(Spacing.S2)
 
     year = QLabel(str(year_data.get('year', '')))
     year.setStyleSheet(f"""
@@ -605,13 +599,13 @@ def _build_liunian_cell(year_data, index=0):
         # 重新创建垂直布局
         v_layout = QVBoxLayout(cell)
         v_layout.setContentsMargins(6, 6, 6, 6)
-        v_layout.setSpacing(4)
+        v_layout.setSpacing(Spacing.S1)
         
         # 顶部信息行
         header_row = QWidget()
         h_layout = QHBoxLayout(header_row)
         h_layout.setContentsMargins(0, 0, 0, 0)
-        h_layout.setSpacing(8)
+        h_layout.setSpacing(Spacing.S2)
         for w in temp_widgets:
             h_layout.addWidget(w)
         v_layout.addWidget(header_row)
@@ -626,7 +620,7 @@ def _build_liunian_cell(year_data, index=0):
                 f"padding:6px 8px;")
             detail_layout = QVBoxLayout(detail_container)
             detail_layout.setContentsMargins(0, 0, 0, 0)
-            detail_layout.setSpacing(2)
+            detail_layout.setSpacing(Spacing.S1)
             
             # 标题
             title_lbl = QLabel('流年分析')

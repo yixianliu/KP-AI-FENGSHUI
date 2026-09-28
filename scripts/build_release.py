@@ -223,6 +223,16 @@ def main() -> int:
         print("[错误] 产物校验未通过：产物中疑似含密钥，禁止发布！")
         return code
 
+    # 5. 离屏 GUI e2e 冒烟（产物形态：验证产物内置平台插件加载 + 本轮模块可拉起）
+    e2e = ROOT / "scripts" / "verify_offscreen_gui_e2e.py"
+    dist_dir = DIST / "风水排盘专业工具"
+    if e2e.exists():
+        code = run([sys.executable, str(e2e), "--dist", str(dist_dir)],
+                   cwd=str(ROOT)).returncode
+        if code != 0:
+            print("[错误] 离屏 GUI e2e 冒烟未通过，发布前请排查产物形态窗口构造失败原因。")
+            return code
+
     print("=" * 64)
     print("[完成] 构建成功且产物零密钥残留，可发布。")
     print("       分发目录：dist/风水排盘专业工具/")

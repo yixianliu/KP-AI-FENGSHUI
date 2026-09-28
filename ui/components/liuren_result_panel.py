@@ -3,10 +3,15 @@
 展示：基本信息 / 天地盘 / 四课 / 三传（门法）/ 十二天将 / 神煞 / 智能 解读。
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QGridLayout, QSizePolicy)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPainter
+                             QScrollArea, QPushButton, QGridLayout, QSizePolicy,
+                             QStackedWidget)
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, Property,
+                            QPointF, QRectF)
+from PySide6.QtGui import QPainter, QColor, QPen, QFont
+import math
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+# 别名导入：本模块多处存在局部变量 `icon = QLabel(...)`，用原名调用有遮蔽地雷风险
+from ui.components.icons import icon as load_icon
 from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
                                           highlight_label, probability_stats_widget,
                                           loading_panel, ResponsiveFlow,
@@ -37,8 +42,12 @@ except Exception:
 # 地支五行对照表复用排盘引擎的定义，展示层不再自建一份
 from core.divination.liuren import ZHI_WX
 from core.ganzhi_constants import DI_ZHI
+from ui.components.states import EmptyState
 
-#: 五行 → 颜色（本地 hex，避免引用未定义样式属性）
+#: 五行 → 盘面标注文字色（面板局部色板，高饱和版）。
+#: 刻意不用 Colors.WOOD/FIRE/... 令牌：那是深底提亮版，用于盘面背景块；
+#: 此处是文字着色，需要更饱和才能在小字号下与暗底区分（单点使用，L393）。
+#: 已知审计豁免，勿「顺手统一」为 Colors 五行色（会改变视觉）。
 WX_COLOR = {
     '木': '#3a7d44', '火': '#c0392b', '土': '#b9770e',
     '金': '#5a5a5a', '水': '#2471a3',
@@ -91,6 +100,120 @@ class RotatingLabel(QLabel):
         super().paintEvent(event)
 
 
+class _TiandiCompass(QWidget):
+    """大六壬天地盘圆形罗盘（11.1）：12 地支环形排列（子北/午南/卯东/酉西），
+    天盘支覆盖于地盘宫之上，天将标注于宫下，日支以鎏金描边高亮。
+
+    绘制用 QPainter 完成；paintEvent 全程 try/except 包裹，避免虚函数抛错触发
+    qFatal 闪退（exit 127）。尺寸随可用空间自适应（min 280px），窄屏下自动缩小。
+    """
+
+    def __init__(self, r, parent=None):
+        """缓存起课数据并初始化罗盘控件。
+
+        Args:
+            r: 起课结果字典（含 tian_pan / tian_jiang / ri_gan / ri_zhi）。
+            parent: Qt 父控件。
+        """
+        super().__init__(parent)
+        self._r = r or {}
+        tian_pan = self._r.get('tian_pan', {}) or {}
+        self._tian_jiang = {t['pos']: t['jiang'] for t in self._r.get('tian_jiang', [])}
+        self._ri_zhi = self._r.get('ri_zhi', '')
+        self._ri_gan = self._r.get('ri_gan', '')
+        # 每个宫位：(地盘支, 天盘支, 天将, 是否日支)
+        self._positions = []
+        for dz in ZHI_ORDER:
+            tp = tian_pan.get(dz, dz)
+            jiang = self._tian_jiang.get(dz, '')
+            self._positions.append(
+                (dz, tp, jiang, bool(self._ri_zhi) and dz == self._ri_zhi))
+        self.setMinimumSize(280, 280)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def paintEvent(self, event):  # noqa: N802（Qt 命名）
+        """重写绘制：try 包裹避免虚函数抛错导致进程闪退。"""
+        try:
+            self._draw()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _q(hex_):
+        """把 hex 颜色字符串转为 QColor。"""
+        return QColor(hex_)
+
+    def _draw(self):
+        """绘制圆形罗盘：外环 + 12 宫位圆盘 + 中心盘。"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        h = self.height()
+        cx, cy = w / 2.0, h / 2.0
+        R = min(w, h) / 2.0 - 26.0
+        if R < 18:
+            return
+
+        # 外环装饰线
+        painter.setPen(QPen(self._q(Colors.MO_LIGHT), 1))
+        painter.drawEllipse(QPointF(cx, cy), R + 14, R + 14)
+        painter.drawEllipse(QPointF(cx, cy), R + 6, R + 6)
+
+        rd = max(13.0, R * 0.15)
+        for i, (dz, tp, jiang, is_ri) in enumerate(self._positions):
+            ang = math.radians(-90 + 30 * i)  # 子北起，顺时针每宫 30°
+            px = cx + R * math.cos(ang)
+            py = cy + R * math.sin(ang)
+
+            # 宫位圆盘
+            if is_ri:
+                painter.setBrush(self._q(Colors.HIGHLIGHT_WARM))
+                painter.setPen(QPen(self._q(Colors.LIUJIN), 2.5))
+            else:
+                painter.setBrush(self._q(Colors.BG))
+                painter.setPen(QPen(self._q(Colors.BORDER_LIGHT), 1))
+            painter.drawEllipse(QPointF(px, py), rd, rd)
+
+            # 天盘支（朱红大字，居中）
+            painter.setPen(self._q(Colors.ZHUSHA))
+            f = QFont(Fonts.FAMILY_SERIF, max(11, int(rd * 0.95)))
+            f.setBold(True)
+            painter.setFont(f)
+            self._draw_text(painter, px, py, tp)
+
+            # 地盘宫（上方小字灰）
+            painter.setPen(self._q(Colors.TEXT_TERTIARY))
+            sf = QFont(Fonts.FAMILY_CN, max(9, int(rd * 0.55)))
+            painter.setFont(sf)
+            self._draw_text(painter, px, py - rd - 8, dz)
+
+            # 天将（下方小字青）
+            if jiang:
+                painter.setPen(self._q(Colors.QINGHUA))
+                painter.setFont(sf)
+                self._draw_text(painter, px, py + rd + 8, jiang)
+
+        # 中心圆盘
+        cr = R * 0.30
+        painter.setBrush(self._q(Colors.BG_DARK))
+        painter.setPen(QPen(self._q(Colors.LIUJIN), 1.5))
+        painter.drawEllipse(QPointF(cx, cy), cr, cr)
+        painter.setPen(self._q(Colors.LIUJIN))
+        painter.setFont(QFont(Fonts.FAMILY_CN, max(10, int(cr * 0.32))))
+        self._draw_text(painter, cx, cy - cr * 0.18, '天地盘')
+        if self._ri_gan or self._ri_zhi:
+            painter.setPen(self._q(Colors.ZHUSHA))
+            painter.setFont(QFont(Fonts.FAMILY_SERIF, max(11, int(cr * 0.38))))
+            self._draw_text(painter, cx, cy + cr * 0.30, f'{self._ri_gan}{self._ri_zhi}')
+
+    @staticmethod
+    def _draw_text(painter, x, y, text):
+        """在 (x, y) 居中点绘制文字（固定宽度矩形实现水平+垂直居中）。"""
+        fm = painter.fontMetrics()
+        rect = QRectF(x - 60, y - fm.height() / 2.0, 120, fm.height())
+        painter.drawText(rect, Qt.AlignCenter, text)
+
+
 class LiurenResultPanel(QWidget):
     """大六壬起课结果展示面板：呈现天地盘、四课、三传、十二天将、神煞及KP模型解读。"""
 
@@ -116,11 +239,11 @@ class LiurenResultPanel(QWidget):
         main_layout = QVBoxLayout()
         card_padding = int(Spacing.CARD_PADDING.replace('px', ''))
         main_layout.setContentsMargins(card_padding, card_padding, card_padding, card_padding)
-        main_layout.setSpacing(16)
+        main_layout.setSpacing(Spacing.S4)
 
         # 头部
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(Spacing.S3)
         title_icon = QLabel('☵')
         title_icon.setStyleSheet("font-size: 22px;")
         self.title_label = QLabel('大六壬起课结果')
@@ -135,13 +258,14 @@ class LiurenResultPanel(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        self.smart_analyze_btn = QPushButton('🤖 重新解读')
+        self.smart_analyze_btn = QPushButton('⚡ 智能分析')
         self.smart_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
         self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
         self.smart_analyze_btn.setVisible(False)
         header_layout.addWidget(self.smart_analyze_btn)
 
-        self.export_btn = QPushButton('📤 导出')
+        self.export_btn = QPushButton('导出')
+        self.export_btn.setIcon(load_icon('export', 16))
         self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setVisible(False)
@@ -149,7 +273,8 @@ class LiurenResultPanel(QWidget):
         header_layout.addWidget(self.export_btn)
 
         # 全部卡片 收起/展开 切换按钮
-        self.collapse_all_btn = QPushButton('▾ 全部收起')
+        self.collapse_all_btn = QPushButton('全部收起')
+        self.collapse_all_btn.setIcon(load_icon('collapse-all', 16))
         self.collapse_all_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
         self.collapse_all_btn.setCursor(Qt.PointingHandCursor)
         self.collapse_all_btn.setVisible(False)
@@ -169,6 +294,7 @@ class LiurenResultPanel(QWidget):
             }}
         """)
         status_layout = QHBoxLayout(self.status_bar)
+        status_layout.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         status_layout.setContentsMargins(16, 10, 16, 10)
         status_layout.setAlignment(Qt.AlignCenter)
         self.status_label = QLabel('请完善左侧起课参数')
@@ -191,7 +317,7 @@ class LiurenResultPanel(QWidget):
         self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(18)
+        self.content_layout.setSpacing(Spacing.S4)
 
         self.empty_state = self._create_empty_state()
         self.content_layout.addWidget(self.empty_state)
@@ -202,37 +328,26 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 空状态 ----------
     def _create_empty_state(self):
-        """创建未起课时的占位界面（太极图标 + 引导文案）。"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(16)
-        icon = QLabel('☵')
-        icon.setStyleSheet(f"font-size: 64px; color: {Colors.BORDER}; opacity: 0.5;")
-        icon.setAlignment(Qt.AlignCenter)
-        title = QLabel('请完善左侧起课参数')
-        title.setStyleSheet(f"""
-            font-size: 18px; color: {Colors.TEXT_TERTIARY};
-            font-family: {Fonts.FAMILY_CN};
-        """)
-        title.setAlignment(Qt.AlignCenter)
-        subtitle = QLabel('点击「起课」获取大六壬天地盘与三传分析')
-        subtitle.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY}; color: {Colors.TEXT_TERTIARY};
-            font-family: {Fonts.FAMILY_CN}; opacity: 0.7;
-        """)
-        subtitle.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        return widget
+        """创建空状态，委托 EmptyState（M3-6：统一视觉语言 + 引导动效）。
+
+        保留对外方法签名，避免破坏既有测试契约（返回 QWidget 实例）。
+        """
+        from ui.components.states import EmptyState
+        empty = EmptyState(
+            title='请完善左侧起课参数',
+            hint='点击「起课」获取大六壬天地盘与三传分析',
+            icon='☵',
+            color=Colors.TEXT3,
+            parent=self.content_widget,
+        )
+        return empty
 
     def _toggle_collapse_all(self):
         """一键收起/展开全部结果卡片，并联动按钮文案。"""
         cards = self.content_widget.findChildren(CollapsibleCard)
         any_expanded = any(not c.is_collapsed() for c in cards)
         set_all_cards_collapsed(self.content_widget, collapsed=any_expanded)
-        self.collapse_all_btn.setText('▸ 全部展开' if any_expanded else '▾ 全部收起')
+        self.collapse_all_btn.setText('全部展开' if any_expanded else '全部收起')
 
     # ---------- 通用卡片（统一复用 CollapsibleCard） ----------
     def _create_result_card(self, title, icon, content_widget, highlight=False):
@@ -271,7 +386,7 @@ class LiurenResultPanel(QWidget):
         color = WX_COLOR.get(wx, Colors.TEXT_SECONDARY)
         chip.setStyleSheet(f"""
             font-size: {Fonts.SIZE_SMALL}; font-family: {Fonts.FAMILY_CN};
-            color: #ffffff; background-color: {color};
+            color: {Colors.WHITE}; background-color: {color};
             border-radius: 4px; padding: 2px 8px;
         """)
         chip.setAlignment(Qt.AlignCenter)
@@ -298,12 +413,12 @@ class LiurenResultPanel(QWidget):
         # 行式布局：鎏金微光小药丸标签 + 粗体值 + 行间细分隔（与梅花「起卦信息」一致）
         vlay = QVBoxLayout()
         vlay.setContentsMargins(0, 0, 0, 0)
-        vlay.setSpacing(0)
+        vlay.setSpacing(Spacing.S0)
         for i, (k, v) in enumerate(rows):
             row = QWidget()
             rl = QHBoxLayout(row)
             rl.setContentsMargins(10, 8, 10, 8)
-            rl.setSpacing(12)
+            rl.setSpacing(Spacing.S3)
             kl = QLabel(k)
             kl.setFixedWidth(64)
             kl.setAlignment(Qt.AlignCenter)
@@ -329,11 +444,10 @@ class LiurenResultPanel(QWidget):
 
     # ---------- 天地盘 ----------
     def _tiandi_card(self, r):
-        """构建「天地盘」卡片：十二宫位卡片化展示（地盘宫 / 天盘支 / 临宫天将）。
+        """构建「天地盘」卡片：默认圆形罗盘视图（11.1），并提供卡片列表视图切换。
 
-        天盘为月将加时后各宫所临地支，天将为人盘十二神将。
-        宽屏一行 12 宫（罗盘式），窄屏自动降为 6 列 / 4 列；
-        日支所在宫以鎏金描边高亮，便于快速定位课体枢纽。
+        罗盘视图：12 地支环形排列（子北/午南/卯东/酉西），天盘支覆盖于地盘宫之上，
+        天将标注于宫下，日支以鎏金描边高亮；窄屏或偏好时可切换为卡片流（保留原样式）。
 
         Args:
             r: 起课结果字典。
@@ -341,16 +455,11 @@ class LiurenResultPanel(QWidget):
         Returns:
             渲染好的 QWidget。
         """
-        tian_pan = r.get('tian_pan', {})
-        # 预建「宫位→天将」映射，便于按地支宫快速取对应天将
-        tian_jiang = {t['pos']: t['jiang'] for t in r.get('tian_jiang', [])}
-        ri_zhi = r.get('ri_zhi', '')
-
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
         vlay.setContentsMargins(4, 4, 4, 4)
-        vlay.setSpacing(10)
+        vlay.setSpacing(Spacing.S3)
 
         # 图例
         legend = QLabel('▍地盘为宫位（小字灰）｜天盘为加临之支（大字朱）｜天将为临宫神将')
@@ -360,7 +469,52 @@ class LiurenResultPanel(QWidget):
         legend.setWordWrap(True)
         vlay.addWidget(legend)
 
-        # 响应式宫位流：min 64px → 宽屏 12 列、中屏 6 列、窄屏 4 列
+        # 视图切换（罗盘 / 卡片列表），窄屏默认卡片列表
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(Spacing.S2)
+        self._td_compass_btn = QPushButton('◎ 罗盘')
+        self._td_list_btn = QPushButton('▤ 卡片')
+        for b in (self._td_compass_btn, self._td_list_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFixedHeight(30)
+            b.clicked.connect(
+                lambda _=False, btn=b: self._set_tiandi_view(
+                    0 if btn is self._td_compass_btn else 1))
+        toggle_row.addStretch()
+        toggle_row.addWidget(self._td_compass_btn)
+        toggle_row.addWidget(self._td_list_btn)
+        vlay.addLayout(toggle_row)
+
+        self._td_stack = QStackedWidget()
+        self._td_compass = _TiandiCompass(r)
+        self._td_list = self._tiandi_list_widget(r)
+        self._td_stack.addWidget(self._td_compass)  # index 0：罗盘
+        self._td_stack.addWidget(self._td_list)      # index 1：卡片
+        vlay.addWidget(self._td_stack, 1)
+
+        # 默认视图：宽屏用罗盘，窄屏（<520px）降级为卡片列表
+        self._set_tiandi_view(1 if (self.width() or 900) < 520 else 0)
+        return w
+
+    def _set_tiandi_view(self, idx: int):
+        """切换天地盘视图（0=罗盘 / 1=卡片），并联动按钮高亮状态。"""
+        if not hasattr(self, '_td_stack'):
+            return
+        try:
+            self._td_stack.setCurrentIndex(idx)
+            on, off = Stylesheets.BUTTON_PRIMARY, Stylesheets.BUTTON_SECONDARY
+            self._td_compass_btn.setStyleSheet(on if idx == 0 else off)
+            self._td_list_btn.setStyleSheet(on if idx == 1 else off)
+        except RuntimeError:
+            pass
+
+    def _tiandi_list_widget(self, r):
+        """天地盘卡片流（窄屏/列表视图）：12 宫位卡片，地盘宫/天盘支/天将。"""
+        tian_pan = r.get('tian_pan', {})
+        # 预建「宫位→天将」映射，便于按地支宫快速取对应天将
+        tian_jiang = {t['pos']: t['jiang'] for t in r.get('tian_jiang', [])}
+        ri_zhi = r.get('ri_zhi', '')
+
         flow = ResponsiveFlow(min_item_width=72, max_cols=12, min_cols=4, spacing=6)
         for dz in ZHI_ORDER:
             tp = tian_pan.get(dz, dz)
@@ -372,7 +526,7 @@ class LiurenResultPanel(QWidget):
                 cell.setStyleSheet(f"""
                     QFrame {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #FFFBF0, stop:1 #FFF5E0);
+                            stop:0 {Colors.HIGHLIGHT_WARM_STRONG}, stop:1 {Colors.HIGHLIGHT_WARM});
                         border: 1.5px solid {Colors.LIUJIN};
                         border-radius: {Spacing.RADIUS_SM};
                     }}
@@ -390,7 +544,7 @@ class LiurenResultPanel(QWidget):
                 """)
             cl = QVBoxLayout(cell)
             cl.setContentsMargins(2, 6, 2, 6)
-            cl.setSpacing(2)
+            cl.setSpacing(Spacing.S1)
 
             # 地盘宫位（灰小字）
             gong = QLabel(dz + ('·日' if is_ri else ''))
@@ -415,8 +569,7 @@ class LiurenResultPanel(QWidget):
             cl.addWidget(jiang_lbl)
             flow.add_widget(cell)
 
-        vlay.addWidget(flow)
-        return w
+        return flow
 
     # ---------- 四课 ----------
     def _sike_card(self, r):
@@ -435,7 +588,7 @@ class LiurenResultPanel(QWidget):
                   ('支上（第三课）', 'zhi_shang'), ('支阴（第四课）', 'zhi_yin')]
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
+        grid.setSpacing(Spacing.S3)
         grid.setColumnStretch(1, 1)
         for i, (label, key) in enumerate(order):
             v = si_ke.get(key, {})
@@ -473,11 +626,12 @@ class LiurenResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
         vlay.setContentsMargins(4, 4, 4, 4)
-        vlay.setSpacing(10)
+        vlay.setSpacing(Spacing.S3)
 
         # 门法徽章（置顶）
         if gate:
             gate_row = QHBoxLayout()
+            gate_row.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
             gate_row.setAlignment(Qt.AlignCenter)
             gate_lab = QLabel(f'⌘ 取用法：{gate}')
             gate_lab.setStyleSheet(f"""
@@ -491,34 +645,44 @@ class LiurenResultPanel(QWidget):
             vlay.addLayout(gate_row)
 
         # 三传响应式卡片：宽屏横排、窄屏纵向堆叠
+        # 三色高亮（方案 §11.2）：初传鎏金 / 中传古金 / 末传靛蓝
         flow = ResponsiveFlow(min_item_width=170, max_cols=3, min_cols=1, spacing=12)
-        items = [('初传 · 发端', sc.get('chu', ''), True),
-                 ('中传 · 过程', sc.get('zhong', ''), False),
-                 ('末传 · 归结', sc.get('mo', ''), False)]
-        for label, val, is_chu in items:
+        items = [('初传 · 发端', sc.get('chu', ''), 'liujin'),
+                 ('中传 · 过程', sc.get('zhong', ''), 'qinghua'),
+                 ('末传 · 归结', sc.get('mo', ''), 'dianqing')]
+        for label, val, style in items:
             card = QFrame()
-            if is_chu:
+            if style == 'liujin':
                 card.setStyleSheet(f"""
                     QFrame {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #FFFBF0, stop:1 #FFF5E0);
+                            stop:0 {Colors.HIGHLIGHT_WARM_STRONG}, stop:1 {Colors.HIGHLIGHT_WARM});
                         border: 1.5px solid {Colors.LIUJIN};
                         border-radius: {Spacing.RADIUS};
                     }}
                 """)
                 val_color = Colors.LIUJIN
+            elif style == 'dianqing':
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background: {Colors.BG_DARK};
+                        border: 1px solid {Colors.DIANQING};
+                        border-radius: {Spacing.RADIUS};
+                    }}
+                """)
+                val_color = Colors.DIANQING
             else:
                 card.setStyleSheet(f"""
                     QFrame {{
                         background: {Colors.BG};
-                        border: 1px solid {Colors.BORDER_LIGHT};
+                        border: 1px solid {Colors.QINGHUA};
                         border-radius: {Spacing.RADIUS};
                     }}
                 """)
-                val_color = Colors.ZHUSHA
+                val_color = Colors.QINGHUA
             cl = QVBoxLayout(card)
             cl.setContentsMargins(10, 10, 10, 10)
-            cl.setSpacing(4)
+            cl.setSpacing(Spacing.S1)
             lab = QLabel(label)
             lab.setAlignment(Qt.AlignCenter)
             lab.setStyleSheet(
@@ -561,7 +725,7 @@ class LiurenResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
         vlay.setContentsMargins(4, 4, 4, 4)
-        vlay.setSpacing(8)
+        vlay.setSpacing(Spacing.S2)
 
         legend = QLabel('▍吉将（贵人/六合/青龙/太常/太阴/天后）标绿｜凶将（螣蛇/朱雀/勾陈/天空/白虎/玄武）标红')
         legend.setWordWrap(True)
@@ -592,7 +756,7 @@ class LiurenResultPanel(QWidget):
             """)
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(10, 6, 10, 6)
-            cl.setSpacing(8)
+            cl.setSpacing(Spacing.S2)
             pos_lbl = QLabel(f"{t.get('pos', '')}宫")
             pos_lbl.setStyleSheet(
                 f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT_TERTIARY}; "
@@ -626,12 +790,13 @@ class LiurenResultPanel(QWidget):
         sha = r.get('shen_sha', {})
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(Spacing.S2)
         if not sha:
             layout.addWidget(self._muted('本课无明显神煞'))
         else:
             for k, v in sha.items():
                 row = QHBoxLayout()
+                row.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
                 kl = QLabel(k)
                 kl.setStyleSheet(f"font-size: {Fonts.SIZE_SMALL}; color: {Colors.TEXT_TERTIARY}; font-family: {Fonts.FAMILY_CN};")
                 kl.setFixedWidth(60)
@@ -679,7 +844,7 @@ class LiurenResultPanel(QWidget):
         w.setProperty('is_placeholder', True)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(Spacing.S3)
         layout.addWidget(self._muted(f'{AI_SECTION_TITLE}将在起课后自动生成，或点击右上角「重新解读」。'))
         return w
 
@@ -753,7 +918,7 @@ class LiurenResultPanel(QWidget):
                 self.export_btn.setVisible(True)
             if hasattr(self, 'collapse_all_btn'):
                 self.collapse_all_btn.setVisible(True)
-                self.collapse_all_btn.setText('▾ 全部收起')
+                self.collapse_all_btn.setText('全部收起')
 
             self.status_label.setText('✓ 起课完成，天地盘已生成')
             self.status_label.setStyleSheet(f"""

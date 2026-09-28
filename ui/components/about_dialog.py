@@ -3,11 +3,13 @@
 =====================================
 包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色 · 支付二维码
 """
+import logging
 import os
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QFrame, QWidget, QMessageBox,
+                               QScrollArea,
                                QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
 from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer, QSize
 from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
@@ -15,6 +17,8 @@ from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
                            QPixmap, QPalette)
 
 from ui.styles import Colors, Fonts, Spacing
+from core.path_utils import get_resource_path, get_app_dir
+from ui.components.typography import TLabel  # M4-5：分区标题/正文/提示统一走 TLabel 工厂
 
 
 class AboutDialog(QDialog):
@@ -22,8 +26,14 @@ class AboutDialog(QDialog):
 
     QQ = '1153602036'
     PHONE = '19258585274'
-    # 支付二维码目录（绝对路径，用户自行放置图片）
-    QRCODE_DIR = Path(r'D:\PythonProject\qrcode')
+    # ---- 二维码资源（UI 升级 M4-1） ----
+    # 旧实现 QRCODE_DIR = Path(r'D:\PythonProject\qrcode') 是硬编码绝对路径，
+    # 该目录在源码树与打包产物中均不存在 → 4 张二维码 100% 走失败分支（方案 Q01）。
+    # 改为「相对仓库根目录 + get_resource_path」：源码运行解析到 <root>/images，
+    # 打包运行解析到 _MEIPASS/images（images 已由 M4-1 加入 spec datas）。
+    # 均为**相对路径**，不依赖任何开发机绝对路径。
+    QR_FRIEND_DIR = 'images/link_qrcode'   # 添加好友：wx.png / qq.png
+    QR_PAY_DIR = 'images/pay_qrcode'       # 支付打赏：wx-pay.png / ali-pay.png
     # 版本号单一权威源：从 app_version 读取，确保与程序实际版本完全一致。
     # 导入失败时回落到常量，保证对话框永远能打开。
     try:
@@ -32,6 +42,8 @@ class AboutDialog(QDialog):
     except Exception:
         APP_VERSION = 'v5.0.6'
 
+    # Header 固定高度（M4-5：原为裸数字 160，提为常量便于统一调整）
+    HEADER_H = 160
     # 卡片动画延迟参数
     _STAGGER_DELAY = 80      # 每张卡片延迟 ms
     _STAGGER_BASE = 120      # 首张基础延迟 ms
@@ -47,9 +59,29 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('关于')
         self.setModal(True)
-        self.setMinimumSize(480, 520)
+        # M4-3：内容由 3 张卡增至 5 张（新增「添加我好友」「版本信息」），
+        # 最小高度上调到 560；横向反降至 460，允许 XS 档窄窗口（body 可滚动）。
+        self.setMinimumSize(460, 560)
         self._cards = []  # 需要入场动画的卡片列表
+        self._qr_labels = []  # 所有二维码标签，供 resize 时统一改尺寸
+        self._qr_size = QPixmapLabel.size_for(self.width())
         self._build_ui()
+
+    def resizeEvent(self, event):
+        """按对话框宽度切换二维码三档尺寸（M4-3）。
+
+        只在档位变化时才调用 setSize，避免 resize 期间反复重缩放。
+        """
+        super().resizeEvent(event)
+        target = QPixmapLabel.size_for(self.width())
+        if target == self._qr_size:
+            return
+        self._qr_size = target
+        for lbl in getattr(self, '_qr_labels', []):
+            try:
+                lbl.setSize(target)
+            except RuntimeError:
+                pass  # 控件已销毁
 
     def showEvent(self, event):
         """重写 showEvent：在对话框可见后依次触发动画。"""
@@ -69,83 +101,111 @@ class AboutDialog(QDialog):
 
     # ======================== 主布局 ========================
     def _build_ui(self):
-        """构建主布局：顶部渐变 Header + 内容区（介绍卡 / 联系方式 / 版权）。"""
+        """构建主布局：顶部渐变 Header + 可滚动内容区（M4-5 五个语义分区）。
+
+        分区顺序（方案 M4-5）：
+            关于本项目 → 联系我 → 添加我好友 → 支持我们 → 版本信息 → 版权声明
+        body 用 QScrollArea 包裹，新增卡片后在 560px 最小高度下也不会被裁切。
+        """
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setSpacing(Spacing.S0)
 
         # ---- 顶部渐变 Header（含头像动画） ----
         header = self._header()
         root.addWidget(header)
 
-        # ---- 内容区 ----
+        # ---- 内容区（可滚动） ----
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background: {Colors.BG}; border: none; }}"
+        )
+
         body = QWidget()
         body.setStyleSheet(f"background: {Colors.BG};")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(28, 24, 28, 24)
-        body_layout.setSpacing(16)
+        # M4-5：裸数字 (28,24,28,24) → 令牌
+        body_layout.setContentsMargins(
+            Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
+        body_layout.setSpacing(Spacing.S4)
 
-        # 介绍卡片（入场动画）
+        # 1) 关于本项目
         intro = self._intro_card()
         self._cards.append((intro, self._STAGGER_BASE))
         body_layout.addWidget(intro)
 
-        # 联系方式
+        # 2) 联系我
         contacts = self._contacts_section()
         self._cards.append((contacts, self._STAGGER_BASE + self._STAGGER_DELAY))
         body_layout.addWidget(contacts)
 
-        # 支付二维码（入场动画）
+        # 3) 添加我好友（M4-2 新增）
+        friend = self._friend_section()
+        self._cards.append((friend, self._STAGGER_BASE + 2 * self._STAGGER_DELAY))
+        body_layout.addWidget(friend)
+
+        # 4) 支持我们（支付二维码）
         qrcode = self._qrcode_section()
-        self._cards.append((qrcode, self._STAGGER_BASE + 2 * self._STAGGER_DELAY))
+        self._cards.append((qrcode, self._STAGGER_BASE + 3 * self._STAGGER_DELAY))
         body_layout.addWidget(qrcode)
 
-        # 底部版权（stretch=0）
+        # 5) 版本信息（M4-5 / Q18 新增）
+        version = self._version_section()
+        self._cards.append((version, self._STAGGER_BASE + 4 * self._STAGGER_DELAY))
+        body_layout.addWidget(version)
+
+        # 6) 底部版权（stretch=0）
         footer = self._footer_text()
         body_layout.addWidget(footer)
         body_layout.addStretch(1)
 
-        root.addWidget(body, 1)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
     # ======================== 顶部 Header ========================
     def _header(self) -> QWidget:
         """渐变 Header + 呼吸光环头像 + 波浪。"""
         bar = QFrame()
-        bar.setFixedHeight(160)
+        # M4-5：裸数字 160 提为常量（Header 高度需容纳 72px 头像 + 三行文字 + 波浪）
+        bar.setFixedHeight(self.HEADER_H)
         bar.setStyleSheet(f"""
             QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {Colors.QINGHUA},
                     stop:0.55 {Colors.QINGHUA_DARK},
                     stop:1 {Colors.ZHUSHA});
-                border-radius: 0px;
+                border-radius: 0;
             }}
         """)
         outer = QVBoxLayout(bar)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setSpacing(Spacing.S0)
 
         # ---- 中心内容行 ----
         center = QWidget()
         clayout = QHBoxLayout(center)
+        clayout.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         clayout.setContentsMargins(0, 0, 0, 0)
         clayout.setAlignment(Qt.AlignCenter)
 
-        clayout.addSpacing(28)
+        clayout.addSpacing(Spacing.S7)
 
         # 带呼吸光环的头像
         avatar = HaloAvatarWidget('风', size=72)
         clayout.addWidget(avatar)
-        clayout.addSpacing(16)
+        clayout.addSpacing(Spacing.S4)
 
         # 文字区
         text_grp = QVBoxLayout()
-        text_grp.setSpacing(3)
+        text_grp.setSpacing(Spacing.S1)
         text_grp.setAlignment(Qt.AlignTop)
 
         title = QLabel('风水排盘专业工具')
         title.setStyleSheet(f"""
-            font-size: 20px;
+            font-size: {Fonts.FS_H1}px;
             font-weight: {Fonts.W_BOLD};
             color: white;
             font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
@@ -154,8 +214,8 @@ class AboutDialog(QDialog):
         text_grp.addWidget(title)
 
         sub = QLabel('龙虎山大师兄 · 中国传统命理学 × 玄学智能解读')
-        sub.setStyleSheet("""
-            font-size: 12px;
+        sub.setStyleSheet(f"""
+            font-size: {Fonts.FS_CAPTION}px;
             color: rgba(255,255,255,0.80);
             font-family: 'Segoe UI', sans-serif;
             letter-spacing: 0.5px;
@@ -163,15 +223,15 @@ class AboutDialog(QDialog):
         text_grp.addWidget(sub)
 
         ver = QLabel(self.APP_VERSION)
-        ver.setStyleSheet("""
-            font-size: 11px;
+        ver.setStyleSheet(f"""
+            font-size: {Fonts.FS_MICRO}px;
             color: rgba(255,255,255,0.50);
             font-family: 'Courier New', monospace;
         """)
         text_grp.addWidget(ver)
 
         clayout.addLayout(text_grp)
-        clayout.addSpacing(24)
+        clayout.addSpacing(Spacing.S6)
 
         outer.addWidget(center, 1)
 
@@ -186,32 +246,23 @@ class AboutDialog(QDialog):
         """去框线，只用阴影做区分。"""
         card = ShadowCard()
         inner = QVBoxLayout(card)
-        inner.setContentsMargins(24, 16, 24, 16)
-        inner.setSpacing(8)
+        # M4-5：裸数字 (24,16,24,16) → 间距令牌（Q06 间距不变量）
+        inner.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
+        inner.setSpacing(Spacing.S2)
 
-        lbl = QLabel('关于本项目')
-        lbl.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SECTION};
-            font-weight: {Fonts.W_BOLD};
-            color: {Colors.QINGHUA_DARK};
-            font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
-        """)
+        # M4-5：分区标题走 TLabel.h3（替代重复 QSS 字符串，字重 500）
+        lbl = TLabel.h3('关于本项目')
+        lbl.setStyleSheet(lbl.styleSheet() + f'color: {Colors.QINGHUA_DARK};')
         lbl.setAlignment(Qt.AlignCenter)
         inner.addWidget(lbl)
 
-        text = QLabel(
+        # M4-5：正文走 TLabel.paragraph（统一行高 1.7 + 自动换行）
+        text = TLabel.paragraph(
             '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与龙虎山大师兄分析预测深度融合的'
             '桌面端专业命理分析工具。\n\n'
             '通过严谨的命理算法计算，结合龙虎山大师兄的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
         )
-        text.setWordWrap(True)
         text.setAlignment(Qt.AlignJustify)
-        text.setStyleSheet(f"""
-            font-size: {Fonts.SZ_BODY};
-            color: {Colors.TEXT2};
-            font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
-            line-height: 170%;
-        """)
         inner.addWidget(text)
 
         return card
@@ -221,22 +272,21 @@ class AboutDialog(QDialog):
         """构建「联系我」卡片，含 QQ 与手机两个带联系/复制按钮的联系组件。"""
         card = ShadowCard()
         inner = QVBoxLayout(card)
-        inner.setContentsMargins(24, 16, 24, 16)
-        inner.setSpacing(14)
+        # M4-5：裸数字 (24,16,24,16) → 间距令牌
+        inner.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
+        inner.setSpacing(Spacing.S4)
 
-        lbl = QLabel('联系我')
-        lbl.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SECTION};
-            font-weight: {Fonts.W_BOLD};
-            color: {Colors.QINGHUA_DARK};
-            font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
-        """)
+        # M4-5：分区标题走 TLabel.h3
+        lbl = TLabel.h3('联系我')
+        lbl.setStyleSheet(lbl.styleSheet() + f'color: {Colors.QINGHUA_DARK};')
         lbl.setAlignment(Qt.AlignCenter)
         inner.addWidget(lbl)
 
         row = QHBoxLayout()
-        row.setSpacing(14)
+        row.setSpacing(Spacing.S4)
 
+        # 已知审计豁免：#12B7F5 是腾讯 QQ 官方品牌蓝，属第三方品牌色，
+        # 刻意不走 Colors 令牌（令牌表只承载本项目设计系统色）
         qq_btn = ContactButton('QQ', '\U0001F4AC', self.QQ,
                                f'tencent://message/?uin={self.QQ}',
                                'QQ', '#12B7F5')
@@ -266,22 +316,19 @@ class AboutDialog(QDialog):
         """构建「支持我们」支付二维码卡片，展示微信与支付宝二维码。"""
         card = ShadowCard()
         inner = QVBoxLayout(card)
-        inner.setContentsMargins(24, 16, 24, 16)
-        inner.setSpacing(14)
+        # M4-5：裸数字 (24,16,24,16) → 间距令牌
+        inner.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
+        inner.setSpacing(Spacing.S4)
 
-        lbl = QLabel('支持我们')
-        lbl.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SECTION};
-            font-weight: {Fonts.W_BOLD};
-            color: {Colors.QINGHUA_DARK};
-            font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
-        """)
+        # M4-5：分区标题走 TLabel.h3
+        lbl = TLabel.h3('支持我们')
+        lbl.setStyleSheet(lbl.styleSheet() + f'color: {Colors.QINGHUA_DARK};')
         lbl.setAlignment(Qt.AlignCenter)
         inner.addWidget(lbl)
 
         # 双栏布局：微信 | 支付宝
         qr_row = QHBoxLayout()
-        qr_row.setSpacing(20)
+        qr_row.setSpacing(Spacing.S5)
 
         wx_item = self._qr_item('微信支付', 'wx-pay.png', Colors.SUCCESS)
         alipay_item = self._qr_item('支付宝', 'ali-pay.png', Colors.QINGHUA)
@@ -290,7 +337,7 @@ class AboutDialog(QDialog):
 
         inner.addLayout(qr_row)
 
-        hint = QLabel('扫码支持本项目开发，感谢您的认可 🙏')
+        hint = QLabel('扫码支持本项目开发 · 金额随意，感谢认可 🙏')  # M4-2.4 文案微调
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet(f"""
             font-size: {Fonts.SZ_MICRO};
@@ -302,33 +349,160 @@ class AboutDialog(QDialog):
 
         return card
 
-    def _qr_item(self, label: str, filename: str, accent: str) -> QWidget:
-        """生成单个支付二维码组件（图片 + 标签），含加载失败降级处理。
+    # ======================== 添加我好友（M4-2） ========================
+    def _friend_section(self) -> QFrame:
+        """构建「添加我好友」卡片，展示微信 / QQ 好友二维码（修 Q04）。
 
-        支持打包模式：通过 sys._MEIPASS 访问单文件exe提取的资源。
+        结构与 `_qrcode_section()` 一致，但资源取自 QR_FRIEND_DIR
+        （images/link_qrcode），缺图时走与支付区相同的降级文案。
+        """
+        card = ShadowCard()
+        inner = QVBoxLayout(card)
+        # M4-5：统一间距令牌
+        inner.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
+        inner.setSpacing(Spacing.S4)
+
+        # 分区标题（M4-5：TLabel.h3 + 品牌深金）
+        lbl = TLabel.h3('添加我好友')
+        lbl.setStyleSheet(lbl.styleSheet() + f'color: {Colors.QINGHUA_DARK};')
+        lbl.setAlignment(Qt.AlignCenter)
+        inner.addWidget(lbl)
+
+        # 双栏布局：微信好友 | QQ 好友
+        qr_row = QHBoxLayout()
+        qr_row.setSpacing(Spacing.S5)
+
+        wx_item = self._qr_item('微信好友', 'wx.png', Colors.SUCCESS,
+                                sub_dir=self.QR_FRIEND_DIR)
+        qq_item = self._qr_item('QQ 好友', 'qq.png', Colors.QINGHUA,
+                                 sub_dir=self.QR_FRIEND_DIR)
+        qr_row.addWidget(wx_item)
+        qr_row.addWidget(qq_item)
+
+        inner.addLayout(qr_row)
+
+        # 提示文案（M4-2：扫码添加好友，备注「排盘」）
+        hint = QLabel('扫码添加好友，交流命理与使用问题 · 好友申请请备注「排盘」')
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet(f"""
+            font-size: {Fonts.SZ_MICRO};
+            color: {Colors.TEXT3};
+            font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
+            padding: 2px 0;
+        """)
+        inner.addWidget(hint)
+
+        return card
+
+    # ======================== 版本信息（M4-5 / Q18） ========================
+    def _version_section(self) -> QFrame:
+        """构建「版本信息」小卡（Q18）：把版本/构建/运行环境集中成区。
+
+        三行均用 TLabel.micro（等宽显示版本号），底部版权仍由 `_footer_text()` 负责。
+        """
+        card = ShadowCard()
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
+        inner.setSpacing(Spacing.S2)
+
+        lbl = TLabel.h3('版本信息')
+        lbl.setStyleSheet(lbl.styleSheet() + f'color: {Colors.QINGHUA_DARK};')
+        lbl.setAlignment(Qt.AlignCenter)
+        inner.addWidget(lbl)
+
+        # 构建（git short hash），无 .git 时留空
+        commit = self._git_commit_short()
+        build_line = f'构建 {commit}' if commit else '构建 （本地源码）'
+
+        # 版本号行：用 TLabel.value（等宽品牌金）突出版本
+        ver_row = TLabel.value(self.APP_VERSION)
+        ver_row.setAlignment(Qt.AlignCenter)
+        inner.addWidget(ver_row)
+
+        build_row = TLabel.micro(build_line)
+        build_row.setAlignment(Qt.AlignCenter)
+        inner.addWidget(build_row)
+
+        env_row = TLabel.micro('运行环境 Python 3.13 · PySide6 6.9.2')
+        env_row.setAlignment(Qt.AlignCenter)
+        inner.addWidget(env_row)
+
+        return card
+
+    # ======================== 二维码资源解析（M4-1） ========================
+    @classmethod
+    def _resolve_qr(cls, sub_dir: str, filename: str):
+        """按「打包(_MEIPASS) → 资源根 → 可执行文件同级」顺序解析二维码路径。
 
         Args:
-            label: 支付方式名称（如 '微信支付'）。
-            filename: 图片文件名（相对于 QRCODE_DIR）。
-            accent: 强调色十六进制，用于图片底色装饰边框。
+            sub_dir: 相对仓库根的子目录（QR_FRIEND_DIR / QR_PAY_DIR）。
+            filename: 图片文件名（如 'wx-pay.png'）。
+
         Returns:
-            包含 QPixmapLabel 和说明文字的组合 Widget。
+            (Path | None, str)：成功时 (绝对路径, '')；失败时 (None, 失败原因文案)。
+            失败原因**只写日志，不暴露给用户**（方案 M4-4：禁止显示 .png 文件名）。
         """
+        rel = f'{sub_dir}/{filename}'
+        try:
+            p = get_resource_path(rel)
+            if p and Path(p).exists():
+                return Path(p), ''
+        except Exception:
+            pass
+        # 打包回退：exe 同级 images/（用户可能自行放置/替换资源）
+        try:
+            p2 = get_app_dir() / sub_dir / filename
+            if p2.exists():
+                return p2, ''
+        except Exception:
+            pass
+        return None, f'资源缺失: {rel}'
+
+    def _qr_item(self, label: str, filename: str, accent: str,
+                 sub_dir: str = None) -> QWidget:
+        """生成单个二维码组件（白底容器 + 图片 + 标签），含加载失败降级处理。
+
+        Args:
+            label: 渠道名称（如 '微信支付' / '微信好友'）。
+            filename: 图片文件名（相对于 sub_dir）。
+            accent: 强调色十六进制，用于占位区边框与降级图标。
+            sub_dir: 资源子目录；None 时取 QR_PAY_DIR（保持向后兼容）。
+
+        Returns:
+            包含白底容器、QPixmapLabel 和说明文字的组合 Widget。
+        """
+        sub_dir = sub_dir or self.QR_PAY_DIR
         grp = QWidget()
         v = QVBoxLayout(grp)
-        v.setContentsMargins(4, 4, 4, 4)
-        v.setSpacing(6)
+        v.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
+        v.setSpacing(Spacing.S2)
         v.setAlignment(Qt.AlignCenter)
 
-        # 图片容器：固定尺寸，等比缩放，自动居中
+        # 白底容器（quiet zone）：二维码四周留白是扫码成功率的硬要求，
+        # 深色主题下直接贴深色底会显著降低识别率（方案 M4-3）。
+        frame = QFrame()
+        frame.setObjectName('qr_white_frame')
+        # M4-5：白底容器色值 #FFFFFF → Colors.WHITE 令牌（二维码 quiet zone 必须纯白）
+        frame.setStyleSheet(
+            f"QFrame#qr_white_frame {{ background: {Colors.WHITE}; "
+            f"border-radius: {Spacing.RADIUS_SM}; border: none; }}"
+        )
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(Spacing.S2, Spacing.S2, Spacing.S2, Spacing.S2)
+        fl.setSpacing(Spacing.S0)
+
         img_lbl = QPixmapLabel(label=label, accent=accent)
-        v.addWidget(img_lbl)
+        fl.addWidget(img_lbl)
+        if not hasattr(self, '_qr_labels'):
+            self._qr_labels = []
+        self._qr_labels.append(img_lbl)
+        v.addWidget(frame)
 
         # 文字标签
         txt = QLabel(label)
         txt.setAlignment(Qt.AlignCenter)
         txt.setStyleSheet(f"""
-            font-size: {Fonts.SZ_SMALL};
+            font-size: {Fonts.SZ_SMALL}px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT2};
             font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
@@ -336,22 +510,42 @@ class AboutDialog(QDialog):
         """)
         v.addWidget(txt)
 
-        # 尝试加载图片（同步，避免闪烁）
-        # 支持打包模式：优先检查 _MEIPASS（PyInstaller 提取目录）， fallback 到原始路径
-        img_path_in_meipas = Path(sys._MEIPASS) / "qrcode" / filename if getattr(sys, '_MEIPASS', None) else None
-        img_path = img_path_in_meipas if img_path_in_meipas and img_path_in_meipas.exists() else self.QRCODE_DIR / filename
-        if img_path.exists():
-            img_lbl.setPixmap(QPixmap(str(img_path)).scaled(
-                QSize(140, 140), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # 加载（同步，避免闪烁）
+        path, reason = self._resolve_qr(sub_dir, filename)
+        if path is not None:
+            img_lbl.setPixmap(QPixmap(str(path)))
         else:
-            img_lbl.setError(f'未找到\n{filename}')
+            # M4-4：结构化降级，不暴露文件名，不弹窗（弹窗会阻塞且离屏测试 hang）
+            img_lbl.setError(self._qr_error_text(label, accent))
+            try:
+                logging.getLogger(__name__).warning(f'[关于] 二维码加载失败 {reason}')
+            except Exception:
+                pass
 
         return grp
 
+    @staticmethod
+    def _qr_error_text(label: str, accent: str) -> str:
+        """生成二维码加载失败的中文降级文案（M4-4）。
+
+        Args:
+            label: 渠道名称（'微信支付' / 'QQ 好友' 等）。
+            accent: 强调色（保留参数以兼容既有调用；文案本身不使用）。
+
+        Returns:
+            两行文案：主提示 + 可操作引导（引导用户走下方联系方式）。
+        """
+        return f'{label}二维码暂未加载\n请通过下方联系方式添加'
+
     def _footer_text(self) -> QLabel:
         """生成底部版权说明文本（版本号 + 免责声明），居中小字。"""
+        ver_line = f'{self.APP_VERSION}'
+        # T6.2 调试版展示 Git commit hash（动态获取，失败静默回退，不影响正式构建）
+        commit = self._git_commit_short()
+        if commit:
+            ver_line = f'{self.APP_VERSION} ({commit})'
         lbl = QLabel(
-            f'Copyright © 2024-2026 风水排盘专业工具 · {self.APP_VERSION}\n'
+            f'Copyright © 2024-2026 风水排盘专业工具 · {ver_line}\n'
             '仅供学习与娱乐参考，不构成人生决策依据 · All Rights Reserved'
         )
         lbl.setWordWrap(True)
@@ -363,6 +557,27 @@ class AboutDialog(QDialog):
             padding: 4px 0;
         """)
         return lbl
+
+    @staticmethod
+    def _git_commit_short() -> str:
+        """T6.2 获取短 Git commit hash（调试版用），失败返回空串（不显示）。
+
+        仅当源码目录下存在 .git 时尝试读取；打包产物无 .git 则静默回退。
+        """
+        try:
+            import subprocess
+            project_root = Path(__file__).resolve().parent.parent.parent
+            if not (project_root / '.git').exists():
+                return ''
+            out = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=str(project_root),
+                capture_output=True, text=True, timeout=2,
+            )
+            h = out.stdout.strip()
+            return h if h else ''
+        except Exception:
+            return ''
 
 
 # ======================== 装饰组件 ========================
@@ -582,12 +797,13 @@ class ContactButton(QWidget):
         self._copy_name = copy_name
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(5)
+        # M4-5：裸数字 (8,6,8,6) → 间距令牌（6 不在 8-4 网格，取 S1=4）
+        layout.setContentsMargins(Spacing.S2, Spacing.S1, Spacing.S2, Spacing.S1)
+        layout.setSpacing(Spacing.S1)
 
         # 图标 + 名称
         top = QHBoxLayout()
-        top.setSpacing(8)
+        top.setSpacing(Spacing.S2)
 
         icon_lbl = QLabel(icon)
         icon_lbl.setAlignment(Qt.AlignCenter)
@@ -597,15 +813,15 @@ class ContactButton(QWidget):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {accent_color},
                     stop:1 {accent_color}BB);
-                border-radius: 12px;
-                font-size: 20px;
+                border-radius: {Spacing.RADIUS_LG_INT}px;
+                font-size: {Fonts.FS_H1}px;
             }}
         """)
         top.addWidget(icon_lbl)
 
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(f"""
-            font-size: 14px;
+            font-size: {Fonts.FS_BODY}px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: {Fonts.TITLE}, 'Microsoft YaHei', sans-serif;
@@ -618,7 +834,7 @@ class ContactButton(QWidget):
         num_lbl = QLabel(value)
         num_lbl.setAlignment(Qt.AlignCenter)
         num_lbl.setStyleSheet(f"""
-            font-size: 18px;
+            font-size: {Fonts.FS_H2}px;
             font-weight: {Fonts.W_BOLD};
             color: {Colors.TEXT};
             font-family: 'Courier New', 'Consolas', monospace;
@@ -629,7 +845,7 @@ class ContactButton(QWidget):
 
         # 操作按钮行
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        btn_row.setSpacing(Spacing.S2)
 
         link_btn = self._make_btn('\U0001F517 联系', accent_color, True)
         link_btn.clicked.connect(lambda: self._open_link(link, name))
@@ -739,21 +955,29 @@ class QPixmapLabel(QLabel):
     加载失败或路径不存在时绘制带强调色的占位区域，提示"图片缺失"。
     """
 
-    FIXED_SIZE = 140  # 固定显示尺寸（正方形）
+    FIXED_SIZE = 140  # 默认显示尺寸（正方形）；实例级可覆盖，见 __init__(size=)
+    # 三档尺寸（M4-3）：(对话宽度下限, 显示边长)；从大到小匹配第一个满足的档。
+    # 紧凑档 132 是「二维码模块最小可扫尺寸」的经验下限，再小会掉识别率。
+    SIZE_TIERS = ((680, 180), (520, 160), (0, 132))
 
-    def __init__(self, label: str = '', parent=None, accent: str = Colors.QINGHUA):
+    def __init__(self, label: str = '', parent=None, accent: str = Colors.QINGHUA,
+                 size: int = 160):
         """初始化二维码占位标签。
 
         Args:
             label: 备用占位文字（图片加载失败时显示）。
             parent: 父 widget。
             accent: 强调色十六进制，用于占位区域的底边装饰条。
+            size: 初始显示边长（正方形），默认 160（标准档）。
         """
         super().__init__(label, parent)
         self._accent = accent
         self._error_text = label
-        self.setMinimumSize(self.FIXED_SIZE, self.FIXED_SIZE)
-        self.setMaximumSize(self.FIXED_SIZE, self.FIXED_SIZE)
+        self._size = int(size or self.FIXED_SIZE)
+        self._raw_pixmap = None   # 保存原始图，避免反复缩放累积失真
+        self._icon = ''           # 降级占位图标（渠道专属）
+        self.setMinimumSize(self._size, self._size)
+        self.setMaximumSize(self._size, self._size)
         self.setAlignment(Qt.AlignCenter)
         # 默认占位背景
         self.setStyleSheet(f"""
@@ -761,36 +985,63 @@ class QPixmapLabel(QLabel):
                 background-color: {Colors.BG_DARK};
                 border: 2px solid {Colors.BORDER};
                 border-radius: {Spacing.RADIUS_SM};
-                font-size: 11px;
+                font-size: {Fonts.FS_MICRO}px;
                 color: {Colors.TEXT3};
                 font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
             }}
         """)
 
+    @classmethod
+    def size_for(cls, dialog_width: int) -> int:
+        """按对话框宽度返回二维码显示边长（M4-3 三档）。"""
+        for min_w, sz in cls.SIZE_TIERS:
+            if dialog_width >= min_w:
+                return sz
+        return cls.SIZE_TIERS[-1][1]
+
+    def setSize(self, size: int):
+        """改变显示尺寸并按缓存的原始图重缩放（不累积失真）。
+
+        Args:
+            size: 新的正方形边长 px。
+        """
+        size = int(size or self._size)
+        if size == self._size and self._raw_pixmap is None:
+            return
+        self._size = size
+        self.setMinimumSize(size, size)
+        self.setMaximumSize(size, size)
+        if self._raw_pixmap is not None and not self._raw_pixmap.isNull():
+            super().setPixmap(self._raw_pixmap.scaled(
+                QSize(size, size), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
     def setPixmap(self, pixmap: QPixmap):
-        """设置 pixmap 并平滑缩放到固定尺寸，保持宽高比。
+        """设置 pixmap 并平滑缩放到当前尺寸，保持宽高比。
 
         Args:
             pixmap: 原始 QPixmap 对象。若为空则切换为错误占位。
         """
-        if pixmap.isNull():
+        if pixmap is None or pixmap.isNull():
             self.setError(self._error_text)
             return
-        scaled = pixmap.scaled(
-            self.FIXED_SIZE, self.FIXED_SIZE,
-            Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        super().setPixmap(scaled)
+        self._raw_pixmap = QPixmap(pixmap)   # 缓存原图，供 setSize 重缩放
+        # PySide6 6.9.2：scaled 必须传显式 QSize，传 (0, 0) 会 TypeError；
+        # 原图非正方（如 1085×919）时 KeepAspectRatio 居中，留白由白底容器吸收。
+        super().setPixmap(self._raw_pixmap.scaled(
+            QSize(self._size, self._size), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         # 加载成功后移除边框样式，让图片完整展示
         self.setStyleSheet("")
 
     def setError(self, text: str):
-        """切换为错误占位状态，显示文字提示。
+        """切换为结构化降级占位（M4-4）：渠道图标 + 主文案 + 可操作引导。
+
+        不再显示 `.png` 文件名等实现细节。
 
         Args:
             text: 占位区显示的说明文字，支持 \n 换行。
         """
         self._error_text = text
+        self._raw_pixmap = None
         self.clear()
         self.setStyleSheet(f"""
             QLabel {{
@@ -798,7 +1049,7 @@ class QPixmapLabel(QLabel):
                     stop:0 {Colors.CARD}, stop:1 {Colors.BG_DARK});
                 border: 2px dashed {self._accent}88;
                 border-radius: {Spacing.RADIUS_SM};
-                font-size: 11px;
+                font-size: {Fonts.FS_MICRO}px;
                 color: {Colors.TEXT3};
                 font-family: {Fonts.BODY}, 'Microsoft YaHei', sans-serif;
             }}

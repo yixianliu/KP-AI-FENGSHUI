@@ -25,6 +25,8 @@ v2.2 视觉交互与排版升级：
 
 from typing import List, Tuple
 
+import re
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QScrollArea,
 )
@@ -45,6 +47,9 @@ from ui.components.collapsible_card import (
     hero_conclusion_block,
     rich_list_block,
     disclaimer_card,
+    paragraph_block,
+    code_block,
+    _split_blocks,
 )
 
 
@@ -236,7 +241,7 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
     container.setStyleSheet('background: transparent;')
     root = QVBoxLayout(container)
     root.setContentsMargins(0, 0, 0, 0)
-    root.setSpacing(14)
+    root.setSpacing(Spacing.S4)
 
     # ---------- 1) hero 标题区 ----------
     root.addWidget(ai_section_header(AI_SECTION_TITLE))
@@ -346,7 +351,8 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
 
         if mode == 'probability':
             items = _as_list(raw)
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
+                                    persist_key=f'{pan_type}:{key}')
             card.set_content(probability_stats_widget(items, color))
             root.addWidget(card)
             # 标记锚点
@@ -376,6 +382,7 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
         if mode == 'conclusion_hero':
             # 整体结论 - hero 高视觉权重块
             text = _as_text(raw)
+            blocks = _split_blocks(text)
             hero_block = hero_conclusion_block(text, default_color)
             hero_block.setObjectName(anchor)
             root.addWidget(hero_block)
@@ -388,16 +395,23 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
             continue
 
         if mode == 'conclusion':
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
-            card.set_content(conclusion_block(text, color))
-        elif mode == 'list':
+            # 结论块：先切分段落/代码，再逐块渲染（修 Q09）
+            blocks = _split_blocks(text)
+            _render_blocks(blocks, anchor, color)
+            has_content = True
+            rendered_keys.add(key)
+            continue
+
+        if mode == 'list':
             items = _as_list(raw)
-            # 列表渲染：使用 rich_list_block 替代扁平列表，更精致
+            # 列表渲染：使用 rich_list_block 替代扁平列表，更精致；有序语义
+            ordered = True  # 章节列表默认有序
             list_block = rich_list_block(
                 items=items,
                 color=color,
                 title=title,
                 icon=icon,
+                ordered=ordered,
             )
             list_block.setObjectName(anchor)
             root.addWidget(list_block)
@@ -405,7 +419,8 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
             rendered_keys.add(key)
             continue
         else:
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False)
+            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
+                                    persist_key=f'{pan_type}:{key}')
             card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
 
         card.setObjectName(anchor)
@@ -434,11 +449,34 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
             list_block.setObjectName(_anchor_id_for(key))
             root.addWidget(list_block)
         else:
-            card = CollapsibleCard(title_cn, '📝', accent_color=default_color, collapsed=False)
+            card = CollapsibleCard(title_cn, '📝', accent_color=default_color, collapsed=False,
+                                    persist_key=f'{pan_type}:{key}')
             card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
             card.setObjectName(_anchor_id_for(key))
             root.addWidget(card)
         has_content = True
+
+    # ---------- 7) 结论块内段落/代码渲染（conclusion/conclusion_hero 共用） ----------
+    def _render_blocks(blocks, anchor, color):
+        """渲染切分后的段落/代码序列到 root。
+
+        Args:
+            blocks:    ('p', text) | ('code', code) 列表
+            anchor:    锚点 ID（用于导航跳转）
+            color:     强调色
+        """
+        for blk in blocks:
+            kind, content = blk
+            if kind == 'code':
+                code_widget = code_block(content, language='AI')
+                code_widget.setObjectName(anchor)
+                root.addWidget(code_widget)
+            else:
+                para = content
+                # 正文走 paragraph_block（超宽居中，段落感）
+                block_widget = paragraph_block(para)
+                block_widget.setObjectName(anchor)
+                root.addWidget(block_widget)
 
     if not has_content:
         root.addWidget(_build_empty_widget(

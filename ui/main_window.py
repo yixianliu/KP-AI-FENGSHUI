@@ -5,10 +5,10 @@ QSplitter左右分栏 · 暖米底色 · 圆角卡片 · 三色点缀 · 微动�
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFrame, QApplication, QStatusBar,
                                QPushButton, QStackedWidget, QSplitter,
-                               QMessageBox)
-from PySide6.QtCore import Qt, QTimer
+                               QMessageBox, QGraphicsOpacityEffect)
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, Signal
 from PySide6.QtGui import QFont, QIcon
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.styles import Stylesheets, Colors, Fonts, Spacing, FOCUS_BORDER
 from core.path_utils import get_resource_path
 from core.app_version import get_version_label, APP_NAME
 from ui.components.input_panel import InputPanel
@@ -30,7 +30,6 @@ from core.divination.meihua import MeiHuaCalculator
 from core.divination.hexagram_analyzer import HexagramAnalyzer
 from core.divination.liuren import LiuRenCalculator
 from core.fengshui.xuan_kong import XuanKongCalculator, xuan_kong_divination
-from core.database_manager import DatabaseManager
 from core.log_handler import setup_app_logging
 from datetime import datetime
 import traceback
@@ -45,6 +44,14 @@ NAV = [
     {'id': 'xuan_kong', 'name': '玄空飞星', 'icon': '⛰'},
 ]
 
+# M2-1：路由单一真相源（修 Q13）。由 NAV 顺序派生，消除 _switch / _restore_ui_settings
+# 两处硬编码索引；新增板块只需在 NAV 追加一项，索引自动同步。
+NAV_INDEX = {item['id']: i for i, item in enumerate(NAV)}
+VALID_MODULES = tuple(NAV_INDEX.keys())  # ('bazi', 'meihua', 'liuren', 'xuan_kong')
+
+# 注：原 `SIDEBAR_WIDTH = 168`（Q15 死常量）已删除——真实导航是顶部栏，
+# 该常量仅被 e2e 脚本断言引用，无任何布局依赖。
+
 
 class MainWindow(QMainWindow):
     """应用主窗口：承载八字 / 梅花易数 / 大六壬三大板块。
@@ -53,21 +60,35 @@ class MainWindow(QMainWindow):
     顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与龙虎山大师兄（AI）分析。
     负责 worker 线程生命周期、界面配置持久化与操作日志记录。
     """
+    # M2-2：密度档变化信号（tuple: (页面边距, 卡片间距, 卡片内距, 行高)），
+    # 四结果面板订阅 on_density_changed 槽统一刷新边距（M3-1 连接）。
+    density_changed = Signal(tuple)
+    # M2-2：左栏占比常量（标准双栏约 34%），纵向模式按 0.4 分配高度。
+    SPLIT_LEFT_RATIO = 0.34
+
     def __init__(self):
         """初始化主窗口：设置窗口元数据、日志、会话标识，并依次完成字体、core、UI、信号绑定与配置还原。"""
         super().__init__()
         self.module_hint = None
         self.setWindowTitle('风水排盘专业工具')
-        self.setMinimumSize(1100, 700)
+        # M2-2（Q12）：最小尺寸由 1100×700 下调，允许窄窗口。
+        # 假设（文档矛盾）：计划写 setMinimumSize(900,640) 且 BP_XS=900（XS 为 <900），
+        # 但 QWidget.resize 受 minimumWidth 钳制，min=900 时窗口永远 >=900，XS 单栏档
+        # 不可达（与计划「允许 XS 档」的意图相悖，且验收用例 resize(860)→Vertical 无法满足）。
+        # 故取 800 使 XS(<900) 可达，同时仍 >= 常见上网本有效宽度。
+        self.setMinimumSize(800, 560)
         self.resize(1400, 900)
+        self._last_bp = None  # 断点缓存（resizeEvent 短路用，M2-2）
         self.setStyleSheet(Stylesheets.MAIN)
         
         # 设置窗口图标（统一使用资源目录下的 favicon.ico）
         icon_path = get_resource_path('favicon.ico')
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        
-        self.db_manager = None
+
+        # DB 由 _init_core → _init_db_async 在后台线程打开；这里仅初始化占位属性
+        self._db_manager = None
+        self._db_manager_ready = False
 
         # 统一日志（本地文件 + 存储后端 system_logs）
         try:
@@ -100,32 +121,30 @@ class MainWindow(QMainWindow):
     def _init_core(self):
         """初始化 core 业务层与数据库，并准备 AI 状态管理。
 
-        实例化各排盘计算器（八字/农历/真太阳时/地点/梅花/六壬等）、DatabaseManager，
-        初始化 AI worker 登记表、最近记录 ID 与三方 AI 结论缓存，
-        并探测 AI 可用性、刷新按钮状态、订阅配置热更新。
+        排盘计算器（八字/农历/真太阳时/地点/梅花/六壬）与 BaziService 改为惰性
+        构造（见下方 @property，首次 _do_* 用户操作时才实例化），避免冷启动一次性
+        阻塞约 600+ ms。DatabaseManager 由后台线程异步打开（见 _init_db_async），
+        避免约 1s 的冷 SQLite 读阻塞首帧；_restore_ui_settings 就绪前按默认布局，
+        就绪后自动重试。
+        初始化 AI worker 登记表、最近记录 ID，并探测 AI 可用性、刷新按钮状态、
+        订阅配置热更新。
         """
         # 持有所有正在运行的 AI worker 引用，避免被 GC 销毁
         # （QThread: Destroyed while thread is still running）
         self._active_workers = []
-        self.bazi_calc = BaziCalculator()
-        self.lunar_conv = LunarConverter()
-        self.solar_calc = SolarTimeCalculator()
-        self.location_db = LocationDB()
-        self.meihua_calc = MeiHuaCalculator()
-        self.hexagram_analyzer = HexagramAnalyzer()
-        self.liuren_calc = LiuRenCalculator()
-        # 初始化数据库管理器
-        try:
-            self.db_manager = DatabaseManager()
-        except Exception as e:
-            print(f"数据库初始化失败: {e}")
-            self.db_manager = None
-        # Service 层：业务编排，支持校验、落库、综合建议
-        try:
-            from service.bazi_service import BaziService
-            self.bazi_service = BaziService()
-        except Exception:
-            self.bazi_service = None
+        # 计算器与 Service 改为惰性构造（见下方 @property），避免冷启动阻塞
+        self._bazi_calc = None
+        self._lunar_conv = None
+        self._solar_calc = None
+        self._location_db = None
+        self._meihua_calc = None
+        self._hexagram_analyzer = None
+        self._liuren_calc = None
+        self._bazi_service = None
+        # DatabaseManager 由后台线程异步打开（见 _init_db_async）
+        self._db_manager = None
+        self._db_manager_ready = False
+        self._init_db_async()
         # 最近一次排盘记录 ID（供 AI 回调更新 ai_json）
         self._last_bazi_record_id = None
         self._last_meihua_record_id = None
@@ -138,6 +157,96 @@ class MainWindow(QMainWindow):
         self._ai_available = self._check_ai_availability()
         self._update_ai_buttons_state()
         self._subscribe_ai_config()
+
+    # ===== 惰性计算器 / Service（冷启动优化：首次 _do_* 用户操作时才构造） =====
+    @property
+    def bazi_calc(self):
+        if self._bazi_calc is None:
+            self._bazi_calc = BaziCalculator()
+        return self._bazi_calc
+
+    @property
+    def lunar_conv(self):
+        if self._lunar_conv is None:
+            self._lunar_conv = LunarConverter()
+        return self._lunar_conv
+
+    @property
+    def solar_calc(self):
+        if self._solar_calc is None:
+            self._solar_calc = SolarTimeCalculator()
+        return self._solar_calc
+
+    @property
+    def location_db(self):
+        if self._location_db is None:
+            self._location_db = LocationDB()
+        return self._location_db
+
+    @property
+    def meihua_calc(self):
+        if self._meihua_calc is None:
+            self._meihua_calc = MeiHuaCalculator()
+        return self._meihua_calc
+
+    @property
+    def hexagram_analyzer(self):
+        if self._hexagram_analyzer is None:
+            self._hexagram_analyzer = HexagramAnalyzer()
+        return self._hexagram_analyzer
+
+    @property
+    def liuren_calc(self):
+        if self._liuren_calc is None:
+            self._liuren_calc = LiuRenCalculator()
+        return self._liuren_calc
+
+    @property
+    def bazi_service(self):
+        if self._bazi_service is None:
+            try:
+                from service.bazi_service import BaziService
+                self._bazi_service = BaziService()
+            except Exception:
+                self._bazi_service = None
+        return self._bazi_service
+
+    # ===== DatabaseManager 惰性 + 后台线程异步打开（避免约 1s 冷读阻塞首帧） =====
+    @property
+    def db_manager(self):
+        """DatabaseManager 惰性 + 异步就绪。
+
+        后台线程打开 SQLite（冷读约 1s）期间，同步访问仅做有界等待——
+        用户操作通常远晚于后台线程完成，几乎零阻塞；等待失败（初始化失败）则返回 None。
+        """
+        if self._db_manager is None and not self._db_manager_ready:
+            import time as _t
+            _deadline = _t.time() + 5.0
+            while not self._db_manager_ready and _t.time() < _deadline:
+                _t.sleep(0.01)
+        return self._db_manager
+
+    def _init_db_async(self):
+        """后台线程打开 SQLite，避免冷启动阻塞；完成后置 _db_manager。
+
+        SQLite 连接本身线程安全；DatabaseManager 单例在构造期注册，重复访问幂等。
+        """
+        import threading
+
+        def _open():
+            try:
+                from core.database_manager import DatabaseManager
+                dm = DatabaseManager()
+            except Exception as e:  # noqa: BLE001
+                dm = None
+                try:
+                    self._logger.warning(f"[DB] 后台初始化失败：{e}")
+                except Exception:
+                    pass
+            self._db_manager = dm
+            self._db_manager_ready = True
+
+        threading.Thread(target=_open, daemon=True).start()
 
     def _check_ai_availability(self) -> bool:
         """探测 AI 模型配置是否完整可用（唯一来源：core.ai_config）。"""
@@ -247,9 +356,16 @@ class MainWindow(QMainWindow):
         return 'bazi'
 
     def _save_ui_settings(self) -> bool:
-        """把窗口几何、分栏比例、当前板块写入当前激活后端。"""
+        """把窗口几何、分栏比例、当前板块写入当前激活后端（尽力而为，关窗时不阻塞）。
+
+        DB 仍处后台冷读时（未就绪）直接跳过，避免关窗被 5s 等待拖慢；正常路径
+        （DB 已就绪）行为不变。
+        """
         try:
-            mgr = self.db_manager
+            # 关窗路径：不阻塞等待后台 DB，未就绪则跳过保存
+            if not self._db_manager_ready:
+                return False
+            mgr = self._db_manager
             if mgr is None:
                 return False
             geo = self.geometry()
@@ -274,11 +390,18 @@ class MainWindow(QMainWindow):
             return False
 
     def _restore_ui_settings(self):
-        """启动时还原上次的界面配置。还原失败静默忽略。"""
+        """启动时还原上次的界面配置。DB 后台线程未就绪时按默认布局并稍后重试一次。
+
+        还原失败（初始化失败）静默忽略。
+        """
         try:
-            mgr = self.db_manager
-            if mgr is None:
+            # DB 可能仍在后台冷读（约 1s），此时按默认布局，稍后重试一次
+            if not self._db_manager_ready:
+                QTimer.singleShot(150, self._restore_ui_settings)
                 return
+            mgr = self._db_manager
+            if mgr is None:
+                return  # 初始化失败，静默忽略
             s = mgr.load_ui_settings()
             if not s:
                 return
@@ -295,7 +418,8 @@ class MainWindow(QMainWindow):
             if left > 0 and right > 0 and hasattr(self, 'splitter'):
                 QTimer.singleShot(0, lambda: self.splitter.setSizes([left, right]))
             mod = s.get('current_module')
-            if mod in ('bazi', 'meihua', 'liuren'):
+            # M2-1（Q13）：白名单改为 VALID_MODULES，修复玄空飞星不被记忆
+            if mod in VALID_MODULES:
                 # _switch 已在 __init__ 末尾调用默认 'bazi'，如需切换覆盖之
                 if mod != 'bazi':
                     self._switch(mod)
@@ -347,8 +471,8 @@ class MainWindow(QMainWindow):
         # 拉伸因子决定窗口缩放时的自适应比例（左 34 : 右 66，约 34% / 66%）
         self.splitter.setStretchFactor(0, 34)
         self.splitter.setStretchFactor(1, 66)
-        # 延迟到窗口几何可用时，按可用宽度初始化（尊重最小/最大约束）
-        QTimer.singleShot(0, self._apply_splitter_ratio)
+        # 延迟到窗口几何可用时，按断点初始化 splitter + 发密度信号（M2-2）
+        QTimer.singleShot(0, self._apply_responsive)
 
         # 左侧
         self.left_stack = QStackedWidget()
@@ -480,6 +604,9 @@ class MainWindow(QMainWindow):
                     color: {Colors.TEXT_INV};
                     background: {Colors.QINGHUA};
                 }}
+                QPushButton:focus {{
+                    border: {FOCUS_BORDER};
+                }}
             """)
             self.nav_btns[item['id']] = btn
             nav_hl.addWidget(btn)
@@ -499,12 +626,15 @@ class MainWindow(QMainWindow):
                 color: {Colors.TEXT3};
                 border: none;
                 border-radius: {Spacing.RADIUS_SM};
-                font-size: 14px;
+                font-size: 13px;
                 padding: 0;
             }}
             QPushButton:hover {{
                 color: {Colors.QINGHUA};
                 background: {Colors.QINGHUA_GLOW};
+            }}
+            QPushButton:focus {{
+                border: {FOCUS_BORDER};
             }}
         """)
         self.settings_btn.clicked.connect(self._show_settings_dialog)
@@ -528,6 +658,9 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{
                 color: {Colors.QINGHUA};
                 background: {Colors.QINGHUA_GLOW};
+            }}
+            QPushButton:focus {{
+                border: {FOCUS_BORDER};
             }}
         """)
         self.about_btn.clicked.connect(self._show_about_dialog)
@@ -557,20 +690,79 @@ class MainWindow(QMainWindow):
         self.xuan_kong_result = XuanKongResultPanel()
         self.right_stack.addWidget(self.xuan_kong_result)
 
-    def _apply_splitter_ratio(self):
-        """按约 34%/66% 初始化左右分栏尺寸，并尊重最小/最大宽度约束。
+    def _current_density(self) -> tuple:
+        """返回当前密度档 (页面边距, 卡片间距, 卡片内距, 行高)（M2-2）。
 
-        窗口缩放时由 QSplitter 依据 stretch 因子自适应维持比例；
-        左侧触及上限（大屏）后右侧继续填满剩余空间，实现自适应。
+        供四结果面板的 `on_density_changed(density)` 槽消费。DPI 取自主屏
+        devicePixelRatio；无屏（离屏）时回落 1.0。
+        """
+        from PySide6.QtGui import QGuiApplication
+        dpi = 1.0
+        try:
+            scr = QGuiApplication.primaryScreen()
+            if scr is not None:
+                dpi = scr.devicePixelRatio()
+        except Exception:
+            pass
+        return Spacing.density_for(self.width(), dpi)
+
+    def _apply_responsive(self):
+        """按 §4.4 四档断点设置 splitter 方向/尺寸与左栏宽度，并发密度信号（M2-2）。
+
+        - XS (<900)：单栏纵向，左栏 min 320、解除上限，右栏 min 320。
+        - S  (900–1099)：紧凑双栏，左栏 320~460。
+        - M/L(≥1100)：标准/宽屏双栏，左栏 360~460（宽屏保持上限 460）。
+        每次调用均 emit density_changed，供结果面板同步边距。
         """
         w = self.width()
         if w <= 0:
             w = 1400
-        avail = max(w, self.left_stack.minimumWidth() + self.right_stack.minimumWidth())
-        left_target = int(avail * 0.34)
-        left = max(self.left_stack.minimumWidth(),
-                   min(self.left_stack.maximumWidth(), left_target))
-        self.splitter.setSizes([left, avail - left])
+        if w < Spacing.BP_XS:                       # XS：单栏（纵向）
+            self.splitter.setOrientation(Qt.Vertical)
+            self.left_stack.setMinimumWidth(320)
+            self.left_stack.setMaximumWidth(16777215)   # 纵向模式解除上限
+            self.right_stack.setMinimumWidth(320)
+            left = int(max(w, 640) * 0.4)
+            self.splitter.setSizes([left, max(w - left, 320)])
+        elif w < Spacing.BP_S:                       # S：紧凑双栏
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.left_stack.setMinimumWidth(320)
+            self.left_stack.setMaximumWidth(460)
+            self.right_stack.setMinimumWidth(320)
+            left = int(w * self.SPLIT_LEFT_RATIO)
+            self.splitter.setSizes([left, w - left])
+        else:                                        # M/L：标准 / 宽屏双栏
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.left_stack.setMinimumWidth(360)
+            self.left_stack.setMaximumWidth(460)
+            self.right_stack.setMinimumWidth(460)
+            left = int(w * self.SPLIT_LEFT_RATIO)
+            self.splitter.setSizes([left, w - left])
+        self.density_changed.emit(self._current_density())
+
+    def _apply_splitter_ratio(self):
+        """历史兼容别名：委托 _apply_responsive（M2-2 重命名）。
+
+        窗口缩放时由 QSplitter 依据 stretch 因子自适应维持比例；
+        左侧触及上限（大屏）后右侧继续填满剩余空间，实现自适应。
+        """
+        self._apply_responsive()
+
+    def resizeEvent(self, event):
+        """窗口缩放跨越断点时重排（M2-2）。
+
+        用 `self._last_bp` 缓存断点名做短路：仅在 XS/S/M/L 之间切换才调用
+        `_apply_responsive()`，避免每次像素级 resize 都触发 splitter 重排与信号发射。
+        """
+        super().resizeEvent(event)
+        w = self.width()
+        bp = ('XS' if w < Spacing.BP_XS
+              else 'S' if w < Spacing.BP_S
+              else 'M' if w < Spacing.BP_L
+              else 'L')
+        if bp != self._last_bp:
+            self._last_bp = bp
+            self._apply_responsive()
 
     def _switch(self, pid):
         """切换当前激活板块。
@@ -582,10 +774,58 @@ class MainWindow(QMainWindow):
         """
         for k, b in self.nav_btns.items():
             b.setChecked(k == pid)
-        idx = {'bazi': 0, 'meihua': 1, 'liuren': 2, 'xuan_kong': 3}
-        self.left_stack.setCurrentIndex(idx.get(pid, 0))
-        self.right_stack.setCurrentIndex(idx.get(pid, 0))
+        # M2-1：索引单一真相源（NAV_INDEX），不再硬编码 dict
+        idx = NAV_INDEX.get(pid, 0)
+        self.left_stack.setCurrentIndex(idx)
+        self.right_stack.setCurrentIndex(idx)
+        # 板块切换微动画：对新激活页做 300ms 淡入（M7-T3/T4）
+        self._fade_in_page(self.left_stack.currentWidget())
+        self._fade_in_page(self.right_stack.currentWidget())
         self._log_op('switch_module', pid)
+
+    def _fade_in_page(self, widget):
+        """板块切换时对新激活页做透明度过渡（M7-T3/T4 微动画）。
+
+        - widget 为 None 时静默返回（调用方传 currentWidget() 可能为空）。
+        - 使用 QGraphicsOpacityEffect 做 0→1 的 300ms 淡入（EASING_OUT，DURATION_NORMAL），
+          动画结束后移除 effect，避免残留影响后续渲染。
+        - 幂等：同一 widget 的在途动画会被 stop，不会叠加。
+
+        Args:
+            widget: 目标 QWidget（板块输入/结果页）；None 时不处理。
+        """
+        if widget is None:
+            return
+        try:
+            from ui.animation import DURATION_NORMAL, EASING_OUT
+            # 同一 widget 的在途动画先停，避免叠加
+            prev = getattr(widget, '_page_fade_anim', None)
+            if prev is not None:
+                try:
+                    prev.stop()
+                except RuntimeError:
+                    pass
+            eff = widget.graphicsEffect()
+            op = QGraphicsOpacityEffect(widget) if eff is None else eff
+            op.setOpacity(0.0)
+            anim = QPropertyAnimation(op, b'opacity', self)
+            anim.setDuration(DURATION_NORMAL)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(EASING_OUT)
+            widget._page_fade_anim = anim
+            widget._page_fade_eff = op
+            # 动画完成或中途中止后清理 effect，避免残留
+            def _cleanup():
+                try:
+                    widget.setGraphicsEffect(None)
+                except RuntimeError:
+                    pass
+            anim.finished.connect(_cleanup)
+            anim.start()
+        except Exception:
+            # 动画异常不影响切换本身（页面已 setCurrentIndex）
+            pass
 
     def _connect_signals(self):
         """绑定各输入面板与结果面板的信号到对应槽函数（提交/重置/AI分析等）。"""

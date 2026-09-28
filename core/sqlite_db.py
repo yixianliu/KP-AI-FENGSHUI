@@ -35,6 +35,17 @@ def _resource_root():
         return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# 熔断历史日志表
+_BREAKER_HISTORY_TABLE = '''
+CREATE TABLE IF NOT EXISTS circuit_breaker_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    state TEXT NOT NULL,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    open_count INTEGER NOT NULL DEFAULT 0
+)
+'''
+
 
 def _is_writable(path: str) -> bool:
     """判断指定目录是否可写：尝试建目录并写入/删除临时文件。异常一律视为不可写。"""
@@ -96,6 +107,15 @@ def _build_database(db_path: str, schema_path: str):
     logger.info('已从 %s 构建 SQLite 数据库: %s', schema_path, db_path)
 
 
+def _ensure_breaker_history_table():
+    """确保熔断历史表存在"""
+    con = get_connection()
+    try:
+        con.execute(_BREAKER_HISTORY_TABLE)
+        con.commit()
+    finally:
+        con.close()
+
 def ensure_initialized():
     """确保数据库存在；首次运行时建库。线程安全。"""
     global _INITIALIZED
@@ -104,10 +124,13 @@ def ensure_initialized():
     with _LOCK:
         if _INITIALIZED:
             return
+        # 先标记为已初始化，防止 _ensure_breaker_history_table → get_connection
+        # → ensure_initialized 递归调用时再次进入初始化逻辑
+        _INITIALIZED = True
         db_path = get_db_path()
         if not os.path.exists(db_path):
             _build_database(db_path, get_schema_path())
-        _INITIALIZED = True
+        _ensure_breaker_history_table()
 
 
 def _dict_factory(cursor, row):
@@ -116,6 +139,32 @@ def _dict_factory(cursor, row):
     has no attribute 'get' 这类错误。"""
     return dict(zip((col[0] for col in cursor.description), row))
 
+
+def log_circuit_breaker_event(state: str, failure_count: int = 0, open_count: int = 0):
+    """记录熔断器状态变化到数据库历史表"""
+    import time
+    con = get_connection()
+    try:
+        con.execute(
+            'INSERT INTO circuit_breaker_history (ts, state, failure_count, open_count) VALUES (?, ?, ?, ?)',
+            (time.strftime('%Y-%m-%d %H:%M:%S'), state, failure_count, open_count)
+        )
+        con.commit()
+    finally:
+        con.close()
+
+def get_circuit_breaker_history(limit: int = 48):
+    """获取最近熔断历史"""
+    con = get_connection()
+    try:
+        rows = con.execute(
+            'SELECT ts, state, failure_count, open_count FROM circuit_breaker_history ORDER BY id DESC LIMIT ?',
+            (limit,)
+        ).fetchall()
+        history = list(reversed(rows))
+        return history
+    finally:
+        con.close()
 
 def get_connection() -> sqlite3.Connection:
     """获取一个 SQLite 连接（每次调用返回新连接，调用方负责 close）。

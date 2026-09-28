@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QFrame)
 from PySide6.QtCore import Qt, QThread, Signal
 
-from ui.styles import Colors, Fonts, Spacing
+from ui.styles import Colors, Fonts, Spacing, Stylesheets
 from core.ai_config import (AIProfile, OFFICIAL_AGNES_ENDPOINT,
                             OFFICIAL_AGNES_MODEL, get_config_manager,
                             make_default_profile)
@@ -81,6 +81,10 @@ class SettingsDialog(QDialog):
             parent: 父窗口（可选）。
         """
         super().__init__(parent)
+        # 套全局 DIALOG QSS：窗口级 background/color/font 统一，内部 QFrame 规则
+        # 依赖 objectName（dialog-header/body/footer），本对话框未绑定故不命中，
+        # 保持内部控件现有内联样式不变。
+        self.setStyleSheet(Stylesheets.DIALOG)
         self.setWindowTitle('设置 · 龙虎山大师兄配置')
         self.setMinimumSize(520, 430)
 
@@ -107,7 +111,7 @@ class SettingsDialog(QDialog):
         """构建对话框布局：标题 / 说明 / 状态横幅 / 只读后端信息卡 / 密钥输入 / 按钮。"""
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setSpacing(Spacing.S4)
 
         title = QLabel('龙虎山大师兄配置')
         title.setStyleSheet(f"""
@@ -133,6 +137,9 @@ class SettingsDialog(QDialog):
         self.status_label.setMinimumHeight(38)
         root.addWidget(self.status_label)
 
+        # 性能图表方法
+        self._metrics_chart = None
+
         # 官方后端信息卡（只读展示，非配置项）
         info = QFrame()
         info.setStyleSheet(f"""
@@ -144,10 +151,35 @@ class SettingsDialog(QDialog):
         """)
         info_layout = QVBoxLayout(info)
         info_layout.setContentsMargins(14, 12, 14, 12)
-        info_layout.setSpacing(6)
+        info_layout.setSpacing(Spacing.S2)
         info_layout.addWidget(self._label('服务：龙虎山大师兄 AI（Agnes AI）'))
         info_layout.addWidget(self._label(f'端点：{OFFICIAL_AGNES_ENDPOINT}'))
         info_layout.addWidget(self._label(f'模型：{OFFICIAL_AGNES_MODEL}'))
+        # AI 频率/熔断状态展示
+        from api.ai_throttle import AIThrottle
+        throttle_status = AIThrottle.instance().status()
+        breaker = throttle_status.get('breaker_state', 'unknown')
+        cfg = throttle_status.get('config', {})
+        qps_capacity = cfg.get('qps_capacity', '-')
+        qps_refill = cfg.get('qps_refill', '-')
+        info_layout.addWidget(self._label(f'限速：capacity={qps_capacity} / refill={qps_refill} QPS'))
+        info_layout.addWidget(self._label(f'熔断状态：{breaker}'))
+        # 缓存统计
+        try:
+            from core.ai_cache import get_cache_stats
+            stats = get_cache_stats()
+            entries = stats.get('total_entries', 0)
+            hits = stats.get('total_hits', 0)
+            saved = stats.get('total_calls_saved', 0)
+            hit_rate = stats.get('hit_rate', 0)
+            info_layout.addWidget(self._label(f'AI 缓存：条目 {entries} / 命中 {hits} / 节省调用 {saved} / 命中率 {hit_rate}%'))
+        except Exception:
+            info_layout.addWidget(self._label('AI 缓存：统计不可用'))
+        # 查看图表按钮
+        from PySide6.QtWidgets import QPushButton
+        btn_chart = QPushButton('查看性能图表')
+        btn_chart.clicked.connect(self._open_metrics_chart)
+        info_layout.addWidget(btn_chart)
         root.addWidget(info)
 
         # 密钥输入行：输入框 + 显示 / 隐藏
@@ -162,7 +194,7 @@ class SettingsDialog(QDialog):
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.setSpacing(6)
+        key_layout.setSpacing(Spacing.S2)
         key_layout.addWidget(self.key_edit, 1)
 
         self.key_toggle = QPushButton('显示')
@@ -179,10 +211,20 @@ class SettingsDialog(QDialog):
         root.addWidget(self._label('API 密钥'))
         root.addWidget(key_row)
 
+        # T6.1 加密方式说明（设备绑定 XOR+Base64，仅本机存储）
+        sec_lbl = QLabel('🔒 密钥存储：设备指纹 XOR + Base64 混淆，仅保存在本机，不上传')
+        sec_lbl.setStyleSheet(
+            f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; "
+            f"font-family: {Fonts.BODY}; background: transparent;"
+        )
+        sec_lbl.setContentsMargins(4, 0, 0, 0)
+        root.addWidget(sec_lbl)
+
         root.addStretch()
 
         # 按钮
         btns = QHBoxLayout()
+        btns.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         self.test_btn = QPushButton('测试连接')
         self.test_btn.setCursor(Qt.PointingHandCursor)
         self.test_btn.setMinimumHeight(38)
@@ -240,6 +282,19 @@ class SettingsDialog(QDialog):
                 font-size: {Fonts.SZ_SMALL};
             }}
         """)
+
+    # ============================================================
+    # 性能图表
+    # ============================================================
+    def _open_metrics_chart(self):
+        """打开 AI 性能图表窗口"""
+        if self._metrics_chart is None:
+            from ui.components.ai_metrics_chart import AIMetricsChart
+            self._metrics_chart = AIMetricsChart(self)
+        # 每次打开时刷新真实数据
+        self._metrics_chart.load_real_data()
+        self._metrics_chart.show()
+        self._metrics_chart.raise_()
 
     # ============================================================
     # 事件

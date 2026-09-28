@@ -160,6 +160,11 @@ class DatabaseManager:
     def _verify_seed_integrity_async(self):
         """后台异步验证种子数据完整性，避免阻塞 UI 主线程。
         加重试应对偶发的 'database is locked' 瞬态；全部失败仅记录，不抛错。
+
+        【日志优化】启动时的种子校验本意为保护数据完整性，但实际输出
+        会在每次启动后产生大量重复日志，淹没真实的业务/ AI 错误。
+        现改为“静默模式”：仅在发生真正偏移时发出一次 WARNING，健康情形不产出任何 INFO 级日志。
+        异常也降到 DEBUG，不再干扰用户排查。
         """
         import time
         max_retries = 5
@@ -182,7 +187,8 @@ class DatabaseManager:
                     continue
                 break
         if last_err is not None:
-            logger.debug(f"[DB校验] 后台校验异常（已降级，不影响启动）：{last_err}")
+            # 异常降为 DEBUG，避免每次启动因锁竞争产生无意义警告
+            logger.debug(f"[DB校验] 后台校验异常（已静默降级，不影响启动）：{last_err}")
 
     def _init_stroke_count_data(self, cur):
         """初始化汉字笔画数据（康熙字典标准）。
@@ -317,6 +323,9 @@ class DatabaseManager:
         将当前数据库的种子表行数和校验和与 EXPECTED_SEED_CHECKSUMS 对比，
         发现偏差时写入 db_version 表并记录警告日志。
         对于大表（如 stroke_count），仅校验行数，跳过 MD5 计算以提升性能。
+        【日志优化】原实现会在每次启动时产生大量重复 INFO/DEBUG，导致日志被刷屏且
+        掩盖真实的 AI/运行错误。现改为仅在发生偏移时输出一次汇总，其余情况仅在
+        DEBUG 级别记录，避免业务日志污染。
         """
         drift_details = {}
         drift_detected = False
@@ -327,16 +336,17 @@ class DatabaseManager:
             actual_rows, actual_md5 = self._compute_table_checksum(cur, table_name, compute_md5=compute_md5)
             # 对比时忽略 MD5 为 None 的情况
             md5_mismatch = compute_md5 and actual_md5 != expected_md5
-            # 仅对行数偏离报警；MD5 偏离（通常因 JSON 序列化/字段顺序差异）记为 info，避免刷屏
+            # 仅对行数偏离报警；MD5 偏离记为 debug，避免刷屏
             if actual_rows != expected_rows:
                 drift_details[table_name] = {
                     'expected': {'rows': expected_rows, 'md5': expected_md5},
                     'actual': {'rows': actual_rows, 'md5': actual_md5}
                 }
                 drift_detected = True
-                logger.warning(
+                # 原 warning 改为 debug，避免重复刷屏
+                logger.debug(
                     f"[DB校验] 种子表 {table_name} 行数偏离预期: "
-                    f"预期行数={expected_rows}, 实际行数={actual_rows} (跳过MD5校验)"
+                    f"预期行数={expected_rows}, 实际行数={actual_rows}"
                 )
             elif md5_mismatch:
                 # MD5 差异通常是序列化差异，不阻断功能
@@ -371,6 +381,8 @@ class DatabaseManager:
             json.dumps(drift_details, ensure_ascii=False) if drift_details else None
         ))
 
+        # 日志降噪：只有在真正发生偏移时才输出一次汇总提示。
+        # 原实现每次启动都会输出 INFO 级别“验证通过”，导致日志淹没真实的 AI/错误日志。
         if drift_detected:
             logger.warning(
                 f"[DB校验] 检测到种子数据偏移！共有 {len(drift_details)} 个表与预期不符。"
@@ -378,7 +390,8 @@ class DatabaseManager:
                 f"或重新运行数据库初始化。详情见 db_version 表 drift_details_json 字段。"
             )
         else:
-            logger.info(f"[DB校验] 种子数据完整性验证通过，schema_version={DB_SCHEMA_VERSION}")
+            # 改为 debug 级别，避免每次启动刷屏
+            logger.debug(f"[DB校验] 种子数据完整性验证通过，schema_version={DB_SCHEMA_VERSION}")
 
     def get_db_version_info(self) -> dict:
         """获取数据库版本与校验信息"""

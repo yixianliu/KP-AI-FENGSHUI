@@ -5,15 +5,18 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, Q
                              QPushButton, QScrollArea, QProgressBar, QGraphicsOpacityEffect,
                              QDialog, QSizePolicy)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.styles import (Stylesheets, Colors, Fonts, Spacing,
+                       apply_density, content_margins, DEFAULT_DENSITY)
 from ui.components.collapsible_card import (CollapsibleCard,
                                           probability_stats_widget,
                                           conclusion_block, suggestion_block,
-                                          risk_aware_label,
-                                          register_anchor_scroller,
-                                          loading_panel, ResponsiveFlow,
-                                          set_all_cards_collapsed)
+                                  risk_aware_label,
+                                  register_anchor_scroller,
+                                  loading_panel, ResponsiveFlow,
+                                  set_all_cards_collapsed,
+                                  apply_click_feedback)
 from ui.components.timeline import fortune_timeline_widget
+from ui.components.icons import icon as load_icon
 
 # 天干五行颜色映射
 TIANGAN_WUXING = {
@@ -66,7 +69,7 @@ class ResultPanel(QWidget):
         self.setStyleSheet(f"background-color: {Colors.BG};")
         main = QVBoxLayout(self)
         main.setContentsMargins(0, 0, 0, 0)
-        main.setSpacing(0)
+        main.setSpacing(Spacing.S0)
 
         # 内容滚动区
         self.scroll = QScrollArea()
@@ -79,19 +82,24 @@ class ResultPanel(QWidget):
         # 横向自适应填满滚动区视口，使内部卡片随右侧宽度撑满
         self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.clay = QVBoxLayout(self.content)
-        self.clay.setContentsMargins(24, 20, 24, 20)
-        self.clay.setSpacing(16)
+        # M3-1：内容区边距/间距走唯一入口 apply_density（默认 normal 档 (24,24,24,24)/16），
+        # 随 MainWindow.density_changed 信号经 on_density_changed 联动（M2-2）。
+        self._content_density = DEFAULT_DENSITY
+        apply_density(self.clay, self._content_density)
 
-        # 顶部标题行（用 QWidget 包装，避免对已绑定父布局的 cl 直接 addLayout）
+        # 顶部标题行（M3-2 sticky）：用 QWidget 包装，置于滚动区之上常驻可见，
+        # 不再加入 clay（可滚动内容区），避免随内容滚出视野。
         self._header_widget = QWidget()
         self._header_widget.setObjectName('result_header_widget')
+        self._header_widget.setStyleSheet(
+            f"background-color: {Colors.CARD}; border-bottom: 1px solid {Colors.DIVIDER};")
         self._header_layout = self._header()
         self._header_widget.setLayout(self._header_layout)
-        self.clay.addWidget(self._header_widget)
 
         # 空状态
         self.clay.addWidget(self._empty())
         self.scroll.setWidget(self.content)
+        main.addWidget(self._header_widget)      # 常驻，不随滚动（M3-2）
         main.addWidget(self.scroll, 1)
 
         # 注册锚点跳转回调：AI 解读区目录导航点击时调用本面板的滚动逻辑
@@ -100,10 +108,10 @@ class ResultPanel(QWidget):
     def _header(self):
         """顶部工具栏"""
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.S2)
 
         icon = QLabel('☯')
-        icon.setStyleSheet(f"font-size: 14px; color: {Colors.LIUJIN};")
+        icon.setStyleSheet(f"font-size: 13px; color: {Colors.LIUJIN};")
         title = QLabel('排盘结果')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD};
@@ -121,7 +129,7 @@ class ResultPanel(QWidget):
 
         # 取消按钮
         if not hasattr(self, 'cancel_btn') or self.cancel_btn is None:
-            self.cancel_btn = QPushButton('✕ 取消')
+            self.cancel_btn = QPushButton('✗ 取消')
             self.cancel_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.cancel_btn.setCursor(Qt.PointingHandCursor)
             self.cancel_btn.setVisible(False)
@@ -129,7 +137,7 @@ class ResultPanel(QWidget):
 
         # 智能分析按钮
         if not hasattr(self, 'smart_analyze_btn') or self.smart_analyze_btn is None:
-            self.smart_analyze_btn = QPushButton('🤖 重新分析')
+            self.smart_analyze_btn = QPushButton('⚡ 智能分析')
             self.smart_analyze_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
             self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
             self.smart_analyze_btn.setVisible(False)
@@ -137,28 +145,36 @@ class ResultPanel(QWidget):
 
         # 功能按钮
         if not hasattr(self, 'refresh_btn') or self.refresh_btn is None:
-            self.refresh_btn = QPushButton('⟳ 刷新')
+            self.refresh_btn = QPushButton('刷新')
+            self.refresh_btn.setIcon(load_icon('refresh', 16))
             self.refresh_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.refresh_btn.setCursor(Qt.PointingHandCursor)
             self.refresh_btn.setVisible(False)
         if not hasattr(self, 'copy_btn') or self.copy_btn is None:
-            self.copy_btn = QPushButton('📋 复制')
+            self.copy_btn = QPushButton('复制')
+            self.copy_btn.setIcon(load_icon('copy', 16))
             self.copy_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.copy_btn.setCursor(Qt.PointingHandCursor)
             self.copy_btn.setVisible(False)
         if not hasattr(self, 'export_btn') or self.export_btn is None:
-            self.export_btn = QPushButton('📤 导出')
+            self.export_btn = QPushButton('导出')
+            self.export_btn.setIcon(load_icon('export', 16))
             self.export_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.export_btn.setCursor(Qt.PointingHandCursor)
             self.export_btn.setVisible(False)
             self.export_btn.clicked.connect(self._on_export_click)
         # 全部卡片 收起/展开 切换按钮（长结果列表快速折叠浏览）
         if not hasattr(self, 'collapse_all_btn') or self.collapse_all_btn is None:
-            self.collapse_all_btn = QPushButton('▾ 全部收起')
+            self.collapse_all_btn = QPushButton('全部收起')
+            self.collapse_all_btn.setIcon(load_icon('collapse-all', 16))
             self.collapse_all_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
             self.collapse_all_btn.setCursor(Qt.PointingHandCursor)
             self.collapse_all_btn.setVisible(False)
             self.collapse_all_btn.clicked.connect(self._toggle_collapse_all)
+        # T7.3 统一绑定点击微缩放反馈（5 个工具栏按钮一次收口）
+        for _btn in (self.smart_analyze_btn, self.refresh_btn, self.copy_btn,
+                     self.export_btn, self.collapse_all_btn):
+            apply_click_feedback(_btn)
         hdr.addWidget(self.refresh_btn)
         hdr.addWidget(self.copy_btn)
         hdr.addWidget(self.export_btn)
@@ -166,33 +182,35 @@ class ResultPanel(QWidget):
 
         return hdr
 
+    def on_density_changed(self, density: tuple):
+        """M3-1：密度档变化槽——刷新内容区边距/间距（由 MainWindow.density_changed 驱动）。"""
+        self._content_density = density
+        apply_density(self.clay, density)
+        self.clay.invalidate()
+
     def _toggle_collapse_all(self):
         """一键收起/展开全部结果卡片，并联动按钮文案。"""
         cards = self.content.findChildren(CollapsibleCard)
         # 任一卡片处于展开态则执行「全部收起」，否则「全部展开」
         any_expanded = any(not c.is_collapsed() for c in cards)
         set_all_cards_collapsed(self.content, collapsed=any_expanded)
-        self.collapse_all_btn.setText('▸ 全部展开' if any_expanded else '▾ 全部收起')
+        self.collapse_all_btn.setText('全部展开' if any_expanded else '全部收起')
 
-    def _empty(self):
-        """生成未排盘时的空状态占位部件（太极图标 + 引导文案）。"""
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        l = QVBoxLayout(w)
-        l.setAlignment(Qt.AlignCenter)
-        l.setSpacing(12)
-        t = QLabel('☯')
-        t.setStyleSheet(f"font-size: 56px; color: {Colors.BORDER};")
-        t.setAlignment(Qt.AlignCenter)
-        s = QLabel('填写左侧参数，点击开始排盘')
-        s.setStyleSheet(f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
-        s.setAlignment(Qt.AlignCenter)
-        sub = QLabel('支持八字排盘 · 五行分析 · 龙虎山大师兄解读')
-        sub.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT4}; font-family: {Fonts.BODY};")
-        sub.setAlignment(Qt.AlignCenter)
-        l.addStretch(); l.addWidget(t); l.addWidget(s); l.addWidget(sub); l.addStretch()
-        w.setMinimumHeight(400)
-        return w
+    def _empty(self) -> QWidget:
+        """生成未排盘时的空状态占位部件（太极图标 + 引导文案），委托 EmptyState。
+
+        M3-6：统一走 ui/components/states.EmptyState（图标呼吸 + 文案淡入动画），
+        消除各面板空状态视觉漂移，禁止伪造数据。
+        """
+        from ui.components.states import EmptyState
+        empty = EmptyState(
+            title='暂无排盘结果',
+            hint='填写左侧参数，点击开始排盘，即可查看 大师兄 分析',
+            icon='☯',
+            color=Colors.QINGHUA,
+            parent=self,
+        )
+        return empty
 
     def _info_row(self, data):
         """信息行 - 响应式流式网格（宽屏 3 列、窄屏自动降列）"""
@@ -209,7 +227,7 @@ class ResultPanel(QWidget):
             """)
             il = QVBoxLayout(item_w)
             il.setContentsMargins(14, 10, 14, 10)
-            il.setSpacing(4)
+            il.setSpacing(Spacing.S1)
             lb = QLabel(label)
             lb.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY}; background: transparent;")
             vb = QLabel(str(value))
@@ -265,7 +283,7 @@ class ResultPanel(QWidget):
                 c.setStyleSheet(f"""
                     QFrame {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #FFFBF0, stop:1 #FFF5E0);
+                            stop:0 {Colors.HIGHLIGHT_WARM_STRONG}, stop:1 {Colors.HIGHLIGHT_WARM});
                         border: 2px solid {Colors.LIUJIN};
                         border-radius: {Spacing.RADIUS_LG};
                     }}
@@ -284,7 +302,7 @@ class ResultPanel(QWidget):
 
             cl = QVBoxLayout(c)
             cl.setContentsMargins(16, 12, 16, 12)
-            cl.setSpacing(8)
+            cl.setSpacing(Spacing.S2)
             cl.setAlignment(Qt.AlignCenter)
 
             # 柱名（如“年柱”）
@@ -303,26 +321,34 @@ class ResultPanel(QWidget):
 
             # 天干·地支 圆角色块 + 白色文字
             row_gv = QHBoxLayout()
-            row_gv.setSpacing(6)
+            row_gv.setSpacing(Spacing.S2)
             row_gv.setAlignment(Qt.AlignCenter)
+
+            # 响应式色块尺寸：普通柱 42px / 日柱放大 48px（按 is_day 直接参数化，
+            # 避免用 styleSheet().replace() 拼字符串的脆弱 hack）
+            chip_min = 48 if is_day else 42
+            chip_max = 52 if is_day else 48
+            chip_font = 24 if is_day else 22
 
             gan_color = self._get_wuxing_color(gan_char, is_gan=True)
             gan_chip = QLabel(gan_char)
             gan_chip.setStyleSheet(f"""
                 background: {gan_color};
                 color: white;
-                font-size: 22px;
+                font-size: {chip_font}px;
                 font-weight: {Fonts.W_BOLD};
                 font-family: {Fonts.TITLE};
                 border-radius: {Spacing.RADIUS_SM};
                 padding: 6px 10px;
-                min-width: 36px;
-                min-height: 36px;
+                min-width: {chip_min}px;
+                min-height: {chip_min}px;
+                max-width: {chip_max}px;
+                max-height: {chip_max}px;
             """)
             gan_chip.setAlignment(Qt.AlignCenter)
 
             dot = QLabel('·')
-            dot.setStyleSheet(f"font-size: 14px; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+            dot.setStyleSheet(f"font-size: 13px; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
             dot.setAlignment(Qt.AlignCenter)
 
             zhi_char = p[1]
@@ -331,13 +357,15 @@ class ResultPanel(QWidget):
             zhi_chip.setStyleSheet(f"""
                 background: {zhi_color};
                 color: white;
-                font-size: 22px;
+                font-size: {chip_font}px;
                 font-weight: {Fonts.W_BOLD};
                 font-family: {Fonts.TITLE};
                 border-radius: {Spacing.RADIUS_SM};
                 padding: 6px 10px;
-                min-width: 36px;
-                min-height: 36px;
+                min-width: {chip_min}px;
+                min-height: {chip_min}px;
+                max-width: {chip_max}px;
+                max-height: {chip_max}px;
             """)
             zhi_chip.setAlignment(Qt.AlignCenter)
 
@@ -350,7 +378,7 @@ class ResultPanel(QWidget):
             detail_widget.setStyleSheet("background: transparent;")
             detail_row = QHBoxLayout(detail_widget)
             detail_row.setContentsMargins(0, 0, 0, 0)
-            detail_row.setSpacing(4)
+            detail_row.setSpacing(Spacing.S1)
             detail_row.setAlignment(Qt.AlignCenter)
 
             hidden = hidden_stems_map.get(name, [])
@@ -417,7 +445,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(12, 10, 12, 10)
-        l.setSpacing(12)
+        l.setSpacing(Spacing.S3)
 
         els = [
             ('金', wx.get('金', 0), Colors.METAL, Colors.METAL_LIGHT, Colors.METAL_DARK),
@@ -438,7 +466,7 @@ class ResultPanel(QWidget):
             row.setStyleSheet("background: transparent;")
             rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0)
-            rl.setSpacing(10)
+            rl.setSpacing(Spacing.S3)
 
             # ---- 彩色圆角标签 ----
             tag_text = f'{name} · 日主' if is_rizhu else name
@@ -473,7 +501,7 @@ class ResultPanel(QWidget):
             pct_lbl.setFixedWidth(48)
             pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             pct_lbl.setStyleSheet(
-                f"font-size: 18px; color: {Colors.LIUJIN if is_rizhu else Colors.TEXT}; "
+                f"font-size: 17px; color: {Colors.LIUJIN if is_rizhu else Colors.TEXT}; "
                 f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.MONO};"
             )
             rl.addWidget(pct_lbl)
@@ -518,7 +546,7 @@ class ResultPanel(QWidget):
                 st_sheet = f"background: {Colors.WARNING_LIGHT}; color: {Colors.WARNING};"
             st_lbl.setStyleSheet(f"""
                 {st_sheet}
-                font-size: 10px;
+                font-size: 11px;
                 font-weight: {Fonts.W_BOLD};
                 border-radius: 10px;
                 padding: 0 6px;
@@ -535,7 +563,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(10)
+        l.setSpacing(Spacing.S3)
         for item in data:
             tp = item.get('type', '中')
             if tp == '吉':
@@ -558,16 +586,16 @@ class ResultPanel(QWidget):
             """)
             cl = QHBoxLayout(card)
             cl.setContentsMargins(12, 10, 12, 10)
-            cl.setSpacing(10)
+            cl.setSpacing(Spacing.S3)
 
             # 徽章
             badge_container = QVBoxLayout()
-            badge_container.setSpacing(2)
+            badge_container.setSpacing(Spacing.S1)
             icon_lbl = QLabel(icon)
-            icon_lbl.setStyleSheet(f"font-size: 16px; color: {bc};")
+            icon_lbl.setStyleSheet(f"font-size: 15px; color: {bc};")
             icon_lbl.setAlignment(Qt.AlignCenter)
             badge = QLabel(tp)
-            badge.setStyleSheet(f"background:{bc}; color:white; font-size:10px; font-weight:{Fonts.W_MEDIUM}; border-radius:4px; padding:2px 8px; font-family:{Fonts.BODY};")
+            badge.setStyleSheet(f"background:{bc}; color:white; font-size:11px; font-weight:{Fonts.W_MEDIUM}; border-radius:4px; padding:2px 8px; font-family:{Fonts.BODY};")
             badge.setFixedHeight(20)
             badge_container.addWidget(icon_lbl)
             badge_container.addWidget(badge)
@@ -587,7 +615,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(16)
+        l.setSpacing(Spacing.S4)
 
         # 日主强弱
         if bt.get('strength'):
@@ -642,7 +670,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(12)
+        l.setSpacing(Spacing.S3)
 
         items = ss_data.get('shier_shen', [])
         if not items:
@@ -674,7 +702,7 @@ class ResultPanel(QWidget):
             row.setStyleSheet("background: transparent;")
             rl = QHBoxLayout(row)
             rl.setContentsMargins(4, 4, 4, 4)
-            rl.setSpacing(10)
+            rl.setSpacing(Spacing.S3)
 
             pn = QLabel(pillar)
             pn.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; font-weight:{Fonts.W_MEDIUM}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY}; min-width:40px;")
@@ -711,66 +739,57 @@ class ResultPanel(QWidget):
         """神煞系统展示：吉神、凶煞、中性神煞分类呈现
 
         数据来源：mingli.shensha → result['mingli']['shensha']
+        T4.3 升级：由纵向逐行改为「分类标签流式卡片组」——每组一个分组标题，
+        下方为横向自动换行的标签流（QLabel 流布局），每个标签用彩色边框区分吉凶
+        （吉神=绿框、凶煞=红框、中性=橙框），        并附「落x柱」小字；悬停标签显示释义。
         """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(12)
+        l.setSpacing(Spacing.S3)
 
         sections = [
-            ('吉神', ss_data.get('positive', []), Colors.SUCCESS),
-            ('凶煞', ss_data.get('negative', []), Colors.DANGER),
-            ('中性', ss_data.get('neutral', []), Colors.WARNING),
+            ('吉神', ss_data.get('positive', []), Colors.SUCCESS,
+             Colors.SUCCESS_LIGHT),
+            ('凶煞', ss_data.get('negative', []), Colors.DANGER,
+             Colors.DANGER_LIGHT),
+            ('中性', ss_data.get('neutral', []), Colors.WARNING,
+             Colors.WARNING_LIGHT),
         ]
 
         has_any = False
-        for title, items, color in sections:
+        for title, items, color, cd in sections:
             if not items:
                 continue
             has_any = True
-            th = QLabel(f'▍ {title}')
+            th = QLabel(f'▍ {title}（{len(items)}）')
             th.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; color:{color}; font-family:{Fonts.BODY};")
             l.addWidget(th)
 
+            # 横向自动换行标签流（窄屏单列、宽屏多列）
+            flow = ResponsiveFlow(min_item_width=120, max_cols=4, min_cols=1, spacing=8)
             for item in items:
                 name = item.get('name', '')
                 location = item.get('location', item.get('pillar', ''))
-                detailed = item.get('detailed', '')
-                desc = item.get('description', '')
-
-                row = QWidget()
-                row.setStyleSheet("background: transparent;")
-                rl = QHBoxLayout(row)
-                rl.setContentsMargins(4, 4, 4, 4)
-                rl.setSpacing(8)
-
-                badge = QLabel(name)
+                txt = item.get('detailed', '') or item.get('description', '')
+                badge = QLabel(f'{name} · 落{location}' if location else name)
                 badge.setStyleSheet(f"""
-                    background: {color};
-                    color: white;
+                    background: {cd};
+                    color: {color};
+                    border: 1px solid {color};
                     border-radius: {Spacing.RADIUS_SM};
-                    padding: 2px 10px;
+                    padding: 3px 10px;
                     font-size: {Fonts.SZ_SMALL};
                     font-weight: {Fonts.W_MEDIUM};
                     font-family: {Fonts.BODY};
                 """)
-                rl.addWidget(badge)
-
-                loc_tag = QLabel(f'· 落{location}')
-                loc_tag.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
-                rl.addWidget(loc_tag)
-                rl.addStretch()
-                l.addWidget(row)
-
-                txt = detailed or desc
                 if txt:
-                    info = QLabel(txt)
-                    info.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; padding-left:4px;")
-                    info.setWordWrap(True)
-                    l.addWidget(info)
+                    badge.setToolTip(txt)
+                flow.add_widget(badge)
+            l.addWidget(flow)
 
-            l.addSpacing(4)
+            l.addSpacing(Spacing.S1)
 
         if not has_any:
             l.addWidget(QLabel('命中无明显神煞'))
@@ -778,9 +797,11 @@ class ResultPanel(QWidget):
         return w
 
     def _di_zhi_relations(self, rel_data):
-        """地支关系展示：六合/三合/六冲/六害/三刑
+        """地支关系可视化：六合/三合/六冲/六害/三刑 → 关系徽章网格 + 图例。
 
         数据来源：mingli.ganzhi_relations['zhi_relations']
+        升级（T4.4）：由平铺文字行改为 ResponsiveFlow 卡片网格，每条含
+        关系徽章 + 双柱双支对照 + 吉凶色边框 + 释义；顶部附关系图例条。
         """
         zhi_rels = rel_data.get('zhi_relations', [])
         if not zhi_rels:
@@ -795,19 +816,55 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(10)
+        l.setSpacing(Spacing.S3)
 
         th = QLabel('▍ 地支关系（四柱干支相互作用）')
         th.setStyleSheet(f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; color:{Colors.ZHUSHA}; font-family:{Fonts.BODY};")
         l.addWidget(th)
 
+        # 关系样式：色 + 图标 + 吉凶底色
         REL_STYLE = {
-            '合': (Colors.SUCCESS, '∞'),
-            '冲': (Colors.DANGER, '⚡'),
-            '害': (Colors.WARNING, '◁'),
-            '刑': (Colors.DANGER, '△'),
+            '合': (Colors.SUCCESS, '∞', Colors.SUCCESS_LIGHT),
+            '冲': (Colors.DANGER, '⚡', Colors.DANGER_LIGHT),
+            '害': (Colors.WARNING, '◁', Colors.WARNING_LIGHT),
+            '刑': (Colors.DANGER, '△', Colors.DANGER_LIGHT),
+            '生': (Colors.WOOD, '↗', Colors.WOOD_DARK),
+            '克': (Colors.FIRE, '↘', Colors.FIRE_DARK),
+            '被生': (Colors.WATER, '↖', Colors.WATER_DARK),
+            '被克': (Colors.METAL, '↙', Colors.METAL_DARK),
         }
 
+        # 关系图例条（取实际出现的关系去重展示）
+        seen = []
+        for rel in zhi_rels:
+            r = rel.get('relation', '')
+            if r and r not in seen:
+                seen.append(r)
+        if seen:
+            legend = QFrame()
+            legend.setStyleSheet(f"""
+                QFrame {{ background: {Colors.HOVER}; border: 1px solid {Colors.DIVIDER};
+                    border-radius: {Spacing.RADIUS_SM}; }}
+            """)
+            lg = QHBoxLayout(legend)
+            lg.setContentsMargins(12, 8, 12, 8)
+            lg.setSpacing(Spacing.S4)
+            lt = QLabel('图例')
+            lt.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+            lg.addWidget(lt)
+            for r in seen:
+                color, icon, _bg = REL_STYLE.get(r, (Colors.QINGHUA, '·', Colors.HOVER))
+                chip = QLabel(f'{icon} {r}')
+                chip.setStyleSheet(
+                    f"background:{color}; color:white; border-radius:{Spacing.RADIUS_SM}; "
+                    f"padding:2px 8px; font-size:{Fonts.SZ_MICRO}; font-family:{Fonts.BODY};"
+                )
+                lg.addWidget(chip)
+            lg.addStretch()
+            l.addWidget(legend)
+
+        # 关系卡片网格（宽屏 2 列、窄屏 1 列）
+        flow = ResponsiveFlow(min_item_width=300, max_cols=2, min_cols=1, spacing=12)
         for rel in zhi_rels:
             p1 = rel.get('pillar1', '')
             p2 = rel.get('pillar2', '')
@@ -818,46 +875,83 @@ class ResultPanel(QWidget):
             detail = rel.get('detail_description', '')
             influence = rel.get('influence', '')
 
-            color, icon = REL_STYLE.get(relation, (Colors.QINGHUA, '·'))
+            color, icon, bg = REL_STYLE.get(relation, (Colors.QINGHUA, '·', Colors.HOVER))
 
-            row = QWidget()
-            row.setStyleSheet("background: transparent;")
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(4, 4, 4, 4)
-            rl.setSpacing(8)
+            card = QFrame()
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background: {bg};
+                    border: 1px solid {color}66;
+                    border-left: 4px solid {color};
+                    border-radius: {Spacing.RADIUS};
+                }}
+            """)
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(14, 12, 14, 12)
+            cl.setSpacing(Spacing.S2)
 
+            # 顶行：关系徽章 + 说明
+            head = QHBoxLayout()
+            head.setSpacing(Spacing.S2)
             chip = QLabel(f'{icon} {relation}')
             chip.setStyleSheet(f"""
-                background: {color};
-                color: white;
-                border-radius: {Spacing.RADIUS_SM};
-                padding: 2px 10px;
-                font-size: {Fonts.SZ_SMALL};
-                font-weight: {Fonts.W_MEDIUM};
+                background: {color}; color: white; border-radius: {Spacing.RADIUS_SM};
+                padding: 2px 12px; font-size: {Fonts.SZ_SMALL}; font-weight: {Fonts.W_MEDIUM};
                 font-family: {Fonts.BODY};
             """)
-            rl.addWidget(chip)
+            head.addWidget(chip)
+            if desc:
+                d = QLabel(desc)
+                d.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY};")
+                head.addWidget(d)
+            head.addStretch()
+            cl.addLayout(head)
 
-            pair = QLabel(f'{p1}({zhi1}) ↔ {p2}({zhi2})')
-            pair.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY};")
-            rl.addWidget(pair)
-            rl.addStretch()
-            l.addWidget(row)
+            # 双柱双支对照（p1(zhi1) ↔ p2(zhi2)）
+            pair_row = QHBoxLayout()
+            pair_row.setSpacing(Spacing.S2)
+            pair_row.setAlignment(Qt.AlignVCenter)
+            chip1 = QLabel(f'{p1}\n{zhi1}')
+            chip1.setStyleSheet(f"""
+                background: {Colors.CARD}; border: 1px solid {Colors.BORDER};
+                border-radius: {Spacing.RADIUS_SM}; padding: 6px 12px;
+                font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.TITLE};
+                color: {Colors.LIUJIN}; text-align: center; line-height: 1.4;
+            """)
+            chip1.setAlignment(Qt.AlignCenter)
+            arrow = QLabel('↔')
+            arrow.setStyleSheet(f"font-size: 15px; color: {color};")
+            arrow.setAlignment(Qt.AlignCenter)
+            chip2 = QLabel(f'{p2}\n{zhi2}')
+            chip2.setStyleSheet(f"""
+                background: {Colors.CARD}; border: 1px solid {Colors.BORDER};
+                border-radius: {Spacing.RADIUS_SM}; padding: 6px 12px;
+                font-size: {Fonts.SZ_SMALL}; font-family: {Fonts.TITLE};
+                color: {Colors.LIUJIN}; text-align: center; line-height: 1.4;
+            """)
+            chip2.setAlignment(Qt.AlignCenter)
+            pair_row.addWidget(chip1)
+            pair_row.addWidget(arrow)
+            pair_row.addWidget(chip2)
+            pair_row.addStretch()
+            cl.addLayout(pair_row)
 
             info_text = detail or influence
             if info_text:
-                dl = QLabel(f'  {desc}　—　{info_text}')
-                dl.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
+                dl = QLabel(info_text)
+                dl.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT2}; font-family:{Fonts.BODY}; line-height:1.5;")
                 dl.setWordWrap(True)
-                l.addWidget(dl)
+                cl.addWidget(dl)
 
+            flow.add_widget(card)
+        l.addWidget(flow)
         l.addStretch()
         return w
 
     def _type_block(self, label, value, color, meaning='', purpose=''):
         """类型条目：固定标签 + 色块值 + 含义/用途说明"""
         row = QHBoxLayout()
-        row.setSpacing(12)
+        row.setSpacing(Spacing.S3)
         row.setAlignment(Qt.AlignTop)
 
         lb = QLabel(label)
@@ -866,7 +960,7 @@ class ResultPanel(QWidget):
         row.addWidget(lb)
 
         vb = QVBoxLayout()
-        vb.setSpacing(5)
+        vb.setSpacing(Spacing.S1)
 
         chip = QLabel(value)
         chip.setStyleSheet(f"""
@@ -933,7 +1027,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(14)
+        l.setSpacing(Spacing.S4)
 
         # 综合（置顶高亮）
         overview = yc.get('overview', '')
@@ -961,7 +1055,7 @@ class ResultPanel(QWidget):
             sub.setStyleSheet("background: transparent;")
             sl = QVBoxLayout(sub)
             sl.setContentsMargins(0, 0, 0, 0)
-            sl.setSpacing(4)
+            sl.setSpacing(Spacing.S1)
             th = QLabel(f'▍ {title}')
             th.setStyleSheet(
                 f"font-size:{Fonts.SZ_BODY}; font-weight:{Fonts.W_MEDIUM}; "
@@ -984,7 +1078,7 @@ class ResultPanel(QWidget):
             tg.setStyleSheet("background: transparent;")
             tl = QHBoxLayout(tg)
             tl.setContentsMargins(0, 4, 0, 0)
-            tl.setSpacing(6)
+            tl.setSpacing(Spacing.S2)
             for t in tags[:8]:
                 chip = QLabel(t)
                 chip.setStyleSheet(
@@ -1015,9 +1109,9 @@ class ResultPanel(QWidget):
             self.copy_btn.setVisible(True)
             self.export_btn.setVisible(True)
             self.collapse_all_btn.setVisible(True)
-            self.collapse_all_btn.setText('▾ 全部收起')
+            self.collapse_all_btn.setText('全部收起')
             self.smart_analyze_btn.setVisible(True)
-            self.smart_analyze_btn.setText('🤖 重新分析')
+            self.smart_analyze_btn.setText('⚡ 智能分析')
             self.status_lbl.setText('✓ 排盘完成')
             self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
 
@@ -1058,8 +1152,19 @@ class ResultPanel(QWidget):
             logger.error(f"[ResultPanel] 命局类型卡片渲染失败: {e}\n{traceback.format_exc()}")
 
         # 四柱卡片（默认展开，高亮）
+        # 双路径兜底：Service 结构下 rd['bazi'] 为 None，回退到顶层摊平字段
         try:
-            bazi = rd.get('bazi', {})
+            bazi = rd.get('bazi') or {}
+            if not bazi:
+                bazi = {
+                    'year_pillar': rd.get('year_pillar', ''),
+                    'month_pillar': rd.get('month_pillar', ''),
+                    'day_pillar': rd.get('day_pillar', ''),
+                    'hour_pillar': rd.get('hour_pillar', ''),
+                    'rizhu': rd.get('rizhu', ''),
+                    'month_zhi': rd.get('month_zhi', ''),
+                    'hour_zhi': rd.get('hour_zhi', ''),
+                }
             if bazi:
                 bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
                 bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
@@ -1069,8 +1174,14 @@ class ResultPanel(QWidget):
             logger.error(f"[ResultPanel] 四柱卡片渲染失败: {e}\n{traceback.format_exc()}")
 
         # 五行分析卡片（默认展开）
+        # 双路径兜底：Service 结构下 rd['wuxing'] 为 None，回退到 wuxing_detail 提取 count
         try:
-            wx = rd.get('wuxing', {})
+            wx = rd.get('wuxing') or {}
+            if not wx:
+                wx_detail = rd.get('wuxing_detail') or {}
+                if isinstance(wx_detail, dict):
+                    wx = {k: v.get('count', 0) if isinstance(v, dict) else v
+                          for k, v in wx_detail.items() if k in ('木', '火', '土', '金', '水')}
             if wx:
                 wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=False)
                 wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
@@ -1279,7 +1390,7 @@ class ResultPanel(QWidget):
         if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
             self.smart_analyze_btn.setVisible(True)
             self.smart_analyze_btn.setEnabled(True)
-            self.smart_analyze_btn.setText('🔄 重新分析')
+            self.smart_analyze_btn.setText('⚡ 智能分析')
         self.status_lbl.setText('✓ 龙虎山大师兄分析完成')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
@@ -1430,7 +1541,11 @@ class ResultPanel(QWidget):
     # ----------------- 辅助方法 -----------------
 
     def _clear_content(self):
-        """清空内容容器：保留 header widget，只删除 header 之后的内容 widget。"""
+        """清空内容容器：M3-2 起 header 已移出 clay（改为 sticky），故删除全部子项。
+
+        风险提示对应方案 §7：原「从索引 1 起删、保留索引 0 header」的约定随
+        header 移出 clay 而失效，必须改为清空整个 clay。
+        """
         # 停止并清理所有淡入动画，防止旧动画引用已删除的 widget
         if hasattr(self, '_fade_anims'):
             for anim in self._fade_anims:
@@ -1440,12 +1555,33 @@ class ResultPanel(QWidget):
                 except Exception:
                     pass
             self._fade_anims = []
-        # 从索引1开始删除（索引0是 header_widget，保留不动）
-        while self.clay.count() > 1:
-            item = self.clay.takeAt(1)
+        # clay 不再包含 header（sticky 在主布局），清空全部内容
+        while self.clay.count() > 0:
+            item = self.clay.takeAt(0)
             w = item.widget() if item else None
-            if w is not None and w != getattr(self, '_header_widget', None):
+            if w is not None:
+                self._stop_widget_anims(w)
                 w.deleteLater()
+
+    @staticmethod
+    def _stop_widget_anims(widget):
+        """停止挂在该部件上的自定义动画（空状态呼吸 / 文案淡入）。
+
+        空状态部件被移除时其循环呼吸动画仍在跑，不显式 stop 会在
+        deleteLater 生效前持续触发重绘，故在此统一收口。
+        """
+        for attr in ('_empty_breathe', '_empty_text_anims', '_page_fade_anim'):
+            anim = getattr(widget, attr, None)
+            if anim is None:
+                continue
+            try:
+                if isinstance(anim, (list, tuple)):
+                    for a in anim:
+                        a.stop()
+                else:
+                    anim.stop()
+            except RuntimeError:
+                pass  # 动画对象已随部件销毁
 
     def _clear_prev_ai_container(self):
         """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
@@ -1521,32 +1657,90 @@ class ResultPanel(QWidget):
             pass
 
     def _show_error(self, message: str):
-        """展示 大师兄 分析异常提示。
+        """展示 大师兄 分析异常提示，委托 ErrorState（M3-6：统一错误视觉 + 重试信号）。
 
         Args:
             message: 要展示的异常/错误说明文案
 
-        清空内容并重建头部，置红状态标签，居中显示带 ⚠ 的提示并重新显示『重新分析』按钮。
+        清空内容并重建头部，以 ErrorState 居中展示（统一错误视觉语言），
+        保留操作按钮可见，错误态由 ErrorState 提供重试入口。
         """
+        from ui.components.states import ErrorState
+
         self._clear_content()
         self._rebuild_header()
-        self.status_lbl.setText('龙虎山大师兄异常')
+
+        # 清空状态标签，由 ErrorState 接管
+        self.status_lbl.setText('')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};"
         )
+
+        # 重建头部：确保智能分析按钮可见
         if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
             self.smart_analyze_btn.setVisible(True)
             self.smart_analyze_btn.setEnabled(True)
-            self.smart_analyze_btn.setText('🔄 重新分析')
-        tip = QLabel(f'⚠ {message}')
-        tip.setStyleSheet(
-            f"color:{Colors.TEXT2}; font-size:{Fonts.SZ_BODY}; "
-            f"font-family:{Fonts.BODY}; padding:60px 20px;"
+            self.smart_analyze_btn.setText('⚡ 智能分析')
+
+        holder = QWidget()
+        holder.setStyleSheet('background: transparent;')
+        v = QVBoxLayout(holder)
+        v.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
+        v.setSpacing(Spacing.S0)
+        err = ErrorState(
+            title='分析异常',
+            message=message,
+            retry_hint='重试',
+            show_retry=True,
+            color=Colors.DANGER,
+            parent=holder,
         )
-        tip.setAlignment(Qt.AlignCenter)
-        tip.setWordWrap(True)
-        self.clay.addWidget(tip)
+        # M3-6：重试信号由上层 MainWindow 重绑（_on_*_ai_analyze 路径承接重试）
+        err.retry.connect(self._handle_error_retry)
+        v.addWidget(err, 1)
+
+        # 替换旧错误态/提示
+        self._clear_error_holder()
+        self.clay.addWidget(holder)
         self.clay.addStretch()
+
+    def _handle_error_retry(self):
+        """ErrorState 重试触发：恢复面板至可重试状态（清空错误态 + 恢复按钮）。
+
+        八字面板 AI 失败后由 MainWindow 通过 _on_bazi_ai_analyze 重新触发分析，
+        此处负责将错误态还原为正常可分析状态，避免错误态残留阻断重试。
+        """
+        # 清空旧错误态 holder
+        self._clear_error_holder()
+        self._error_holder = None
+
+        # 恢复智能分析按钮可见并可点击
+        if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
+            self.smart_analyze_btn.setText('⚡ 智能分析')
+
+        # 恢复状态栏提示为可重试
+        if hasattr(self, 'status_lbl'):
+            self.status_lbl.setText('可重新进行智能分析')
+            self.status_lbl.setStyleSheet(
+                f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; "
+                f"font-family:{Fonts.BODY};"
+            )
+
+    def _clear_error_holder(self):
+        """移除当前错误态 holder（重建错误态时清理旧实例）。"""
+        old = self._error_holder
+        if old is not None:
+            try:
+                old.deleteLater()
+            except Exception:
+                pass
+            self._error_holder = None
+
+    def _set_error_holder(self, holder: QWidget):
+        """设置错误态 holder（供上层/显示逻辑调用）。"""
+        self._error_holder = holder
 
     def _list(self, items: list, color: str) -> QWidget:
         """智能分析列表项 - 增强版"""
@@ -1554,10 +1748,10 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(10)
+        l.setSpacing(Spacing.S3)
         for idx, item in enumerate(items):
             row = QHBoxLayout()
-            row.setSpacing(10)
+            row.setSpacing(Spacing.S3)
             num = QLabel(f'{idx + 1}')
             num.setStyleSheet(f"""
                 background: {color}; color: white;
@@ -1613,7 +1807,7 @@ class ResultPanel(QWidget):
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
         l.setContentsMargins(8, 6, 8, 6)
-        l.setSpacing(4)
+        l.setSpacing(Spacing.S1)
         txt = QLabel(text)
         txt.setWordWrap(True)
         txt.setStyleSheet(
@@ -1628,30 +1822,63 @@ class ResultPanel(QWidget):
 
         注意：早期实现只透传「四柱 + 五行计数」，导致十神/命理/大运等核心数据从未送达 AI，
         分析只能泛泛而谈。此处补全全部已计算字段，让 DataIntegrator 能拼出完整 prompt。
+
+        v5.x 关键修复：
+        历史上有两条排盘数据路径：
+        1. 旧结构：data['bazi'] 是 {'year_pillar','month_pillar','day_pillar','hour_pillar', ...} 嵌套字典
+        2. Service 结构：BaziService.calculate 返回顶层摊平（year_pillar 等字段直接在顶层），
+           且不含 'bazi' 与 'bazi_types' 键。
+
+        若本方法只读 rd['bazi']（旧结构），Service 结构下会拿到 {} → chart_data['bazi']
+        为空 → 上游 _trigger_bazi_auto_ai / _on_bazi_ai_analyze 的
+        "chart_data.get('bazi', {}).get('year_pillar')" 门禁判定「排盘数据不完整」，
+        直接 return，AI 分析永远不被触发。
+
+        本方法按优先级读取：先 rd['bazi']，回退到顶层摊平字段，统一产出
+        旧结构 shape（dict）给 AI。display_result 中「四柱卡片」也各自做了同型兜底，
+        本方法是 AI 路径的唯一权威来源。
         """
         rd = getattr(self, '_current_result', None)
         if not rd or not isinstance(rd, dict):
             return {}
 
+        # ---- 双路径兜底：优先读嵌套 bazi，回退到顶层摊平字段 ----
         bazi = rd.get('bazi') or {}
+        if not bazi:
+            bazi = {
+                'year_pillar': rd.get('year_pillar', ''),
+                'month_pillar': rd.get('month_pillar', ''),
+                'day_pillar': rd.get('day_pillar', ''),
+                'hour_pillar': rd.get('hour_pillar', ''),
+                'rizhu': rd.get('rizhu', ''),
+                'month_zhi': rd.get('month_zhi', ''),
+                'hour_zhi': rd.get('hour_zhi', ''),
+                'solar_date': rd.get('solar_date', ''),
+                'lunar_date': rd.get('lunar_date', ''),
+                'solar_time': rd.get('solar_time', ''),
+                'original_time': rd.get('original_time', ''),
+                'longitude': rd.get('longitude', 120.0),
+            }
         bi = rd.get('basic_info') or {}
 
+        # 双路径：wuxing 旧结构（计数）或 wuxing_detail（Service 结构）
+        wuxing_for_ui = rd.get('wuxing') or {}
+        wuxing_detail = rd.get('wuxing_detail') or {}
+        # 旧结构：wuxing 已是 {wx: int}；Service 结构：wuxing_detail 是 {wx: {score, count, ...}}
+        # 统一：优先用 wuxing_detail（带 strength 明细），否则用 wuxing
+        if not wuxing_for_ui and wuxing_detail:
+            wuxing_for_ui = {k: v.get('count', 0) if isinstance(v, dict) else v
+                             for k, v in wuxing_detail.items() if k in ('木', '火', '土', '金', '水')}
+
         chart_data = {
-            'bazi': {
-                'year_pillar': bazi.get('year_pillar', ''),
-                'month_pillar': bazi.get('month_pillar', ''),
-                'day_pillar': bazi.get('day_pillar', ''),
-                'hour_pillar': bazi.get('hour_pillar', ''),
-                'rizhu': bazi.get('rizhu', ''),
-                'month_zhi': bazi.get('month_zhi', ''),
-                'hour_zhi': bazi.get('hour_zhi', ''),
-                'solar_date': bi.get('solar_date', ''),
-                'lunar_date': bi.get('lunar_date', ''),
-            },
-            'wuxing': self._adapt_wuxing_for_ai(rd.get('wuxing_detail') or {}),
-            'shishen': self._adapt_shishen_for_ai(rd.get('shishen') or {}),
+            'bazi': bazi,
+            'bazi_types': rd.get('bazi_types') or {},
+            'wuxing': wuxing_for_ui,
+            'wuxing_detail': wuxing_detail,
+            'shishen': rd.get('shishen') or {},
             'mingli': rd.get('mingli') or {},
             'major_fortune': rd.get('dayun') or {},
+            'liunian': rd.get('liunian') or {},
         }
         return chart_data
 

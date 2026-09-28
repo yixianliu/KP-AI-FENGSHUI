@@ -39,6 +39,17 @@ CREATE TABLE IF NOT EXISTS ai_cache (
 )
 '''
 
+# 历史命中率日志表 DDL
+_CACHE_HISTORY_TABLE_SQL = '''
+CREATE TABLE IF NOT EXISTS ai_cache_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    entries INTEGER NOT NULL,
+    hits INTEGER NOT NULL,
+    hit_rate REAL NOT NULL
+)
+'''
+
 # 已建表锁：按 DB 路径追踪，避免每条缓存操作都跑一次建表检测，
 # 同时支持测试/运行时切换 _DB_PATH 后仍能自愈新库。
 _TABLE_READY_PATH = None
@@ -58,6 +69,7 @@ def ensure_cache_table() -> None:
     con = get_connection()
     try:
         con.execute(_CACHE_TABLE_SQL)
+        con.execute(_CACHE_HISTORY_TABLE_SQL)
         con.commit()
         _TABLE_READY_PATH = current_path
     finally:
@@ -243,7 +255,11 @@ def save_to_cache(pan_type: str, input_data: Dict[str, Any], question: Any,
 
 
 def get_cache_stats() -> Dict[str, Any]:
-    """返回缓存统计：总条数、按 pan_type 分组、最近命中时间、节省调用次数。"""
+    """返回缓存统计：总条数、按 pan_type 分组、最近命中时间、节省调用次数、命中率。
+
+    命中率计算基于累计请求次数估算：总请求 = 缓存条目数 + 总命中次数。
+    若条目数为 0，则命中率为 0。
+    """
     ensure_cache_table()
     con = get_connection()
     try:
@@ -256,15 +272,58 @@ def get_cache_stats() -> Dict[str, Any]:
             '       MAX(last_used_at) AS last_used '
             'FROM ai_cache GROUP BY pan_type ORDER BY pan_type'
         ).fetchall()
+        # 计算总体命中率：hits / (entries + hits)
+        total_requests = total + total_hits if (total + total_hits) > 0 else 0
+        hit_rate = (total_hits / total_requests * 100) if total_requests > 0 else 0.0
+        # 记录历史
+        try:
+            con.execute(
+                'INSERT INTO ai_cache_history (ts, entries, hits, hit_rate) VALUES (?, ?, ?, ?)',
+                (time.strftime('%Y-%m-%d %H:%M:%S'), total, total_hits, hit_rate)
+            )
+            con.commit()
+        except Exception:
+            pass
+        # 按 pan_type 计算命中率
+        by_type = []
+        for r in by_type_rows:
+            c = r['c']
+            h = r['h'] or 0
+            req = c + h
+            rate = (h / req * 100) if req > 0 else 0.0
+            by_type.append({
+                'pan_type': r['pan_type'],
+                'entries': c,
+                'hits': h,
+                'last_used': r['last_used'],
+                'hit_rate': round(rate, 2),
+            })
         return {
             'total_entries': total,
             'total_hits': total_hits,
-            'total_calls_saved': total_hits,  # 每次 hit_count +1 代表节省 1 次 API 调用
-            'by_type': [dict(r) for r in by_type_rows],
+            'total_calls_saved': total_hits,
+            'total_requests': total_requests,
+            'hit_rate': round(hit_rate, 2),
+            'by_type': by_type,
         }
     finally:
         con.close()
 
+
+def get_cache_history(limit: int = 48) -> list:
+    """获取最近的缓存命中率历史，用于图表展示"""
+    ensure_cache_table()
+    con = get_connection()
+    try:
+        rows = con.execute(
+            'SELECT ts, hit_rate FROM ai_cache_history ORDER BY id DESC LIMIT ?',
+            (limit,)
+        ).fetchall()
+        # 倒序转正序
+        history = [(r['ts'], r['hit_rate']) for r in reversed(rows)]
+        return history
+    finally:
+        con.close()
 
 def clear_old(min_hit_count_to_keep: int = 1) -> int:
     """清理 hit_count < min_hit_to_keep 的缓存条目，返回清理条数。"""

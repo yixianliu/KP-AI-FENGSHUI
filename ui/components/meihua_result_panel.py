@@ -9,10 +9,13 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+# 别名导入：本模块多处存在局部变量 `icon = QLabel(...)`，用原名调用有遮蔽地雷风险
+from ui.components.icons import icon as load_icon
 from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
                                           highlight_label, probability_stats_widget,
                                           loading_panel, ResponsiveFlow,
                                           set_all_cards_collapsed)
+from ui.components.states import EmptyState, ErrorState
 
 
 class RotatingLabel(QLabel):
@@ -72,6 +75,7 @@ class MeihuaResultPanel(QWidget):
         """
         super().__init__(parent)
         self._current_智能 = {}   # 最近一次 智能 解读结果，供导出复用
+        self._error_holder = None  # M3-6：错误态 holder 引用，供清理
         self.init_ui()
 
     def init_ui(self):
@@ -85,10 +89,10 @@ class MeihuaResultPanel(QWidget):
         main_layout = QVBoxLayout()
         card_padding = int(Spacing.CARD_PADDING.replace('px', ''))
         main_layout.setContentsMargins(card_padding, card_padding, card_padding, card_padding)
-        main_layout.setSpacing(16)
+        main_layout.setSpacing(Spacing.S4)
 
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(Spacing.S3)
 
         title_icon = QLabel('🔮')
         title_icon.setStyleSheet("font-size: 22px;")
@@ -106,13 +110,14 @@ class MeihuaResultPanel(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        self.smart_analyze_btn = QPushButton('🤖 重新解读')
+        self.smart_analyze_btn = QPushButton('⚡ 智能分析')
         self.smart_analyze_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
         self.smart_analyze_btn.setCursor(Qt.PointingHandCursor)
         self.smart_analyze_btn.setVisible(False)
         header_layout.addWidget(self.smart_analyze_btn)
 
-        self.export_btn = QPushButton('📤 导出')
+        self.export_btn = QPushButton('导出')
+        self.export_btn.setIcon(load_icon('export', 16))
         self.export_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setVisible(False)
@@ -120,7 +125,8 @@ class MeihuaResultPanel(QWidget):
         header_layout.addWidget(self.export_btn)
 
         # 全部卡片 收起/展开 切换按钮
-        self.collapse_all_btn = QPushButton('▾ 全部收起')
+        self.collapse_all_btn = QPushButton('全部收起')
+        self.collapse_all_btn.setIcon(load_icon('collapse-all', 16))
         self.collapse_all_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
         self.collapse_all_btn.setCursor(Qt.PointingHandCursor)
         self.collapse_all_btn.setVisible(False)
@@ -139,6 +145,9 @@ class MeihuaResultPanel(QWidget):
             }}
         """)
         status_layout = QHBoxLayout(self.status_bar)
+        # 不显式设 spacing 会取 Qt 默认值 6（非 8-4 体系）；此布局仅一个子项，
+        # 设 S2 使实测值落入体系，不影响单居中子项的视觉表现
+        status_layout.setSpacing(Spacing.S2)
         status_layout.setContentsMargins(16, 10, 16, 10)
         status_layout.setAlignment(Qt.AlignCenter)
 
@@ -163,7 +172,7 @@ class MeihuaResultPanel(QWidget):
         self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(18)
+        self.content_layout.setSpacing(Spacing.S4)
 
         self.empty_state = self._create_empty_state()
         self.content_layout.addWidget(self.empty_state)
@@ -174,48 +183,26 @@ class MeihuaResultPanel(QWidget):
         self.setLayout(main_layout)
 
     def _create_empty_state(self):
-        """创建空状态"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(16)
+        """创建空状态，委托 EmptyState（M3-6：统一视觉语言 + 引导动效）。
 
-        icon = QLabel('🔮')
-        icon.setStyleSheet(f"font-size: 64px; color: {Colors.BORDER}; opacity: 0.5;")
-        icon.setAlignment(Qt.AlignCenter)
-
-        title = QLabel('请完善左侧起卦参数')
-        title.setStyleSheet(f"""
-            font-size: 18px;
-            color: {Colors.TEXT_TERTIARY};
-            font-family: {Fonts.FAMILY_CN};
-        """)
-        title.setAlignment(Qt.AlignCenter)
-
-        subtitle = QLabel('点击「起卦」获取梅花易数卦象分析')
-        subtitle.setStyleSheet(f"""
-            font-size: {Fonts.SIZE_BODY};
-            color: {Colors.TEXT_TERTIARY};
-            font-family: {Fonts.FAMILY_CN};
-            opacity: 0.7;
-        """)
-        subtitle.setAlignment(Qt.AlignCenter)
-
-        layout.addStretch()
-        layout.addWidget(icon)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addStretch()
-
-        widget.setMinimumHeight(400)
-        return widget
+        保留对外方法签名，避免破坏既有测试契约（返回 QWidget 实例）。
+        """
+        from ui.components.states import EmptyState
+        empty = EmptyState(
+            title='请完善左侧起卦参数',
+            hint='点击「起卦」获取梅花易数卦象分析',
+            icon='🔮',
+            color=Colors.TEXT3,
+            parent=self.content_widget,
+        )
+        return empty
 
     def _toggle_collapse_all(self):
         """一键收起/展开全部结果卡片，并联动按钮文案。"""
         cards = self.content_widget.findChildren(CollapsibleCard)
         any_expanded = any(not c.is_collapsed() for c in cards)
         set_all_cards_collapsed(self.content_widget, collapsed=any_expanded)
-        self.collapse_all_btn.setText('▸ 全部展开' if any_expanded else '▾ 全部收起')
+        self.collapse_all_btn.setText('全部展开' if any_expanded else '全部收起')
 
     def _create_result_card(self, title, icon, content_widget, highlight=False):
         """创建结果卡片（统一复用 CollapsibleCard：左侧强调色条 + 图标 + 标题，可折叠）。
@@ -233,7 +220,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(Spacing.S3)
 
         name = hexagram_info.get('name', '')
         symbol = hexagram_info.get('symbol', '')
@@ -244,7 +231,7 @@ class MeihuaResultPanel(QWidget):
 
         # ---- 头部：类型徽标 + 卦名（衬线大字） ----
         header_row = QHBoxLayout()
-        header_row.setSpacing(10)
+        header_row.setSpacing(Spacing.S3)
         header_row.setAlignment(Qt.AlignCenter)
 
         type_label = QLabel(hex_type)
@@ -299,7 +286,7 @@ class MeihuaResultPanel(QWidget):
             """)
             ob_lay = QVBoxLayout(orig_block)
             ob_lay.setContentsMargins(12, 8, 12, 8)
-            ob_lay.setSpacing(4)
+            ob_lay.setSpacing(Spacing.S1)
 
             orig_tag = QLabel('卦辞')
             orig_tag.setStyleSheet(
@@ -319,7 +306,7 @@ class MeihuaResultPanel(QWidget):
             exp_block = QWidget()
             eb_lay = QVBoxLayout(exp_block)
             eb_lay.setContentsMargins(12, 4, 12, 4)
-            eb_lay.setSpacing(4)
+            eb_lay.setSpacing(Spacing.S1)
             exp_tag = QLabel('释义')
             exp_tag.setStyleSheet(
                 f"font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_MEDIUM}; "
@@ -349,7 +336,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(Spacing.S3)
 
         for yao in yao_info_list:
             name = yao.get('name', '')
@@ -369,13 +356,13 @@ class MeihuaResultPanel(QWidget):
 
             card_lay = QVBoxLayout(yao_card)
             card_lay.setContentsMargins(0, 0, 0, 0)
-            card_lay.setSpacing(0)
+            card_lay.setSpacing(Spacing.S0)
 
             # ---- 爻头：强调色条 + 爻名 + （动爻徽标） ----
             header = QWidget()
             header_lay = QHBoxLayout(header)
             header_lay.setContentsMargins(12, 10, 12, 10)
-            header_lay.setSpacing(8)
+            header_lay.setSpacing(Spacing.S2)
 
             bar = QFrame()
             bar.setFixedSize(4, 18)
@@ -427,7 +414,7 @@ class MeihuaResultPanel(QWidget):
                 """)
                 ob_lay = QVBoxLayout(orig_block)
                 ob_lay.setContentsMargins(12, 8, 12, 8)
-                ob_lay.setSpacing(4)
+                ob_lay.setSpacing(Spacing.S1)
 
                 orig_tag = QLabel('爻辞原文')
                 orig_tag.setStyleSheet(
@@ -449,7 +436,7 @@ class MeihuaResultPanel(QWidget):
                 exp_block = QWidget()
                 eb_lay = QVBoxLayout(exp_block)
                 eb_lay.setContentsMargins(12, 8, 12, 10)
-                eb_lay.setSpacing(4)
+                eb_lay.setSpacing(Spacing.S1)
 
                 exp_tag = QLabel('释义')
                 exp_tag.setStyleSheet(
@@ -475,7 +462,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(Spacing.S3)
 
         overall = overall_info.get('overall', '')
         level = overall_info.get('level', '中')
@@ -491,6 +478,7 @@ class MeihuaResultPanel(QWidget):
         badge_color = color_map.get(level, Colors.WARNING)
 
         badge_row = QHBoxLayout()
+        badge_row.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         badge_row.setAlignment(Qt.AlignCenter)
 
         badge = QLabel(level)
@@ -527,7 +515,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(Spacing.S2)
 
         for i, suggestion in enumerate(suggestions, 1):
             sug_widget = QFrame()
@@ -541,7 +529,7 @@ class MeihuaResultPanel(QWidget):
 
             sug_layout = QHBoxLayout(sug_widget)
             sug_layout.setContentsMargins(12, 8, 12, 8)
-            sug_layout.setSpacing(12)
+            sug_layout.setSpacing(Spacing.S3)
 
             num_badge = QLabel(str(i))
             num_badge.setFixedSize(24, 24)
@@ -581,7 +569,7 @@ class MeihuaResultPanel(QWidget):
         widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(12)
+        layout.setSpacing(Spacing.S3)
 
         upper_element = ben_gua.get('upper_element', '')
         lower_element = ben_gua.get('lower_element', '')
@@ -650,7 +638,7 @@ class MeihuaResultPanel(QWidget):
             """)
             cl = QVBoxLayout(card)
             cl.setContentsMargins(8, 8, 8, 8)
-            cl.setSpacing(4)
+            cl.setSpacing(Spacing.S1)
             tag = QLabel(tag_text)
             tag.setAlignment(Qt.AlignCenter)
             tag.setStyleSheet(
@@ -684,7 +672,7 @@ class MeihuaResultPanel(QWidget):
             """)
             cl = QVBoxLayout(card)
             cl.setContentsMargins(8, 8, 8, 8)
-            cl.setSpacing(4)
+            cl.setSpacing(Spacing.S1)
             ic = QLabel(icon)
             ic.setAlignment(Qt.AlignCenter)
             ic.setStyleSheet("font-size: 26px; background: transparent;")
@@ -692,7 +680,7 @@ class MeihuaResultPanel(QWidget):
             rt.setAlignment(Qt.AlignCenter)
             rt.setWordWrap(True)
             rt.setStyleSheet(
-                f"font-size: 14px; color: {relation_color}; "
+                f"font-size: 13px; color: {relation_color}; "
                 f"font-weight: {Fonts.WEIGHT_BOLD}; font-family: {Fonts.FAMILY_CN}; background: transparent;")
             cl.addWidget(ic)
             cl.addWidget(rt)
@@ -729,7 +717,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(Spacing.S3)
 
         ben_gua = result_data.get('ben_gua', {})
         hu_gua = result_data.get('hu_gua', {})
@@ -762,12 +750,12 @@ class MeihuaResultPanel(QWidget):
             """)
             card_lay = QVBoxLayout(card)
             card_lay.setContentsMargins(0, 0, 0, 0)
-            card_lay.setSpacing(6)
+            card_lay.setSpacing(Spacing.S2)
             card_lay.setAlignment(Qt.AlignCenter)
 
             # 顶部：阶段序号徽标 + 阶段名（青花蓝）
             head = QHBoxLayout()
-            head.setSpacing(6)
+            head.setSpacing(Spacing.S2)
             head.setAlignment(Qt.AlignCenter)
 
             idx_badge = QLabel(str(i + 1))
@@ -780,7 +768,7 @@ class MeihuaResultPanel(QWidget):
 
             name_label = QLabel(stage_name)
             name_label.setStyleSheet(
-                f"font-size: 14px; color: {Colors.PRIMARY}; "
+                f"font-size: 13px; color: {Colors.PRIMARY}; "
                 f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.BODY};")
 
             head.addWidget(idx_badge)
@@ -791,7 +779,7 @@ class MeihuaResultPanel(QWidget):
             gua_label = QLabel(gua_name)
             gua_label.setAlignment(Qt.AlignCenter)
             gua_label.setStyleSheet(
-                f"font-size: 18px; color: {Colors.TEXT}; "
+                f"font-size: 17px; color: {Colors.TEXT}; "
                 f"font-weight: {Fonts.W_BOLD}; font-family: {Fonts.FAMILY_SERIF};")
 
             # 意义（鎏金小字）
@@ -808,7 +796,7 @@ class MeihuaResultPanel(QWidget):
             slot.setStyleSheet("background: transparent;")
             sl = QHBoxLayout(slot)
             sl.setContentsMargins(0, 0, 0, 0)
-            sl.setSpacing(6)
+            sl.setSpacing(Spacing.S2)
             sl.addWidget(card, 1)
             if i < len(stages) - 1:
                 arrow = QLabel('➜')
@@ -838,6 +826,8 @@ class MeihuaResultPanel(QWidget):
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # M3-6：显示结果前清理旧错误态 holder，避免残留
+        self._clear_error_holder()
 
         self.smart_analyze_btn.setVisible(True)
         # 起卦结果出来后即可导出（即使暂无 智能 解读）
@@ -845,7 +835,7 @@ class MeihuaResultPanel(QWidget):
             self.export_btn.setVisible(True)
         if hasattr(self, 'collapse_all_btn'):
             self.collapse_all_btn.setVisible(True)
-            self.collapse_all_btn.setText('▾ 全部收起')
+            self.collapse_all_btn.setText('全部收起')
 
         # 更新顶部状态栏（注意：直接更新 init_ui 中已创建的 status_bar / status_label，
         # 切勿在此处重新 new 一个 status_bar 并塞进 content_layout，否则顶栏会一直显示加载文案）
@@ -995,13 +985,13 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(Spacing.S0)
 
         for i, (label, value) in enumerate(data):
             row = QWidget()
             rl = QHBoxLayout(row)
             rl.setContentsMargins(10, 8, 10, 8)
-            rl.setSpacing(12)
+            rl.setSpacing(Spacing.S3)
 
             # 标签：鎏金微光小药丸（与卦象类型徽标同源）
             label_widget = QLabel(label)
@@ -1061,6 +1051,9 @@ class MeihuaResultPanel(QWidget):
             self.export_btn.setVisible(False)
         if hasattr(self, 'collapse_all_btn'):
             self.collapse_all_btn.setVisible(False)
+
+        # M3-6：显示加载态前清理旧错误态 holder，避免残留
+        self._clear_error_holder()
 
         if is_ai:
             # AI 解读：鎏金主题
@@ -1167,22 +1160,36 @@ class MeihuaResultPanel(QWidget):
         """)
         self.smart_analyze_btn.setVisible(True)
         self.smart_analyze_btn.setEnabled(True)
-        self.smart_analyze_btn.setText("🔄 重新解读")
+        self.smart_analyze_btn.setText("⚡ 智能分析")
         QTimer.singleShot(50, self._scroll_to_section_meihua)
 
     def _show_error(self, message: str):
-        """智能 失败/数据异常时的兜底显示（梅花易数版）"""
-        try:
-            # 重新构建原始面板
-            rd = getattr(self, '_current_result', {}) or {}
-            self.display_result(rd)
-        except Exception:
-            pass
+        """展示 AI 解读异常提示，委托 ErrorState（M3-6：统一错误视觉 + 重试信号）。
 
+        Args:
+            message: 异常/错误说明文案
+
+        清空内容区并重建错误态 holder，ErrorState 提供统一错误视觉与重试入口，
+        重试信号连到 show_ai_loading 重新展示加载态（供用户再次触发解读）。
+        """
+        from ui.components.states import ErrorState
+
+        # 清空内容区旧控件（含旧错误态/提示）
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 重建头部：确保智能分析按钮可见（供用户再次触发解读）
+        self.smart_analyze_btn.setVisible(True)
+        self.smart_analyze_btn.setEnabled(True)
+        self.smart_analyze_btn.setText('⚡ 智能分析')
+
+        # 清空状态栏旧样式，切换到错误态样式
         self.status_bar.setStyleSheet(f"""
             QFrame {{
-                background-color: rgba(196, 92, 72, 0.08);
-                border: 1px solid {Colors.DANGER};
+                background-color: {Colors.CARD};
+                border: 1px solid {Colors.BORDER_LIGHT};
                 border-radius: {Spacing.CONTROL_RADIUS};
                 padding: 12px 20px;
             }}
@@ -1194,17 +1201,29 @@ class MeihuaResultPanel(QWidget):
             font-family: {Fonts.FAMILY_CN};
             font-weight: {Fonts.WEIGHT_BOLD};
         """)
-        self.smart_analyze_btn.setVisible(True)
-        self.smart_analyze_btn.setEnabled(True)
-        self.smart_analyze_btn.setText('🔄 重新解读')
-        tip = QLabel(f'⚠ {message}')
-        tip.setStyleSheet(
-            f"color:{Colors.TEXT2}; font-size:{Fonts.SIZE_BODY}; "
-            f"font-family:{Fonts.FAMILY_CN}; padding:60px 20px;"
+
+        # 重建错误态 holder（清空旧 holder，接管 ErrorState）
+        self._clear_error_holder()
+        holder = QWidget()
+        holder.setStyleSheet('background: transparent;')
+        v = QVBoxLayout(holder)
+        v.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
+        v.setSpacing(Spacing.S0)
+        err = ErrorState(
+            title='分析异常',
+            message=message,
+            retry_hint='重试',
+            show_retry=True,
+            color=Colors.DANGER,
+            parent=holder,
         )
-        tip.setAlignment(Qt.AlignCenter)
-        tip.setWordWrap(True)
-        self.content_layout.addWidget(tip)
+        # M3-6：重试信号连到重新展示加载态（用户可再次触发解读）
+        err.retry.connect(self.show_ai_loading)
+        v.addWidget(err, 1)
+
+        # 保存错误态 holder，供后续清理
+        self._set_error_holder(holder)
+        self.content_layout.addWidget(holder)
 
     def _clear_prev_ai_container(self):
         """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
@@ -1223,6 +1242,20 @@ class MeihuaResultPanel(QWidget):
                     return
         except Exception:
             pass
+
+    def _clear_error_holder(self):
+        """移除当前错误态 holder（重建错误态时清理旧实例）。"""
+        old = self._error_holder
+        if old is not None:
+            try:
+                old.deleteLater()
+            except Exception:
+                pass
+            self._error_holder = None
+
+    def _set_error_holder(self, holder: QWidget):
+        """设置错误态 holder（供上层/显示逻辑调用）。"""
+        self._error_holder = holder
 
     def _scroll_to_section_meihua(self):
         """滚动到 智能 解读区域"""
@@ -1315,6 +1348,8 @@ class MeihuaResultPanel(QWidget):
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # M3-6：清空错误态 holder 引用，避免遗留已删控件
+        self._clear_error_holder()
 
         self.empty_state = self._create_empty_state()
         self.content_layout.addWidget(self.empty_state)

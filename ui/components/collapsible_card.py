@@ -35,8 +35,9 @@ from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget
                                QGraphicsDropShadowEffect)
 from PySide6.QtCore import (Qt, QEvent, QPropertyAnimation, QEasingCurve, QTimer,
                             Signal, Property, QObject)
-from PySide6.QtGui import QColor, QFont, QCursor
+from PySide6.QtGui import QFont, QCursor
 from ui.styles import Colors, Fonts, Spacing
+from ui.components.typography import TLabel  # M3-3：分区标题/副标题/时间戳走 TLabel 工厂
 
 # 模块级 logger：便于排查 _strength_verdict 文案是否按预期产出
 logger = logging.getLogger(__name__)
@@ -59,10 +60,15 @@ class CollapsibleCard(QFrame):
 
     点击标题栏可收起/展开内容区（高度过渡动画 + ▼/▶ 箭头指示），
     也可通过 set_collapsed() / toggle() 程序化控制。
+    M3-5：支持折叠态记忆（persist_key，进程内持久化用户折叠偏好）。
     """
 
+    # M3-5：折叠态记忆字典（进程内有效，键 -> 是否折叠）
+    _COLLAPSE_STATE: dict[str, bool] = {}
+
     def __init__(self, title: str, icon: str = '', parent=None,
-                 accent_color=None, collapsed: bool = False):
+                 accent_color=None, collapsed: bool = False,
+                 persist_key: str = ''):
         """
         构建卡片骨架：标题栏（强调色条 + 图标 + 标题 + 折叠箭头）与内容容器。
 
@@ -73,9 +79,15 @@ class CollapsibleCard(QFrame):
             accent_color: 左侧强调色条颜色；None 时取青色 Colors.QINGHUA。
                           约定排盘类卡片用青色、AI 解读类卡片用鎏金 Colors.LIUJIN。
             collapsed:    初始是否折叠，默认 False（展开）。
+            persist_key:  折叠态记忆键（M3-5），非空时读取/写入进程内折叠偏好。
         """
         super().__init__(parent)
-        self._collapsed = bool(collapsed)
+        self._persist_key = persist_key
+        # 读取记忆：persist_key 命中则覆盖默认 collapsed
+        if self._persist_key and self._persist_key in self._COLLAPSE_STATE:
+            self._collapsed = self._COLLAPSE_STATE[self._persist_key]
+        else:
+            self._collapsed = bool(collapsed)
         self._accent_color = accent_color or Colors.QINGHUA
         self._content_widget = None
         self._collapse_anim = None  # 保持动画引用防 GC
@@ -86,14 +98,41 @@ class CollapsibleCard(QFrame):
                 border: 1px solid {Colors.BORDER};
                 border-radius: {Spacing.RADIUS};
             }}
+            /* P07：hover 统一反馈 = 背景提亮 + 边框强调色。
+               原实现仅改 border-color——1px 边框变色在深色卡片底上几乎
+               不可见，反馈严重不足。背景渐变与 probability_stats_widget 的
+               prob-row hover 对齐，保证四面板列表项视觉语言一致。
+               阴影变化无法用 QSS（Qt 不支持 box-shadow），见 enterEvent。 */
             QFrame:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {Colors.CARD_HOVER}, stop:1 {Colors.HOVER});
                 border-color: {self._accent_color};
             }}
         """)
 
+        # 统一卡片阴影（CARD 基础阴影，QGraphicsDropShadowEffect）
+        # 全程只建一个实例、hover 时只改参数（见 _apply_card_hover）。
+        # 这样同时避开两个真踩过的坑：
+        # ① setGraphicsEffect() 换装时 Qt 会删除旧 effect（Qt 接管所有权），
+        #    保存两个 effect 来回换会让先装的那个变悬空指针，下次抛
+        #    RuntimeError: Internal C++ object already deleted；
+        # ② QGraphicsDropShadowEffect 不是 QWidget，PySide6 不做 Qt 父对象生命周期
+        #    管理，不留 Python 引用会被 CPython 立刻 GC，表现为 setGraphicsEffect
+        #    后 graphicsEffect() 立即返回 None（静默失效）。
+        from ui.styles import Shadows, make_shadow
+        self._shadow_supported = False
+        self._shadow_hover_state = False  # 当前是否为 hover 阴影
+        self._current_shadow = None       # 唯一实例，卡片存活期内不更换
+        try:
+            self._current_shadow = make_shadow(Shadows.CARD)
+            self.setGraphicsEffect(self._current_shadow)
+            self._shadow_supported = True
+        except Exception:
+            self._current_shadow = None
+
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 0, 0, 0)
-        self._main_layout.setSpacing(0)
+        self._main_layout.setSpacing(Spacing.S0)
 
         # 标题栏（可点击折叠/展开）
         self._header = _ClickableHeader()
@@ -108,7 +147,7 @@ class CollapsibleCard(QFrame):
         self._header.clicked.connect(self.toggle)
         header_layout = QHBoxLayout(self._header)
         header_layout.setContentsMargins(16, 12, 16, 12)
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(Spacing.S3)
 
         # 强调色条（视觉层次标识：排盘=青 / AI=金）
         self._accent_bar = QFrame()
@@ -117,7 +156,7 @@ class CollapsibleCard(QFrame):
 
         # 图标
         icon_label = QLabel(icon)
-        icon_label.setStyleSheet(f"font-size: 16px; color: {self._accent_color}; background: transparent;")
+        icon_label.setStyleSheet(f"font-size: 15px; color: {self._accent_color}; background: transparent;")
         icon_label.setFixedWidth(24)
 
         # 标题（五号字阶梯：SECTION 级）
@@ -153,7 +192,7 @@ class CollapsibleCard(QFrame):
         self._content_container.setStyleSheet("background: transparent; border: none;")
         self._content_layout = QVBoxLayout(self._content_container)
         self._content_layout.setContentsMargins(16, 0, 16, 14)
-        self._content_layout.setSpacing(0)
+        self._content_layout.setSpacing(Spacing.S0)
         self._main_layout.addWidget(self._content_container)
 
         # 初始折叠态：直接隐藏内容（无动画）
@@ -180,11 +219,11 @@ class CollapsibleCard(QFrame):
         return self._collapsed
 
     def toggle(self):
-        """切换折叠/展开状态。"""
+        """切换折叠/展开状态（M3-5：写入持久化记忆）。"""
         self.set_collapsed(not self._collapsed)
 
     def set_collapsed(self, collapsed: bool, animated: bool = True):
-        """设置折叠状态。
+        """设置折叠状态（M3-5：写入进程内折叠记忆）。
 
         Args:
             collapsed: True 收起内容；False 展开内容。
@@ -194,6 +233,9 @@ class CollapsibleCard(QFrame):
             return
         self._collapsed = bool(collapsed)
         self._chevron.setText('▶' if self._collapsed else '▼')
+        # M3-5：persist_key 命中时写入折叠偏好（进程内有效）
+        if self._persist_key:
+            self._COLLAPSE_STATE[self._persist_key] = self._collapsed
         container = self._content_container
 
         if not animated:
@@ -205,30 +247,124 @@ class CollapsibleCard(QFrame):
             self._collapse_anim.stop()
 
         if self._collapsed:
-            # 收起：从当前高度动画到 0
+            # 收起：从当前高度动画到 0（M6 规范：300ms IN_OUT_CUBIC）
+            from ui.animation import DURATION_NORMAL, EASING_STANDARD
             start_h = max(container.sizeHint().height(), container.height())
             container.setMaximumHeight(start_h)
             anim = QPropertyAnimation(container, b'maximumHeight', container)
-            anim.setDuration(200)
+            anim.setDuration(DURATION_NORMAL)
             anim.setStartValue(start_h)
             anim.setEndValue(0)
-            anim.setEasingCurve(QEasingCurve.InOutQuad)
+            anim.setEasingCurve(EASING_STANDARD)
             anim.finished.connect(lambda: container.setVisible(False))
             self._collapse_anim = anim
             anim.start()
         else:
             # 展开：先显示，从 0 动画到内容推荐高度，结束后放开高度上限
+            from ui.animation import DURATION_NORMAL, EASING_STANDARD
             container.setVisible(True)
             container.setMaximumHeight(0)
             target_h = container.sizeHint().height()
             anim = QPropertyAnimation(container, b'maximumHeight', container)
-            anim.setDuration(260)
+            anim.setDuration(DURATION_NORMAL)
             anim.setStartValue(0)
             anim.setEndValue(target_h)
-            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.setEasingCurve(EASING_STANDARD)
             anim.finished.connect(lambda: container.setMaximumHeight(16777215))
             self._collapse_anim = anim
             anim.start()
+
+    # ---- P07：hover 统一反馈（阴影部分）----
+    # Qt QSS 不支持 box-shadow，阴影只能在事件里用 QGraphicsDropShadowEffect
+    # 切换：基础黑阴影（下沉感）↔ 古金光晕（抬起感）。背景/边框由 QSS 负责。
+    def enterEvent(self, event):
+        self._apply_card_hover(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._apply_card_hover(False)
+        super().leaveEvent(event)
+
+    def _apply_card_hover(self, hover: bool):
+        """切换卡片阴影（P07）：只改参数，不换装 effect 实例。
+
+        Args:
+            hover: True 切古金光晕（抬起感），False 还原基础黑阴影（下沉感）。
+        """
+        hover = bool(hover)
+        if not self._shadow_supported or self._shadow_hover_state == hover:
+            return
+        # 安全检查：控件可能已销毁或 effect 被 Qt 删除，避免 RuntimeError
+        if self._current_shadow is None or self.graphicsEffect() is not self._current_shadow:
+            self._shadow_supported = False
+            return
+        self._shadow_hover_state = hover
+        from ui.styles import Shadows, apply_shadow
+        spec = Shadows.CARD_HOVER if hover else Shadows.CARD
+        try:
+            apply_shadow(spec, self._current_shadow)
+        except RuntimeError:
+            # effect 已被删除（控件销毁或 Qt 内部释放），禁用阴影
+            self._shadow_supported = False
+            self._current_shadow = None
+
+
+def apply_click_feedback(button, scale: float = 0.94, duration: int = 90):
+    """T7.3 为按钮绑定点击微缩放反馈（press 缩小 → release 复原）。
+
+    用 QPropertyAnimation 驱动 minimumWidth 做「手感缩放」：QWidget 没有
+    setScale 接口，而 QGraphicsEffect 又与卡片阴影冲突，改宽度是最稳的
+    等效实现（按钮在布局中会随之视觉收缩再弹回）。
+
+    可重复调用：内部用 _click_feedback_bound 标记，避免重复绑定导致
+    一次点击触发多组动画。
+
+    Args:
+        button: 目标 QAbstractButton（QPushButton / QToolButton）
+        scale:  按下时相对原宽度的比例，默认 0.94
+        duration: 单程动画时长（毫秒），默认 90
+
+    Returns:
+        传入的 button，便于链式调用
+    """
+    if button is None or getattr(button, '_click_feedback_bound', False):
+        return button
+    try:
+        anim = QPropertyAnimation(button, b'minimumWidth', button)
+        anim.setDuration(duration)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def _base_width():
+            # 布局撑开后 width 才是真实宽度；minimumWidth 为 0 时退回 width
+            return button.minimumWidth() or button.width() or 1
+
+        def _press():
+            try:
+                w = _base_width()
+                button.setProperty('_cf_base_width', w)
+                anim.stop()
+                anim.setStartValue(w)
+                anim.setEndValue(max(1, int(w * scale)))
+                anim.start()
+            except RuntimeError:
+                pass
+
+        def _release():
+            try:
+                w = button.property('_cf_base_width') or _base_width()
+                anim.stop()
+                anim.setStartValue(button.minimumWidth() or w)
+                anim.setEndValue(int(w))
+                anim.start()
+            except RuntimeError:
+                pass
+
+        button.pressed.connect(_press)
+        button.released.connect(_release)
+        button._click_feedback_bound = True
+    except Exception:
+        pass
+    return button
 
 
 def set_all_cards_collapsed(container: QWidget, collapsed: bool):
@@ -322,12 +458,13 @@ class LoadingPanel(QWidget):
         super().__init__(parent)
         self.setStyleSheet('background: transparent;')
         outer = QVBoxLayout(self)
+        outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         outer.setContentsMargins(24, 48, 24, 48)
         outer.addStretch(1)
 
         col = QVBoxLayout()
         col.setAlignment(Qt.AlignCenter)
-        col.setSpacing(14)
+        col.setSpacing(Spacing.S4)
 
         # 旋转太极
         col.addWidget(TaijiSpinner(size=58, color=color), 0, Qt.AlignCenter)
@@ -503,11 +640,11 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     """)
     v = QVBoxLayout(container)
     v.setContentsMargins(22, 18, 22, 18)
-    v.setSpacing(12)
+    v.setSpacing(Spacing.S3)
 
     # ---------- 顶部：图标 + 标题 + 时间戳 ----------
     h = QHBoxLayout()
-    h.setSpacing(16)
+    h.setSpacing(Spacing.S4)
     h.setAlignment(Qt.AlignVCenter)
 
     # 左侧大圆形图标：外圈光晕 + 内圈实心 + 中央字符
@@ -521,6 +658,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
         }}
     """)
     icon_outer_lay = QVBoxLayout(icon_outer)
+    icon_outer_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
     icon_outer_lay.setContentsMargins(4, 4, 4, 4)
     icon_outer_lay.setAlignment(Qt.AlignCenter)
 
@@ -535,6 +673,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
         }}
     """)
     icon_lay = QVBoxLayout(icon_box)
+    icon_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
     icon_lay.setContentsMargins(0, 0, 0, 0)
     icon_inner = QLabel(icon)
     icon_inner.setAlignment(Qt.AlignCenter)
@@ -548,27 +687,30 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     icon_outer_lay.addWidget(icon_box)
     h.addWidget(icon_outer)
 
-    # 标题区（主标题 + 副标题）
+    # 标题区（主标题 + 副标题）：M3-3 统一走 TLabel 工厂
     title_col = QVBoxLayout()
-    title_col.setSpacing(4)
+    title_col.setSpacing(Spacing.S1)
+    title_col.setAlignment(Qt.AlignVCenter)
 
-    title_label = QLabel(title)
+    # 主标题（TLabel.h1 = 20px，§ 由 TLabel.h1 的 _SPECS 给出）
+    title_label = TLabel.h1(title)
     title_label.setStyleSheet(
-        f"font-size: 20px; font-weight: {Fonts.W_BOLD}; "
-        f"color: {Colors.LIUJIN_DARK}; font-family: {Fonts.TITLE}; "
+        f"font-weight: {Fonts.W_BOLD}; color: {Colors.LIUJIN_DARK}; "
         f"letter-spacing: 2px;"
     )
 
-    # 副标题：去 AI 化、改为龙虎山大师兄算命描述
-    sub_label = QLabel('· 龙虎山大师兄亲批  ·  承古法、参五行、酌神煞  ·')
-    sub_label.setStyleSheet(
-        f"font-size: 12px; color: {Colors.TEXT2}; "
-        f"font-family: {Fonts.BODY}; letter-spacing: 1px;"
+    # 副标题：去 AI 化、改为龙虎山大师兄算命描述（TLabel.caption = 12px）
+    sub_label = TLabel.caption(
+        '· 龙虎山大师兄亲批  ·  承古法、参五行、酌神煞  ·'
     )
+    sub_label.setStyleSheet(f"color: {Colors.TEXT2}; letter-spacing: 1px;")
+
+    title_col.addWidget(title_label)
+    title_col.addWidget(sub_label)
 
     # 三段式标签：体现「算命」语境而非 AI 语境
     tag_row = QHBoxLayout()
-    tag_row.setSpacing(6)
+    tag_row.setSpacing(Spacing.S2)
     tag_row.setContentsMargins(0, 4, 0, 0)
     tag_items = [
         ('古法', Colors.ZHUSHA),
@@ -583,7 +725,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
             border: 1px solid {tag_color}55;
             border-radius: 8px;
             padding: 1px 8px;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: {Fonts.W_MEDIUM};
             font-family: {Fonts.BODY};
         """)
@@ -598,7 +740,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
 
     # 右侧：时间戳 + 「法旨」徽章（取代 AI 徽章）
     ts_col = QVBoxLayout()
-    ts_col.setSpacing(4)
+    ts_col.setSpacing(Spacing.S1)
     ts_col.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     ts_text = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -613,7 +755,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     badge.setStyleSheet(f"""
         background: {Colors.LIUJIN};
         color: white;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: {Fonts.W_BOLD};
         padding: 3px 10px;
         border-radius: 9px;
@@ -631,7 +773,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
 
     # ---------- 底部装饰：金线 + 文字点缀（去 AI 描述） ----------
     deco_row = QHBoxLayout()
-    deco_row.setSpacing(8)
+    deco_row.setSpacing(Spacing.S2)
     deco_row.setAlignment(Qt.AlignVCenter)
 
     line_left = QFrame()
@@ -644,7 +786,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     # 装饰文案：改为「大师兄亲批」，去掉 AI 字样
     deco_text = QLabel('☯  大师兄亲批 · 仅供文化研究参考  ☯')
     deco_text.setStyleSheet(
-        f"font-size: 10px; color: {Colors.LIUJIN}; "
+        f"font-size: 11px; color: {Colors.LIUJIN}; "
         f"font-family: {Fonts.BODY}; letter-spacing: 1.5px;"
     )
 
@@ -691,7 +833,7 @@ def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors
 
     outer_layout = QVBoxLayout(outer)
     outer_layout.setContentsMargins(0, 0, 0, 0)
-    outer_layout.setSpacing(0)
+    outer_layout.setSpacing(Spacing.S0)
 
     # 滚动容器
     scroll = QScrollArea()
@@ -717,7 +859,7 @@ def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors
     chip_container.setStyleSheet('background: transparent; border: none;')
     chip_layout = QHBoxLayout(chip_container)
     chip_layout.setContentsMargins(10, 8, 10, 8)
-    chip_layout.setSpacing(6)
+    chip_layout.setSpacing(Spacing.S2)
 
     btn_group = QButtonGroup(outer)
     btn_group.setExclusive(False)  # 不互斥，仅作为点击回调容器
@@ -836,12 +978,12 @@ def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
     """)
     hl = QHBoxLayout(container)
     hl.setContentsMargins(12, 10, 12, 10)
-    hl.setSpacing(10)
+    hl.setSpacing(Spacing.S3)
 
     # 图标由 ⭐ 改为 批（算命语境专属标识，呼应「大师兄亲批」标题）
     star = QLabel('批')
     star.setStyleSheet(f"""
-        font-size: 14px; font-weight: {Fonts.W_BOLD};
+        font-size: 13px; font-weight: {Fonts.W_BOLD};
         color: white; background: {color};
         border: 1px solid {color};
         border-radius: 11px;
@@ -993,7 +1135,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
     container = QWidget()
     v = QVBoxLayout(container)
     v.setContentsMargins(6, 6, 6, 6)
-    v.setSpacing(14)
+    v.setSpacing(Spacing.S4)
 
     items = []
     if isinstance(stats, (list, tuple)):
@@ -1095,7 +1237,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 group_widget.setStyleSheet("background: transparent;")
                 group_layout = QGridLayout(group_widget)
                 group_layout.setContentsMargins(0, 0, 0, 0)
-                group_layout.setSpacing(14)
+                group_layout.setSpacing(Spacing.S4)
                 group_layout.setColumnStretch(0, 1)
                 group_layout.setColumnStretch(1, 1)
                 row_idx[current_group] = 1  # header occupies row 0
@@ -1112,7 +1254,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 """)
                 hh = QHBoxLayout(header_wrap)
                 hh.setContentsMargins(10, 6, 10, 6)
-                hh.setSpacing(8)
+                hh.setSpacing(Spacing.S2)
 
                 # 装饰性左侧色条
                 accent_bar = QFrame()
@@ -1150,42 +1292,40 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 }}
             """)
             # 使用 QGraphicsDropShadowEffect 正确实现阴影（替代无效的 CSS box-shadow）
-            _shadow_default = QGraphicsDropShadowEffect(row)
-            _shadow_default.setBlurRadius(10)
-            _shadow_default.setOffset(0, 2)
-            _shadow_default.setColor(QColor(0, 0, 0, 18))
-            row.setGraphicsEffect(_shadow_default)
-            _shadow_hover = QGraphicsDropShadowEffect(row)
-            _shadow_hover.setBlurRadius(18)
-            _shadow_hover.setOffset(0, 4)
-            _shadow_hover.setColor(QColor(0, 0, 0, 32))
-            _shadow_hover.setEnabled(False)
+            # P29：只建一个实例、hover 时改参数。
+            # 原实现是「两个 effect + setEnabled 切换」——只有装在 widget 上的那个生效，
+            # 对未安装的 _shadow_hover 调 setEnabled(True) 没有任何渲染效果，实际表现是
+            # 「hover 时阴影消失」而不是「切换为强调阴影」（静默失效多年）。
+            # 改成改同一实例的参数（setter 会触发 changed() 重绘），同时避开两个坑：
+            # 换装会让 Qt 删除旧 effect 导致悬空指针；不留引用会被 CPython 立刻 GC。
+            from ui.styles import Shadows, apply_shadow, make_shadow
+            _row_shadow = make_shadow(Shadows.ROW)
+            row.setGraphicsEffect(_row_shadow)
 
-            # hover 时切换阴影效果（QEventLoop 驱动，避免重入）
+            # hover 时切换阴影参数（QEventLoop 驱动，避免重入）
             class _ShadowSwapFilter(QObject):
-                """轻量事件过滤器：hover 进入/退出时切换阴影。"""
-                def __init__(self, parent_frame: QFrame, normal: QGraphicsDropShadowEffect,
-                             highlight: QGraphicsDropShadowEffect) -> None:
+                """轻量事件过滤器：hover 进入/退出时切换同一 effect 的参数。"""
+                def __init__(self, parent_frame: QFrame,
+                             shadow: 'QGraphicsDropShadowEffect') -> None:
                     super().__init__(parent_frame)
-                    self._normal = normal
-                    self._highlight = highlight
+                    self._shadow = shadow          # 保持引用，防 CPython 立刻 GC
+                    self._spec_base = Shadows.ROW
+                    self._spec_hover = Shadows.ROW_HOVER
 
                 def eventFilter(self, obj: object, event: object) -> bool:  # noqa: N802
                     etype = event.type()
                     if etype == QEvent.Type.Enter or etype == QEvent.Enter:
-                        self._normal.setEnabled(False)
-                        self._highlight.setEnabled(True)
+                        apply_shadow(self._spec_hover, self._shadow)
                     elif etype == QEvent.Type.Leave or etype == QEvent.Leave:
-                        self._normal.setEnabled(True)
-                        self._highlight.setEnabled(False)
+                        apply_shadow(self._spec_base, self._shadow)
                     return False
-            row.installEventFilter(_ShadowSwapFilter(row, _shadow_default, _shadow_hover))
+            row.installEventFilter(_ShadowSwapFilter(row, _row_shadow))
             rv = QVBoxLayout(row)
             rv.setContentsMargins(14, 12, 14, 14)
-            rv.setSpacing(10)
+            rv.setSpacing(Spacing.S3)
 
             head = QHBoxLayout()
-            head.setSpacing(10)
+            head.setSpacing(Spacing.S3)
             name_lbl = QLabel(label)
             name_lbl.setStyleSheet(
                 f"font-size: {Fonts.SZ_BODY}; font-weight: {Fonts.W_BOLD}; "
@@ -1409,7 +1549,7 @@ def _build_explanation_box(dimension_labels, color=Colors.LIUJIN) -> QWidget:
     """)
     bl = QVBoxLayout(box)
     bl.setContentsMargins(12, 10, 12, 10)
-    bl.setSpacing(6)
+    bl.setSpacing(Spacing.S2)
 
     head = QLabel('📜 如何理解这些批断？')
     head.setStyleSheet(
@@ -1446,7 +1586,7 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
     """)
     main = QHBoxLayout(container)
     main.setContentsMargins(8, 6, 8, 6)
-    main.setSpacing(10)
+    main.setSpacing(Spacing.S3)
 
     title = QLabel('强度')
     title.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; font-weight:{Fonts.W_MEDIUM}; color:{color};")
@@ -1469,7 +1609,7 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
         """)
         h = QHBoxLayout(w)
         h.setContentsMargins(4, 2, 4, 2)
-        h.setSpacing(4)
+        h.setSpacing(Spacing.S1)
         dot = QFrame()
         dot.setFixedSize(8, 8)
         dot.setStyleSheet(f"background:{bg}; border-radius:4px;")
@@ -1487,8 +1627,18 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
 
 
 def conclusion_block(text: str, color=Colors.LIUJIN) -> QWidget:
-    """整体结论高亮块 v2.1：粗金边 + 强调色底 + 「🎯 整体结论」标题 + 情感徽章 + 关键词高亮正文。"""
-    # 计算情感
+    """整体结论高亮块 v2.1/v2.2：粗金边 + 强调色底 + 「🎯 整体结论」标题 + 情感徽章 + 段落/代码正文。
+
+    v2.2（M3-4）：正文改用 paragraph_block（分段落 + 超宽居中）与 code_block
+    （代码块），长文本可读、代码等宽可选中、段落不黏连（修 Q09）。
+
+    Args:
+        text:    整体结论正文（含 ``` 围栏代码片段）。
+        color:   强调色。
+
+    Returns:
+        可直接 addWidget 的 QWidget。
+    """
     score, _, _ = _compute_sentiment(text)
 
     box = QFrame()
@@ -1502,11 +1652,11 @@ def conclusion_block(text: str, color=Colors.LIUJIN) -> QWidget:
     """)
     bl = QVBoxLayout(box)
     bl.setContentsMargins(14, 12, 14, 12)
-    bl.setSpacing(8)
+    bl.setSpacing(Spacing.S2)
 
     # 标题行
     header_row = QHBoxLayout()
-    header_row.setSpacing(8)
+    header_row.setSpacing(Spacing.S2)
     head = QLabel('🎯 整体结论')
     head.setStyleSheet(
         f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
@@ -1516,16 +1666,20 @@ def conclusion_block(text: str, color=Colors.LIUJIN) -> QWidget:
     header_row.addStretch()
     bl.addLayout(header_row)
 
-    # 正文：富文本高亮
-    body = QLabel()
-    body.setWordWrap(True)
-    body.setTextFormat(Qt.RichText)
-    body.setOpenExternalLinks(False)
-    body.setText(_highlight_keywords_in_text(text, color))
-    body.setStyleSheet(
-        f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; "
-        f"font-family: {Fonts.BODY}; line-height: 1.8;")
-    bl.addWidget(body)
+    # 正文：切分段落/代码，逐块渲染（M3-4 a）
+    blocks = _split_blocks(text)
+    max_width = Spacing.COL_MAX_TEXT
+    for blk in blocks:
+        kind, content = blk
+        if kind == 'code':
+            block_widget = code_block(content, language='AI')
+            block_widget.setObjectName('conclusion_code')
+            bl.addWidget(block_widget)
+        else:
+            para = content
+            block_widget = paragraph_block(para, max_width=max_width, highlight=False)
+            block_widget.setObjectName('conclusion_para')
+            bl.addWidget(block_widget)
     return box
 
 
@@ -1547,11 +1701,11 @@ def suggestion_block(items, color=Colors.SUCCESS) -> QWidget:
     """)
     bl = QVBoxLayout(box)
     bl.setContentsMargins(14, 12, 14, 12)
-    bl.setSpacing(8)
+    bl.setSpacing(Spacing.S2)
 
     # 标题行
     header_row = QHBoxLayout()
-    header_row.setSpacing(8)
+    header_row.setSpacing(Spacing.S2)
     head = QLabel('💡 核心建议')
     head.setStyleSheet(
         f"font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD}; "
@@ -1567,7 +1721,7 @@ def suggestion_block(items, color=Colors.SUCCESS) -> QWidget:
         row = QWidget()
         rl = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(8)
+        rl.setSpacing(Spacing.S2)
         dot = QLabel('•')
         dot.setStyleSheet(
             f"color: {color}; font-size: {Fonts.SZ_BODY}; "
@@ -1664,7 +1818,65 @@ def _highlight_keywords_in_text(text: str, color: str = Colors.LIUJIN) -> str:
                 f'<span style="color:{Colors.SUCCESS}; font-weight:bold; background:{Colors.SUCCESS_LIGHT}; padding:0 2px; border-radius:2px;">{kw}</span>'
             )
 
+    # T5.4 古籍引用高亮：《书名》→ 古金色斜体
+    # 注：replacement 必须用 lambda（不能用 r-string）——r-string 不是 f-string，
+    # {Colors.LIUJIN} 会原样输出到 HTML 导致 CSS 静默失效（曾长期存在的 bug）。
+    # lambda 方案同时规避 \1 在 f-string 中被解释为八进制转义的陷阱。
+    import re as _re
+    escaped = _re.sub(
+        r'(《[^》]+》)',
+        lambda m: (f'<em style="color:{Colors.LIUJIN}; font-style:italic;">'
+                   f'{m.group(1)}</em>'),
+        escaped,
+    )
+
     return escaped
+
+
+# ---------------------------------------------------------------------------
+# 文本块切分：段落 / 代码围栏
+# ---------------------------------------------------------------------------
+_CODE_FENCE_RE = re.compile(r'```[a-zA-Z0-9]*\n(.*?)```', re.S)
+
+
+def _split_blocks(text: str) -> list:
+    """把文本切成 [('p', 段落文本) | ('code', 代码文本)] 序列。
+
+    识别 ``` 围栏：围栏前的文本按 \\n 分段为段落；围栏代码内容切为
+    ('code', 代码文本)；围栏后的文本按 \\n 分段为段落。无围栏时按段落切分。
+
+    围栏不匹配时（如 ``` 开头无闭合）整体按段落处理，绝不抛异常。
+
+    Args:
+        text:    待切分的文本。
+
+    Returns:
+        段落/代码元组列表，元素为 ('p', str) 或 ('code', str)。
+    """
+    if not text:
+        return [('p', '')]
+
+    blocks = []
+    last_pos = 0
+    fence_re = _CODE_FENCE_RE
+    for m in fence_re.finditer(text):
+        # 围栏前的文本按 \\n 分段为段落
+        pre_text = text[last_pos:m.start()]
+        for para in pre_text.split('\n'):
+            if para.strip():
+                blocks.append(('p', para))
+        # 围栏代码内容：去掉结尾换行，作为独立代码块
+        code_text = m.group(1).rstrip('\n')
+        blocks.append(('code', code_text))
+        last_pos = m.end()
+
+    # 围栏之后的文本按 \\n 分段为段落
+    post_text = text[last_pos:]
+    for para in post_text.split('\n'):
+        if para.strip():
+            blocks.append(('p', para))
+
+    return blocks
 
 
 def _create_sentiment_badge(score: float) -> QWidget:
@@ -1708,11 +1920,11 @@ def risk_aware_label(text: str, color=Colors.LIUJIN, show_sentiment: bool = True
     """)
     cl = QVBoxLayout(container)
     cl.setContentsMargins(12, 10, 12, 10)
-    cl.setSpacing(8)
+    cl.setSpacing(Spacing.S2)
 
     # 标题行：标题 + 情感徽章
     header_row = QHBoxLayout()
-    header_row.setSpacing(8)
+    header_row.setSpacing(Spacing.S2)
     title = QLabel('⭐ 【重点提示】')
     title.setStyleSheet(
         f"font-size: {Fonts.SZ_BODY}; font-weight: {Fonts.W_MEDIUM}; "
@@ -1771,7 +1983,7 @@ def risk_aware_label(text: str, color=Colors.LIUJIN, show_sentiment: bool = True
 
         sl = QHBoxLayout(row)
         sl.setContentsMargins(8, 6, 8, 6)
-        sl.setSpacing(6)
+        sl.setSpacing(Spacing.S2)
 
         # 图标前缀
         if is_risk and not is_positive:
@@ -1840,7 +2052,7 @@ def ai_section_card_header(
 
     h = QHBoxLayout(container)
     h.setContentsMargins(0, 4, 0, 8)
-    h.setSpacing(10)
+    h.setSpacing(Spacing.S3)
     h.setAlignment(Qt.AlignVCenter)
 
     # 渐变色条（立体感）
@@ -1883,12 +2095,12 @@ def ai_section_card_header(
 
     # 图标 + 标题
     title_col = QVBoxLayout()
-    title_col.setSpacing(0)
+    title_col.setSpacing(Spacing.S0)
     title_col.setAlignment(Qt.AlignVCenter)
 
     if icon:
         icon_lbl = QLabel(icon)
-        icon_lbl.setStyleSheet(f"font-size: 16px; color: {color}; background: transparent;")
+        icon_lbl.setStyleSheet(f"font-size: 15px; color: {color}; background: transparent;")
         icon_lbl.setFixedHeight(20)
 
         title_lbl = QLabel(title)
@@ -1902,7 +2114,7 @@ def ai_section_card_header(
         """)
 
         title_row = QHBoxLayout()
-        title_row.setSpacing(6)
+        title_row.setSpacing(Spacing.S2)
         title_row.setAlignment(Qt.AlignVCenter)
         title_row.addWidget(icon_lbl)
         title_row.addWidget(title_lbl)
@@ -1953,7 +2165,7 @@ def disclaimer_card(text: str = '') -> QWidget:
 
     v = QVBoxLayout(container)
     v.setContentsMargins(0, 0, 0, 0)
-    v.setSpacing(0)
+    v.setSpacing(Spacing.S0)
 
     # 顶部警示条纹
     stripe = QFrame()
@@ -1972,30 +2184,30 @@ def disclaimer_card(text: str = '') -> QWidget:
     content.setStyleSheet('background: transparent; border: none;')
     cl = QVBoxLayout(content)
     cl.setContentsMargins(16, 14, 16, 14)
-    cl.setSpacing(10)
+    cl.setSpacing(Spacing.S3)
 
     # 标题行
     title_row = QHBoxLayout()
-    title_row.setSpacing(8)
+    title_row.setSpacing(Spacing.S2)
     title_row.setAlignment(Qt.AlignVCenter)
 
     icon_lbl = QLabel('⚠')
-    icon_lbl.setStyleSheet(f"font-size: 18px; color: {Colors.WARNING};")
+    icon_lbl.setStyleSheet(f"font-size: 17px; color: {Colors.WARNING};")
     icon_lbl.setFixedWidth(22)
 
     title_col = QVBoxLayout()
-    title_col.setSpacing(0)
+    title_col.setSpacing(Spacing.S0)
     title = QLabel('免责声明')
     title.setStyleSheet(f"""
         font-size: 15px;
         font-weight: {Fonts.W_BOLD};
-        color: {Colors.TEXT};
+        color: {Colors.WARNING};
         font-family: {Fonts.TITLE};
         background: transparent;
     """)
     sub = QLabel('使用须知 · Disclaimer')
     sub.setStyleSheet(f"""
-        font-size: 10px;
+        font-size: 11px;
         color: {Colors.TEXT3};
         font-family: {Fonts.BODY};
         background: transparent;
@@ -2010,7 +2222,7 @@ def disclaimer_card(text: str = '') -> QWidget:
     tag.setStyleSheet(f"""
         background: {Colors.WARNING};
         color: white;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: {Fonts.W_BOLD};
         padding: 2px 8px;
         border-radius: 8px;
@@ -2035,10 +2247,10 @@ def disclaimer_card(text: str = '') -> QWidget:
 
     for emoji, head, body in default_items:
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.setAlignment(Qt.AlignTop)
         e = QLabel(emoji)
-        e.setStyleSheet('font-size: 14px;')
+        e.setStyleSheet('font-size: 13px;')
         e.setFixedWidth(20)
         e.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
@@ -2090,19 +2302,145 @@ def disclaimer_card(text: str = '') -> QWidget:
     return container
 
 
-def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
-    """hero 整体结论块 v2.2：高级视觉权重的总结性 hero 卡片。
+# =====================================================================
+# 整体结论结构化辅助：分段 / 关键句抽取
+# 仅影响「展示结构」（层次、段落、要点高亮），不增删/改写任何原文语义，
+# 保证龙虎山大师兄结论的准确性不变。
+# =====================================================================
+def _split_conclusion_sentences(text: str) -> List[str]:
+    """把结论文本切成句子（保留句末标点，含分句号；；以保证原文一字不丢）。
 
-    升级点：
-    - 双层渐变背景（鎏金 + 朱砂点缀）
-    - 顶部装饰性双金线
-    - 「🎯 整体结论」hero 标题 + 「One-line Summary」副标题
-    - 情感徽章 + 关键结论一目了然
-    - 关键词内联高亮 + 大字号舒适阅读
+    用于分段与要点抽取；句末标点（。！？!?；;）均随句保留，确保结论准确性不变。
+    """
+    if not text:
+        return []
+    parts = re.split(r'([。！？!?；;])', text)
+    out: List[str] = []
+    buf = ''
+    for p in parts:
+        buf += p
+        if p in '。！？!?；;':
+            s = buf.strip()
+            if s:
+                out.append(s)
+            buf = ''
+    if buf.strip():
+        out.append(buf.strip())
+    return out
+
+
+def _split_conclusion_paragraphs(text: str) -> List[str]:
+    """把整体结论文本规范化分段：保留 AI 原始换行；无换行时长句按 ~3 句一组自动分段。
+
+    不增删文字，仅调整展示层次，保证结论准确性不变。
+    """
+    raw = (text or '').strip()
+    if not raw:
+        return []
+    blocks = [b.strip() for b in raw.split('\n') if b.strip()]
+    if len(blocks) >= 2:
+        return blocks
+    # 单段长文：按句分组，每组约 3 句，避免一整块密排难以阅读
+    sents = _split_conclusion_sentences(raw)
+    if len(sents) <= 3:
+        return [raw]
+    paras: List[str] = []
+    for i in range(0, len(sents), 3):
+        paras.append(''.join(sents[i:i + 3]))
+    return paras
+
+
+def _extract_conclusion_keypoints(text: str, max_n: int = 3) -> List[str]:
+    """从结论中抽取最具决定性的要点句（含吉/凶等强信号词），跳过首句以免与核心论断重复。
+
+    仅用于「速读」展示，不改动原文；正文中仍含完整句子。
+    """
+    sents = _split_conclusion_sentences(text)
+    if len(sents) <= 1:
+        return []
+    scored = []
+    for s in sents[1:]:  # 跳首句（作为核心论断单独展示）
+        if len(s) < 6:
+            continue
+        pos = sum(1 for kw in _POSITIVE_KEYWORDS if kw in s)
+        neg = sum(1 for kw in _RISK_KEYWORDS if kw in s)
+        score = pos + neg
+        if score > 0:
+            scored.append((score, s))
+    scored.sort(key=lambda x: (-x[0], len(x[1])))
+    seen: set = set()
+    out: List[str] = []
+    for _score, s in scored:
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= max_n:
+            break
+    return out
+
+
+def _build_conclusion_keypoints(items: List[str], color: str) -> QWidget:
+    """渲染「关键要点」卡片：浅色底 + 左色条 + 逐项要点（关键词高亮）。"""
+    box = QFrame()
+    box.setStyleSheet(f"""
+        QFrame {{
+            background: {_glow(color)};
+            border-left: 4px solid {color};
+            border-radius: {Spacing.RADIUS_SM};
+        }}
+    """)
+    bl = QVBoxLayout(box)
+    bl.setContentsMargins(12, 10, 12, 10)
+    bl.setSpacing(Spacing.S2)
+
+    head = QLabel('✨ 关键要点')
+    head.setStyleSheet(
+        f"font-size: 13px; font-weight: {Fonts.W_BOLD}; "
+        f"color: {color}; font-family: {Fonts.TITLE}; letter-spacing: 0.5px;"
+    )
+    bl.addWidget(head)
+
+    for s in items:
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S2)
+        row.setAlignment(Qt.AlignTop)
+        dot = QLabel('▸')
+        dot.setStyleSheet(
+            f"color: {color}; font-size: 13px; font-weight: {Fonts.W_BOLD};"
+        )
+        dot.setFixedWidth(14)
+        dot.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        t = QLabel()
+        t.setWordWrap(True)
+        t.setTextFormat(Qt.RichText)
+        t.setOpenExternalLinks(False)
+        t.setText(_highlight_keywords_in_text(s, color))
+        t.setStyleSheet(
+            f"font-size: 13px; color: {Colors.TEXT_INV}; "
+            f"font-family: {Fonts.BODY}; line-height: 1.7;"
+        )
+        row.addWidget(dot)
+        row.addWidget(t, 1)
+        bl.addLayout(row)
+    return box
+
+
+def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
+    """hero 整体结论块 v2.3：高级视觉权重的总结性 hero 卡片（可读性优化版）。
+
+    升级点（v2.3，仅改展示结构，不改结论语义）：
+    - 双层渐变背景 + 顶部/底部装饰双金线（视觉权重最高）
+    - 「🎯 整体结论」hero 标题 + 古籍副标题 + 情感徽章
+    - 「✨ 关键要点」速读卡：抽取最具决定性的结论句（吉/凶强信号），
+      左色条 + 圆点列表 + 关键词高亮，便于一眼抓住重点（已排除首句以免与核心论断重复）
+    - 正文按段落结构化渲染：保留 AI 原始换行；无换行长文按 ~3 句自动分段；
+      首段作为「核心论断」略放大加粗建立层级，后续段落统一字号/行距，规范间距
+    - 关键词内联高亮贯穿始终，字体统一为 BODY 家族，行距 1.9 舒适易读
 
     Args:
         text: 整体结论正文
-        color: 强调色（默认鎏金）
+        color: 强调色（默认鎏金；梅花易数面板传入青花蓝）
 
     Returns:
         可直接 addWidget 的 QWidget（hero 结论块）
@@ -2112,17 +2450,18 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     box = QFrame()
     box.setStyleSheet(f"""
         QFrame {{
+            # M3-3（Q05）：背景由浅色 #FFF9E8 渐变改为深色卡片语言，消除浅色孤岛
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {Colors.LIUJIN_GLOW},
-                stop:0.5 #FFF9E8,
-                stop:1 {Colors.LIUJIN_GLOW});
+                stop:0 {Colors.CARD_HOVER},
+                stop:0.5 {Colors.CARD},
+                stop:1 {Colors.CARD});
             border: 1.5px solid {Colors.LIUJIN_LIGHT};
             border-radius: {Spacing.RADIUS_LG};
         }}
     """)
     bl = QVBoxLayout(box)
     bl.setContentsMargins(20, 16, 20, 16)
-    bl.setSpacing(12)
+    bl.setSpacing(Spacing.S3)
 
     # 顶部装饰双线
     line_top = QFrame()
@@ -2136,18 +2475,24 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
 
     # 标题行
     header_row = QHBoxLayout()
-    header_row.setSpacing(10)
+    header_row.setSpacing(Spacing.S3)
     header_row.setAlignment(Qt.AlignVCenter)
 
     head_col = QVBoxLayout()
-    head_col.setSpacing(0)
+    head_col.setSpacing(Spacing.S0)
     head = QLabel('🎯 整体结论')
     head.setStyleSheet(
-        f"font-size: 16px; font-weight: {Fonts.W_BOLD}; "
+        f"font-size: {Fonts.FS_H3}px; font-weight: {Fonts.W_BOLD}; "
         f"color: {Colors.LIUJIN_DARK}; font-family: {Fonts.TITLE}; "
-        f"letter-spacing: 1px;"
-    )
-    sub = QLabel('· 龙虎山大师兄核心论断 ·')
+        f"letter-spacing: 1px;")
+    # T5.1 古籍副标题：动态检测正文中的《书名》引用，否则回退默认文案
+    import re as _re
+    books = _re.findall(r'《([^》]+)》', text)
+    if books:
+        sub_text = '· 基于《' + '》《'.join(books[:3]) + '》等古籍参校 ·'
+    else:
+        sub_text = '· 龙虎山大师兄核心论断 ·'
+    sub = QLabel(sub_text)
     sub.setStyleSheet(
         f"font-size: 11px; color: {Colors.TEXT3}; "
         f"font-family: {Fonts.BODY}; letter-spacing: 0.5px;"
@@ -2169,18 +2514,41 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     )
     bl.addWidget(div)
 
-    # 正文（富文本高亮）
-    body = QLabel()
-    body.setWordWrap(True)
-    body.setTextFormat(Qt.RichText)
-    body.setOpenExternalLinks(False)
-    body.setText(_highlight_keywords_in_text(text, color))
-    body.setStyleSheet(
-        f"font-size: 14px; color: {Colors.TEXT}; "
-        f"font-family: {Fonts.TITLE}; line-height: 2.0; "
-        f"padding: 4px 0;"
-    )
-    bl.addWidget(body)
+    # 关键要点：抽取最具决定性的结论句，便于快速浏览（与正文不重复核心论断）
+    key_points = _extract_conclusion_keypoints(text, max_n=3)
+    if key_points:
+        bl.addWidget(_build_conclusion_keypoints(key_points, color))
+        kp_div = QFrame()
+        kp_div.setFixedHeight(1)
+        kp_div.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {Colors.LIUJIN_LIGHT}, stop:1 transparent); border: none;"
+        )
+        bl.addWidget(kp_div)
+
+    # 正文：按段落结构化渲染（保留 AI 原始换行 / 长句自动分段），层次分明、便于细读
+    paragraphs = _split_conclusion_paragraphs(text)
+    for idx, para in enumerate(paragraphs):
+        para_rich = _highlight_keywords_in_text(para, color)
+        lbl = QLabel()
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.RichText)
+        lbl.setOpenExternalLinks(False)
+        lbl.setText(para_rich)
+        if idx == 0:
+            # 首段作为「核心论断」，略放大加粗，建立视觉层级
+            lbl.setStyleSheet(
+                f"font-size: {Fonts.FS_BODY}px; font-weight: {Fonts.W_MEDIUM}; "
+                f"color: {Colors.TEXT}; font-family: {Fonts.BODY}; "
+                f"line-height: {Spacing.LINE_HEIGHT_BODY}; padding: 2px 0;"
+            )
+        else:
+            lbl.setStyleSheet(
+                f"font-size: {Fonts.FS_BODY}px; color: {Colors.TEXT}; "
+                f"font-family: {Fonts.BODY}; line-height: {Spacing.LINE_HEIGHT_BODY}; "
+                f"padding: 2px 0;"
+            )
+        bl.addWidget(lbl)
 
     # 底部装饰双线
     line_bot = QFrame()
@@ -2223,7 +2591,7 @@ def rich_list_block(items: List[str], color: str = Colors.QINGHUA, title: str = 
     """)
     cl = QVBoxLayout(container)
     cl.setContentsMargins(16, 12, 16, 12)
-    cl.setSpacing(8)
+    cl.setSpacing(Spacing.S2)
 
     if title:
         head = QLabel(f'{icon} {title}' if icon else title)
@@ -2249,7 +2617,7 @@ def rich_list_block(items: List[str], color: str = Colors.QINGHUA, title: str = 
         if not item or not str(item).strip():
             continue
         row = QHBoxLayout()
-        row.setSpacing(10)
+        row.setSpacing(Spacing.S3)
         row.setAlignment(Qt.AlignTop)
 
         num_lbl = QLabel(f'{idx:02d}')
@@ -2273,8 +2641,323 @@ def rich_list_block(items: List[str], color: str = Colors.QINGHUA, title: str = 
             f"font-family: {Fonts.BODY}; line-height: 1.8;"
         )
 
+def rich_list_block(items: List[str],
+                     color: str = Colors.QINGHUA,
+                     title: str = '', icon: str = '',
+                     ordered: bool = True) -> QWidget:
+    """强化版列表块 v2.2：编号 + 引述竖线 + 关键词高亮，有序/无序语义区分。
+
+    替代原有扁平化列表，提供：
+    - 有序模式：序号（01、02、03...）前置，序号等宽、26px 宽
+    - 无序模式：• 圆点前置，替代序号（用于并列建议/提示类）
+    - 引述竖线（左侧彩色）
+    - 富文本关键词高亮
+    - >50 条时仅渲染前 50 条 + 「展开剩余 N 条」按钮补齐
+
+    Args:
+        items:   字符串列表
+        color:   强调色
+        title:   列表标题（可选）
+        icon:    标题图标（可选）
+        ordered: 有序（True=序号）/ 无序（False=圆点）。默认 True。
+    """
+    container = QFrame()
+    container.setStyleSheet(f"""
+        QFrame {{
+            background: {Colors.CARD};
+            border: 1px solid {Colors.BORDER};
+            border-left: 4px solid {color};
+            border-radius: {Spacing.RADIUS};
+        }}
+    """)
+    cl = QVBoxLayout(container)
+    cl.setContentsMargins(16, 12, 16, 12)
+    cl.setSpacing(Spacing.S3)  # M3-4（b）：条目间距 8→12
+
+    if title:
+        head = QLabel(f'{icon} {title}' if icon else title)
+        head.setStyleSheet(f"""
+            font-size: 13px;
+            font-weight: {Fonts.W_BOLD};
+            color: {color};
+            font-family: {Fonts.TITLE};
+            background: transparent;
+            padding-bottom: 4px;
+        """)
+        cl.addWidget(head)
+
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {color}55, stop:1 transparent); border: none;"
+        )
+        cl.addWidget(div)
+
+    # 截断：>50 条仅渲染前 50 条，剩余用展开按钮补齐
+    total = len(items or [])
+    render_items = items[:50]
+    remain_count = max(0, total - 50)
+
+    for idx, item in enumerate(render_items, 1):
+        if not item or not str(item).strip():
+            continue
+        # 序号
+        num_lbl = QLabel('')
+        num_lbl.setStyleSheet(f"""
+            color: {color};
+            font-size: {Fonts.FS_CAPTION}px;  # 序号字体降为 FS_CAPTION
+            font-weight: {Fonts.W_MEDIUM};
+            font-family: {Fonts.MONO};
+            background: transparent;
+            min-width: 26px;  # M3-4（b）：宽度 22→26，容纳三位数
+        """)
+        if ordered:
+            num_lbl.setText(f'{idx:02d}')
+            num_lbl.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        else:
+            num_lbl.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+            num_lbl.setText('•')
+
+        text_lbl = QLabel()
+        text_lbl.setWordWrap(True)
+        text_lbl.setTextFormat(Qt.RichText)
+        text_lbl.setOpenExternalLinks(False)
+        text_lbl.setText(_highlight_keywords_in_text(str(item).strip(), color))
+        text_lbl.setStyleSheet(
+            f"font-size: 13px; color: {Colors.TEXT}; "
+            f"font-family: {Fonts.BODY}; line-height: {Spacing.LINE_HEIGHT_BODY}; "
+            f"padding: 2px 0;"
+        )
+
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S3)
+        row.setAlignment(Qt.AlignTop)
+
+        if ordered:
+            row.addWidget(num_lbl)
+        row.addWidget(text_lbl, 1)
+        cl.addLayout(row)
+
+    # 剩余条目展开按钮（>50 时显示）
+    if remain_count > 0:
+        expand_btn = QPushButton(f'展开剩余 {remain_count} 条')
+        expand_btn.setCursor(Qt.PointingHandCursor)
+        expand_btn.setStyleSheet(
+            f"QPushButton {{ "
+            f"    background: {Colors.CARD_HOVER}; "
+            f"    color: {color}; "
+            f"    border: 1px solid {color}55; "
+            f"    border-radius: 8px; "
+            f"    padding: 2px 10px; "
+            f"    font-size: 12px; "
+            f"    font-family: {Fonts.BODY}; }} "
+            f"QPushButton:hover {{ "
+            f"    background: {color}; color: white; }}"
+        )
+        expand_btn.clicked.connect(lambda: _append_rich_list_items(
+            cl, items, ordered, color, len(render_items)))
+        expand_btn.setFixedHeight(32)
+        cl.addWidget(expand_btn)
+
+    return container
+
+
+def _append_rich_list_items(cl: QVBoxLayout, items: List[str],
+                            ordered: bool, color: str,
+                            rendered_count: int) -> int:
+    """展开列表剩余条目，追加到给定布局。
+
+    从已渲染条目的位置续接，保持序号连续。
+
+    Args:
+        cl:         目标列表布局。
+        items:      完整条目列表。
+        ordered:    是否有序（True=序号 / False=圆点）。
+        color:      强调色。
+        rendered_count: 已渲染条目数。
+
+    Returns:
+        追加后的总条目数。
+    """
+    full = list(items or [])
+    for idx, item in enumerate(full[rendered_count:], rendered_count + 1):
+        if not item or not str(item).strip():
+            continue
+        num_lbl = QLabel('')
+        num_lbl.setStyleSheet(f"""
+            color: {color}; font-size: {Fonts.FS_CAPTION}px;
+            font-weight: {Fonts.W_MEDIUM}; font-family: {Fonts.MONO};
+            background: transparent; min-width: 26px;
+        """)
+        if ordered:
+            num_lbl.setText(f'{idx:02d}')
+            num_lbl.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        else:
+            num_lbl.setText('•')
+            num_lbl.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
+        text_lbl = QLabel()
+        text_lbl.setWordWrap(True)
+        text_lbl.setTextFormat(Qt.RichText)
+        text_lbl.setOpenExternalLinks(False)
+        text_lbl.setText(_highlight_keywords_in_text(str(item).strip(), color))
+        text_lbl.setStyleSheet(
+            f"font-size: 13px; color: {Colors.TEXT}; "
+            f"font-family: {Fonts.BODY}; line-height: {Spacing.LINE_HEIGHT_BODY}; "
+            f"padding: 2px 0;"
+        )
+
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S3)
+        row.setAlignment(Qt.AlignTop)
         row.addWidget(num_lbl)
         row.addWidget(text_lbl, 1)
         cl.addLayout(row)
 
+    return len(full)
+
+
+def paragraph_block(text: str, max_width: int = Spacing.COL_MAX_TEXT,
+                    highlight: bool = False) -> QWidget:
+    """长文本段落块 v2.2：按换行分段，每段一个 TLabel.paragraph，超宽居中。
+
+    替代内联单段 QLabel，提供清晰的段落分隔与超宽自适应（适配宽屏与窄屏）。
+    支持文本已做关键词高亮（highlight=True，text 含 HTML 标记）时直接渲染。
+
+    Args:
+        text:    原始文本，按 \\n 切分为段落；highlight=True 时为已高亮的富文本。
+        max_width: 段落容器最大宽度（超宽时左右 stretch 居中）。
+        highlight: 是否文本已做关键词高亮（False=普通文本，True=富文本直接渲染）。
+
+    Returns:
+        可直接 addWidget 的 QWidget。
+    """
+    container = QFrame()
+    container.setObjectName('paragraph_block')
+    container.setStyleSheet(f"background: transparent; border: none;")
+
+    outer = QHBoxLayout(container)
+    outer.setSpacing(Spacing.S0)
+    outer.setAlignment(Qt.AlignHCenter)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setMaximumWidth(max_width)
+
+    inner = QVBoxLayout()
+    inner.setSpacing(Spacing.S3)  # 段间距 > 行距，形成段落感
+    inner.setContentsMargins(0, 0, 0, 0)
+
+    raw_text = text or ''
+    for para in raw_text.split('\n'):
+        if not para.strip():
+            continue
+        lbl = TLabel.paragraph(para)
+        if highlight:
+            # 富文本已高亮，仅设样式（颜色/行距走令牌）
+            lbl.setStyleSheet(
+                f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; "
+                f"font-family: {Fonts.BODY}; line-height: {Spacing.LINE_HEIGHT_BODY}; "
+                f"padding: 2px 0;"
+            )
+        else:
+            lbl.setStyleSheet(
+                f"font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT}; "
+                f"font-family: {Fonts.BODY}; line-height: {Spacing.LINE_HEIGHT_BODY}; "
+                f"padding: 2px 0;"
+            )
+        inner.addWidget(lbl)
+
+    outer.addLayout(inner, 1)
+
+    # 超宽自适应：展开式宽度 + 首选，配合外层最大宽度实现居中
+    container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
     return container
+
+
+def code_block(text: str, language: str = '') -> QWidget:
+    """代码块容器 v2.2：深色底 + 等宽可选中 + 语言标签 + 复制按钮。
+
+    用于 AI 输出中的代码片段（如算法伪代码 / 示例），等宽可读、可选中复制。
+
+    Args:
+        text:   代码文本。
+        language: 代码语言标识（用于顶部标签，空串时不显示）。
+
+    Returns:
+        可直接 addWidget 的 QWidget。
+    """
+    container = QFrame()
+    container.setObjectName('code_block')
+    container.setStyleSheet(f"""
+        QFrame {{
+            background: {Colors.BG_DARK};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            padding: {Spacing.S3}px;
+        }}
+    """)
+
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(Spacing.S2)
+
+    # 顶部行：语言标签 + 复制按钮
+    top = QHBoxLayout()
+    top.setSpacing(Spacing.S3)
+    top.setContentsMargins(0, 0, 0, 0)
+    top.setAlignment(Qt.AlignTop)
+
+    lang_lbl = QLabel(language or 'CODE')
+    lang_lbl.setStyleSheet(
+        f"font-size: {Fonts.FS_MICRO}px; color: {Colors.TEXT3}; "
+        f"font-family: {Fonts.MONO};"
+    )
+
+    copy_btn = QPushButton('复制')
+    copy_btn.setCursor(Qt.PointingHandCursor)
+    copy_btn.setFixedHeight(24)
+    copy_btn.setStyleSheet(
+        f"QPushButton {{ "
+        f"    background: {Colors.BG_DARK}; "
+        f"    color: {Colors.TEXT2}; "
+        f"    border: 1px dashed {Colors.BORDER}; "
+        f"    border-radius: 6px; "
+        f"    font-size: {Fonts.FS_MICRO}px; "
+        f"    font-family: {Fonts.BODY}; }} "
+        f"QPushButton:hover {{ "
+        f"    border-color: {Colors.LIUJIN}; color: {Colors.LIUJIN}; }}"
+    )
+    copy_btn.clicked.connect(lambda: _copy_text(container, text))
+    top.addWidget(lang_lbl, 0, 1)
+    top.addWidget(copy_btn, 0, 2)
+    layout.addLayout(top)
+
+    # 代码区：等宽、可滚动
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setStyleSheet(f"background: {Colors.BG_DARK};")
+
+    code_label = QLabel()
+    code_label.setWordWrap(False)
+    code_label.setTextFormat(Qt.RichText)
+    code_label.setOpenExternalLinks(False)
+    # 等宽字体 + 可选中
+    code_label.setFont(QFont('Consolas', 12))
+    code_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    code_label.setStyleSheet(f"color: {Colors.TEXT}; background: transparent;")
+
+    scroll.setWidget(code_label)
+    layout.addWidget(scroll)
+
+    return container
+
+
+def _copy_text(container: QWidget, text: str) -> None:
+    """将代码文本写入剪贴板（幂等，无额外资源）。"""
+    import app as _app  # 延迟 import，避免循环依赖
+    clip = _app.QApplication.clipboard()
+    try:
+        clip.copy(text or '')
+    except Exception:
+        pass

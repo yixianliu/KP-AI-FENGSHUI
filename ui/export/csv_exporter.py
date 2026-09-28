@@ -6,7 +6,8 @@ CSV 导出器
 过滤 data，本导出器再按数据键是否存在逐项渲染。
 """
 from typing import Dict, Any
-from .base_exporter import BaseExporter, has_chapter
+from .base_exporter import (BaseExporter, has_chapter, normalize_shensha,
+                            extract_pillars, extract_wuxing)
 import csv
 
 # AI 字段 -> 中文标题（与 PDF/Excel 导出保持一致）
@@ -119,9 +120,9 @@ class CsvExporter(BaseExporter):
                             writer.writerow(['忌神', '、'.join(ys.get('jishen_names'))])
                     writer.writerow([])
 
-                # 四柱八字
+                # 四柱八字（Service 路径四柱在顶层，统一走 extract_pillars）
                 if has_chapter(data, 'bazi'):
-                    bz = data.get('bazi', {})
+                    bz = extract_pillars(data)
                     writer.writerow(['四柱八字'])
                     writer.writerow(['年柱', _to_str(bz.get('year_pillar'))])
                     writer.writerow(['月柱', _to_str(bz.get('month_pillar'))])
@@ -129,9 +130,9 @@ class CsvExporter(BaseExporter):
                     writer.writerow(['时柱', _to_str(bz.get('hour_pillar'))])
                     writer.writerow([])
 
-                # 五行分析
+                # 五行分析（Service 路径走 wuxing_detail，统一走 extract_wuxing）
                 if has_chapter(data, 'wuxing'):
-                    wx = data.get('wuxing', {})
+                    wx = extract_wuxing(data)
                     writer.writerow(['五行分析'])
                     for n in ['木', '火', '土', '金', '水']:
                         if n in wx:
@@ -190,11 +191,14 @@ class CsvExporter(BaseExporter):
                 # 神煞属于 filter_export_data 中始终保留的旧字段，不在 CHAPTERS
                 # 章节清单里，因此这里不走 has_chapter 而是直接判断列表是否为空
                 mingli = data.get('mingli', {}) or {}
-                shensha = mingli.get('shensha', [])
+                # 验收修正：mingli['shensha'] 实为 {positive/negative/neutral: [...]}
+                # 的分组字典，直接迭代得到的是字符串键，调 .get() 会
+                # AttributeError 并让整份 CSV 导出失败。统一走归一化再落盘。
+                shensha = normalize_shensha(mingli.get('shensha'))
                 if shensha:
                     writer.writerow(['神煞'])
-                    for s in shensha:
-                        writer.writerow([_to_str(s.get('name')), _to_str(s.get('description'))])
+                    for name, desc in shensha:
+                        writer.writerow([name, desc])
                     writer.writerow([])
 
                 # 吉凶批注

@@ -1,5 +1,5 @@
 # UTF-8
-# 本文件由 scripts/build_portable.py 自动生成，请勿手工维护。
+# 本文件由 scripts/build_release.py 依据 app_version.py 自动生成，请勿手工维护。
 # http://msdn.microsoft.com/en-us/library/ms646997.aspx
 VSVersionInfo(
   ffi=FixedFileInfo(

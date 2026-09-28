@@ -6,12 +6,37 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                              QPushButton, QFrame, QComboBox, QButtonGroup,
                              QScrollArea, QGroupBox, QGridLayout)
 from PySide6.QtCore import Qt
-from ui.styles import Stylesheets, Colors, Fonts
+from ui.styles import Stylesheets, Colors, Fonts, Spacing
 from core.divination.liuren import GATE_METHODS, GATE_NAMES
 from core.ganzhi_constants import DI_ZHI
 
 #: 占时下拉框的候选项，直接复用权威地支表（顺序即子丑寅卯……）
 ZHI_LIST = DI_ZHI
+
+# T3.4 九宗门单选卡片样式：普通态为低对比卡片，选中态鎏金边框 + 浅金底。
+# 用 :checked 伪状态而非代码切换 stylesheet，避免与 QButtonGroup 的互斥逻辑打架。
+_METHOD_CARD_STYLE = f"""
+    QPushButton {{
+        background: {Colors.CARD};
+        color: {Colors.TEXT2};
+        border: 1px solid {Colors.BORDER};
+        border-radius: {Spacing.RADIUS_SM};
+        font-size: {Fonts.SZ_SMALL};
+        font-family: {Fonts.BODY};
+        padding: 6px 4px;
+    }}
+    QPushButton:hover {{
+        background: {Colors.HOVER};
+        color: {Colors.TEXT};
+        border-color: {Colors.BORDER2};
+    }}
+    QPushButton:checked {{
+        background: {Colors.LIUJIN_GLOW};
+        color: {Colors.LIUJIN};
+        border: 1.5px solid {Colors.LIUJIN};
+        font-weight: {Fonts.W_BOLD};
+    }}
+"""
 
 
 class LiurenInputPanel(QWidget):
@@ -49,13 +74,13 @@ class LiurenInputPanel(QWidget):
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
         lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(16)
+        lay.setSpacing(Spacing.S4)
 
         # 标题
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.S2)
         icon = QLabel('☵')
-        icon.setStyleSheet(f"font-size: 14px; color: {Colors.LIUJIN};")
+        icon.setStyleSheet(f"font-size: 13px; color: {Colors.LIUJIN};")
         title = QLabel('大六壬参数')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD};
@@ -73,13 +98,13 @@ class LiurenInputPanel(QWidget):
         self.question_category.setStyleSheet(Stylesheets.COMBO)
         for cat in ['不限', '事业', '财运', '感情', '健康', '出行', '学业', '婚姻', '家宅', '运势']:
             self.question_category.addItem(cat)
-        q_cat_row = QHBoxLayout(); q_cat_row.setSpacing(8)
+        q_cat_row = QHBoxLayout(); q_cat_row.setSpacing(Spacing.S2)
         q_cat_row.addWidget(self._label('分类'))
         q_cat_row.addWidget(self.question_category, 1)
         lay.addLayout(q_cat_row)
 
         # 占问
-        row = QHBoxLayout(); row.setSpacing(8)
+        row = QHBoxLayout(); row.setSpacing(Spacing.S2)
         row.addWidget(self._label('占问'))
         self.question = QLineEdit()
         self.question.setStyleSheet(Stylesheets.INPUT)
@@ -91,7 +116,7 @@ class LiurenInputPanel(QWidget):
         time_group = QGroupBox('起课时间')
         time_group.setStyleSheet(Stylesheets.GROUPBOX)
         time_lay = QGridLayout(time_group)
-        time_lay.setSpacing(8)
+        time_lay.setSpacing(Spacing.S2)
         time_lay.addWidget(QLabel('历法:'), 0, 0)
         self.calendar_combo = QComboBox()
         self.calendar_combo.addItems(['公历', '农历'])
@@ -105,7 +130,7 @@ class LiurenInputPanel(QWidget):
         lay.addWidget(time_group)
 
         # 占时覆盖（可选）
-        zs_row = QHBoxLayout(); zs_row.setSpacing(8)
+        zs_row = QHBoxLayout(); zs_row.setSpacing(Spacing.S2)
         zs_row.addWidget(self._label('占时'))
         self.zhan_shi_combo = QComboBox()
         self.zhan_shi_combo.setStyleSheet(Stylesheets.COMBO)
@@ -115,33 +140,34 @@ class LiurenInputPanel(QWidget):
         zs_row.addWidget(self.zhan_shi_combo, 1)
         lay.addLayout(zs_row)
 
-        # 起课方式（九宗门）
+        # 起课方式（九宗门）— T3.4 升级为 3 列分组单选卡片
         method_group = QGroupBox('起课方式（三传取用法）')
         method_group.setStyleSheet(Stylesheets.GROUPBOX)
         method_lay = QGridLayout(method_group)
-        method_lay.setSpacing(8)
+        method_lay.setSpacing(Spacing.S2)
         self.method_btns = []
         self.method_grp = QButtonGroup(self)
         self.method_grp.setExclusive(True)
         for i, m in enumerate(GATE_METHODS):
             b = QPushButton(GATE_NAMES[m])
-            b.setStyleSheet(Stylesheets.BTN_SWITCH)
+            b.setStyleSheet(_METHOD_CARD_STYLE)
             b.setCheckable(True); b.setCursor(Qt.PointingHandCursor)
-            b.setMinimumHeight(34)
+            b.setMinimumHeight(36)
             self.method_grp.addButton(b, i)
-            r, c = divmod(i, 2)
+            # 3 列排布（原来是 2 列），九宗门恰好三行铺满
+            r, c = divmod(i, 3)
             method_lay.addWidget(b, r, c)
             self.method_btns.append(b)
             b.clicked.connect(lambda _, idx=i: self._on_method(idx))
-        method_lay.setColumnStretch(0, 1)
-        method_lay.setColumnStretch(1, 1)
+        for c in range(3):
+            method_lay.setColumnStretch(c, 1)
         self.method_btns[0].setChecked(True)
         lay.addWidget(method_group)
 
         lay.addStretch()
 
         # 按钮
-        btn_row = QHBoxLayout(); btn_row.setSpacing(12)
+        btn_row = QHBoxLayout(); btn_row.setSpacing(Spacing.S3)
         self.submit_btn = QPushButton('起课')
         self.submit_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
         self.submit_btn.setCursor(Qt.PointingHandCursor)
@@ -153,6 +179,7 @@ class LiurenInputPanel(QWidget):
 
         scroll.setWidget(content)
         outer = QVBoxLayout(self)
+        outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 

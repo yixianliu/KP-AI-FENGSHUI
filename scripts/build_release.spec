@@ -27,11 +27,6 @@ a = Analysis(
         (r'D:\PythonProject\KP-AI-FENGSHUI\pyside6_packages\PySide6\vccorlib140.dll', '.'),
         # SSL 模块 (解决 HTTPS 连接问题)
         (r'D:\anaconda3\DLLs\_ssl.pyd', '.'),
-        # Qt 平台插件 (windows) —— 解决打包后窗口创建失败
-        (r'D:\PythonProject\KP-AI-FENGSHUI\pyside6_packages\PySide6\plugins\platforms\qdirect2d.dll', 'PySide6/plugins/platforms/qdirect2d.dll'),
-        (r'D:\PythonProject\KP-AI-FENGSHUI\pyside6_packages\PySide6\plugins\platforms\qminimal.dll', 'PySide6/plugins/platforms/qminimal.dll'),
-        (r'D:\PythonProject\KP-AI-FENGSHUI\pyside6_packages\PySide6\plugins\platforms\qoffscreen.dll', 'PySide6/plugins/platforms/qoffscreen.dll'),
-        (r'D:\PythonProject\KP-AI-FENGSHUI\pyside6_packages\PySide6\plugins\platforms\qwindows.dll', 'PySide6/plugins/platforms/qwindows.dll'),
     ],
     datas=[
         # ================= AI 凭据安全约定 =================
@@ -97,10 +92,19 @@ a = Analysis(
         'ui.components.ai_analysis_worker',
         'ui.components.collapsible_card',
         'ui.components.export_dialog',
+        'ui.components.timeline',
+        # 统一 AI 分析渲染入口（三面板延迟 import render_analysis，PyInstaller 静态分析追不到）
+        'ui.components.ai_analysis_renderer',
+        # 导出层 AI 章节标题常量（export_dialog 与三个导出器显式 import）
+        'ui.export.ai_titles',
         'ui.export.base_exporter',
         'ui.export.csv_exporter',
         'ui.export.excel_exporter',
         'ui.export.pdf_exporter',
+        # Service 层（main_window.py 函数内延迟 import BaziService）
+        'service.bazi_service',
+        # AI 分析降级回退（analysis_storage.py 全部为函数内 try import）
+        'core.knowledge.analysis_fallback',
         # 版本号单一权威源（GUI 与 EXE 版本资源均从此读取）
         'core.app_version',
         # API 模块

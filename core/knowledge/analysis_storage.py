@@ -247,7 +247,7 @@ class AnalysisStorage:
     """确保分析缓存表就绪的存储类"""
     def __init__(self):
         # 确保AI缓存表存在
-        from .ai_cache import ensure_cache_table
+        from ..ai_cache import ensure_cache_table
         ensure_cache_table()
 
 
@@ -262,7 +262,7 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
     t_start = time.time()
     # 确保缓存表就绪
     AnalysisStorage()
-    from .ai_cache import get_cached_result, save_to_cache
+    from ..ai_cache import get_cached_result, save_to_cache
 
     # 使用input_data和固定的question=None作为缓存键
     # 注意：实际应用中，question可能来自用户输入，但在此上下文中我们假设为None
@@ -304,6 +304,26 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
             # 错误结果不缓存
             return error_result
 
+    # 检查 AI 是否已配置，未配置则直接降级为本地兜底分析
+    try:
+        from core.ai_config import get_config_manager
+        if get_config_manager().get_active() is None:
+            logger.warning("AI未配置，八字分析降级为本地规则兜底")
+            from .analysis_fallback import generate_fallback_analysis
+            dummy_analysis = generate_fallback_analysis('bazi', chart_data or {})
+            save_to_cache('bazi', input_data, question, dummy_analysis)
+            elapsed = round(time.time() - t_start, 2)
+            return {
+                'success': True,
+                'from_cache': False,
+                'token_usage': 0,
+                'ai_analysis': dummy_analysis,
+                'ai_error': 'AI模型未配置，已使用本地规则兜底',
+                'elapsed_seconds': elapsed,
+            }
+    except Exception:
+        pass
+
     # 生成AI分析结果
     try:
         from api.agnes_client import get_agnes_client
@@ -334,9 +354,17 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
 
         # 如果仍然失败，改用本地命理规则引擎生成白话兜底分析（而非占位符）
         if ai_analysis is None:
-            logger.warning(f"AI分析返回非JSON内容: {content[:200]}...，改用本地规则兜底")
-            from .analysis_fallback import generate_fallback_analysis
-            ai_analysis = generate_fallback_analysis('bazi', chart_data or {})
+            # 二次尝试：使用 _smart_fix_json 修复可能的截断 JSON
+            try:
+                fixed = _smart_fix_json(content)
+                if fixed is not None:
+                    ai_analysis = fixed
+            except Exception:
+                pass
+            if ai_analysis is None:
+                logger.warning(f"AI分析返回非JSON内容: {content[:200]}...，改用本地规则兜底")
+                from .analysis_fallback import generate_fallback_analysis
+                ai_analysis = generate_fallback_analysis('bazi', chart_data or {})
 
         # 获取token使用量
         token_usage = response.get('usage', {})
@@ -358,17 +386,19 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
         try:
             from api.agnes_client import AgnesResponseError, AgnesTimeoutError, AgnesRequestError, AgnesQuotaError
             if isinstance(e, AgnesQuotaError):
-                logger.warning(f"AI分析配额用尽（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[bazi] 配额用尽（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesTimeoutError):
-                logger.warning(f"AI分析请求超时（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[bazi] 请求超时（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesResponseError):
-                logger.warning(f"AI分析响应异常（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[bazi] 响应异常（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesRequestError):
-                logger.warning(f"AI分析请求失败（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[bazi] 请求失败（{e}），已降级为本地兜底")
             else:
-                logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+                logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
+                             exc_info=True)
         except ImportError:
-            logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+            logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
+                         exc_info=True)
         from .analysis_fallback import generate_fallback_analysis
         dummy_analysis = generate_fallback_analysis('bazi', chart_data or {})
 
@@ -397,7 +427,7 @@ def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str 
     t_start = time.time()
     # 确保缓存表就绪
     AnalysisStorage()
-    from .ai_cache import get_cached_result, save_to_cache
+    from ..ai_cache import get_cached_result, save_to_cache
 
     # 使用input_data和固定的question=None作为缓存键
     question = None
@@ -412,18 +442,100 @@ def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         }
 
     # 未命中缓存，需要计算
-    # 如果未提供chart_data，尝试计算（简化处理，实际应使用梅花排盘逻辑）
-    if chart_data is None:
-        # 这里应实现梅花排盘计算，暂时返回错误
-        error_result = {
-            'success': False,
-            'error_type': 'calculation_error',
-            'error_message': '梅花排盘计算功能尚未实现，请提供chart_data参数',
-            'ai_analysis': {},
-            'elapsed_seconds': round(time.time() - t_start, 2),
-        }
-        # 错误结果不缓存
-        return error_result
+    # 如果未提供chart_data（None 或空 dict），从 input_data 自动计算排盘数据
+    if not chart_data:
+        try:
+            from core.divination.meihua import MeiHuaCalculator
+            from core.divination.hexagram_analyzer import HexagramAnalyzer
+            calc = MeiHuaCalculator()
+            analyzer = HexagramAnalyzer()
+            method = input_data.get('method', 'time')
+            q = input_data.get('question', '')
+            hr = None
+            if method == 'time':
+                hr = calc.time_divination(
+                    input_data.get('year'), input_data.get('month'),
+                    input_data.get('day'), input_data.get('hour'), q)
+            elif method == 'number':
+                numbers = input_data.get('numbers') or [input_data.get('num1'), input_data.get('num2')]
+                hr = calc.number_divination(numbers, q)
+            elif method == 'direction':
+                hr = calc.direction_divination(input_data.get('direction', ''), q,
+                                               input_data.get('hour'))
+            elif method == 'text':
+                hr = calc.text_divination(input_data.get('text', ''), q)
+            elif method == 'copper_coin':
+                hr = calc.copper_coin_divination(input_data.get('six_lines', []), q)
+            elif method == 'stroke':
+                hr = calc.stroke_divination(input_data.get('char', ''), q,
+                                            input_data.get('stroke_count'))
+            if hr:
+                all_hex = calc.generate_all_hexagrams(hr)
+                analysis = analyzer.analyze_divination(hr, all_hex)
+                base_raw = analysis.get('base', {})
+                hu_raw = analysis.get('hu', {})
+                bian_raw = analysis.get('bian', {})
+                def _enrich(raw):
+                    if not raw:
+                        return {}
+                    e = raw.copy()
+                    un, ln = raw.get('upper_num'), raw.get('lower_num')
+                    bg = analyzer.bagua
+                    e['symbol'] = (bg.get(un, {}).get('symbol', '') +
+                                   bg.get(ln, {}).get('symbol', ''))
+                    e['explanation'] = raw.get('description', '')
+                    e['upper_gua'] = bg.get(un, {}).get('name', '')
+                    e['lower_gua'] = bg.get(ln, {}).get('name', '')
+                    return e
+                chart_data = {
+                    'base': _enrich(base_raw),
+                    'hu': _enrich(hu_raw),
+                    'bian': _enrich(bian_raw),
+                    'overall_judgment': analysis.get('overall_judgment', '平'),
+                }
+                # 动爻信息
+                cy = base_raw.get('changing_yao', 0)
+                yao_ci = base_raw.get('yao_ci', [])
+                for idx, yao in enumerate(yao_ci, start=1):
+                    if idx == cy:
+                        chart_data['base']['changing_yao'] = idx
+                        chart_data['base']['changing_yao_name'] = yao.get('yao', '')
+                        chart_data['base']['changing_yao_text'] = yao.get('text', '')
+                        chart_data['base']['changing_yao_meaning'] = yao.get('meaning', '')
+                        break
+                logger.info(f"[AI][meihua] chart_data 为空，已从 input_data 自动计算排盘（method={method}）")
+            else:
+                raise ValueError("起卦返回空结果")
+        except Exception as e:
+            logger.error(f"[AI][meihua] 自动排盘失败: {e}", exc_info=True)
+            error_result = {
+                'success': False,
+                'error_type': 'calculation_error',
+                'error_message': f'梅花排盘自动计算失败: {e}',
+                'ai_analysis': {},
+                'elapsed_seconds': round(time.time() - t_start, 2),
+            }
+            return error_result
+
+    # 检查 AI 是否已配置，未配置则直接降级为本地兜底分析
+    try:
+        from core.ai_config import get_config_manager
+        if get_config_manager().get_active() is None:
+            logger.warning("AI未配置，梅花分析降级为本地规则兜底")
+            from .analysis_fallback import generate_fallback_analysis
+            dummy_analysis = generate_fallback_analysis('meihua', chart_data or {})
+            save_to_cache('meihua', input_data, question, dummy_analysis)
+            elapsed = round(time.time() - t_start, 2)
+            return {
+                'success': True,
+                'from_cache': False,
+                'token_usage': 0,
+                'ai_analysis': dummy_analysis,
+                'ai_error': 'AI模型未配置，已使用本地规则兜底',
+                'elapsed_seconds': elapsed,
+            }
+    except Exception:
+        pass
 
     # 生成AI分析结果
     try:
@@ -446,7 +558,10 @@ def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         # 如果解析失败，尝试智能补全（处理 max_tokens 截断等场景）
         if ai_analysis is None:
             logger.debug("标准JSON解析失败，尝试智能补全...")
-            ai_analysis = _smart_fix_json(content)
+            try:
+                ai_analysis = _smart_fix_json(content)
+            except Exception:
+                ai_analysis = None
 
         # 如果仍然失败，使用本地命理规则生成有意义的分析结果（而非无意义占位符）
         if ai_analysis is None:
@@ -474,17 +589,19 @@ def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         try:
             from api.agnes_client import AgnesResponseError, AgnesTimeoutError, AgnesRequestError, AgnesQuotaError
             if isinstance(e, AgnesQuotaError):
-                logger.warning(f"AI分析配额用尽（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[meihua] 配额用尽（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesTimeoutError):
-                logger.warning(f"AI分析请求超时（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[meihua] 请求超时（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesResponseError):
-                logger.warning(f"AI分析响应异常（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[meihua] 响应异常（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesRequestError):
-                logger.warning(f"AI分析请求失败（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[meihua] 请求失败（{e}），已降级为本地兜底")
             else:
-                logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+                logger.error(f"AI分析[meihua] 调用失败（{e}），已降级为本地兜底",
+                             exc_info=True)
         except ImportError:
-            logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+            logger.error(f"AI分析[meihua] 调用失败（{e}），已降级为本地兜底",
+                         exc_info=True)
         from .analysis_fallback import generate_fallback_analysis
         dummy_analysis = generate_fallback_analysis('meihua', chart_data or {})
 
@@ -513,7 +630,7 @@ def run_liuren_analysis(input_data: dict, chart_data: dict = None, task_id: str 
     t_start = time.time()
     # 确保缓存表就绪
     AnalysisStorage()
-    from .ai_cache import get_cached_result, save_to_cache
+    from ..ai_cache import get_cached_result, save_to_cache
 
     # 使用input_data和固定的question=None作为缓存键
     question = None
@@ -528,18 +645,51 @@ def run_liuren_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         }
 
     # 未命中缓存，需要计算
-    # 如果未提供chart_data，尝试计算（简化处理，实际应使用六壬排盘逻辑）
-    if chart_data is None:
-        # 这里应实现六壬排盘计算，暂时返回错误
-        error_result = {
-            'success': False,
-            'error_type': 'calculation_error',
-            'error_message': '六壬排盘计算功能尚未实现，请提供chart_data参数',
-            'ai_analysis': {},
-            'elapsed_seconds': round(time.time() - t_start, 2),
-        }
-        # 错误结果不缓存
-        return error_result
+    # 如果未提供chart_data（None 或空 dict），从 input_data 自动计算排盘数据
+    if not chart_data:
+        try:
+            from core.divination.liuren import LiuRenCalculator
+            calc = LiuRenCalculator()
+            chart_data = calc.calc(
+                method=input_data.get('method', 'auto'),
+                year=input_data.get('year'),
+                month=input_data.get('month'),
+                day=input_data.get('day'),
+                hour=input_data.get('hour'),
+                question=input_data.get('question', ''),
+                zhan_shi=input_data.get('zhan_shi'),
+            )
+            logger.info(f"[AI][liuren] chart_data 为空，已从 input_data 自动计算排盘（method={input_data.get('method', 'auto')}）")
+        except Exception as e:
+            logger.error(f"[AI][liuren] 自动排盘失败: {e}", exc_info=True)
+            error_result = {
+                'success': False,
+                'error_type': 'calculation_error',
+                'error_message': f'六壬排盘自动计算失败: {e}',
+                'ai_analysis': {},
+                'elapsed_seconds': round(time.time() - t_start, 2),
+            }
+            return error_result
+
+    # 检查 AI 是否已配置，未配置则直接降级为本地兜底分析
+    try:
+        from core.ai_config import get_config_manager
+        if get_config_manager().get_active() is None:
+            logger.warning("AI未配置，六壬分析降级为本地规则兜底")
+            from .analysis_fallback import generate_fallback_analysis
+            dummy_analysis = generate_fallback_analysis('liuren', chart_data or {})
+            save_to_cache('liuren', input_data, question, dummy_analysis)
+            elapsed = round(time.time() - t_start, 2)
+            return {
+                'success': True,
+                'from_cache': False,
+                'token_usage': 0,
+                'ai_analysis': dummy_analysis,
+                'ai_error': 'AI模型未配置，已使用本地规则兜底',
+                'elapsed_seconds': elapsed,
+            }
+    except Exception:
+        pass
 
     # 生成AI分析结果
     try:
@@ -559,15 +709,21 @@ def run_liuren_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         content = response.get('content', '')
         ai_analysis = agnes_client.parse_json_response(content)
 
-        # 如果解析失败，尝试提取JSON部分
+        # 如果解析失败，尝试智能补全（处理 max_tokens 截断、思考标签残留等）
         if ai_analysis is None:
-            # 尝试从内容中提取JSON
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                try:
-                    ai_analysis = json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    ai_analysis = None
+            logger.debug("标准JSON解析失败，尝试智能补全...")
+            try:
+                ai_analysis = _smart_fix_json(content)
+            except Exception:
+                ai_analysis = None
+            # 仍失败时再用正则提取一次
+            if ai_analysis is None:
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        ai_analysis = json.loads(json_match.group(0))
+                    except json.JSONDecodeError:
+                        ai_analysis = None
 
         # 如果仍然失败，改用本地命理规则引擎生成白话兜底分析（而非占位符）
         if ai_analysis is None:
@@ -595,17 +751,19 @@ def run_liuren_analysis(input_data: dict, chart_data: dict = None, task_id: str 
         try:
             from api.agnes_client import AgnesResponseError, AgnesTimeoutError, AgnesRequestError, AgnesQuotaError
             if isinstance(e, AgnesQuotaError):
-                logger.warning(f"AI分析配额用尽（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[liuren] 配额用尽（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesTimeoutError):
-                logger.warning(f"AI分析请求超时（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[liuren] 请求超时（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesResponseError):
-                logger.warning(f"AI分析响应异常（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[liuren] 响应异常（{e}），已降级为本地兜底")
             elif isinstance(e, AgnesRequestError):
-                logger.warning(f"AI分析请求失败（{e}），将使用本地规则生成分析")
+                logger.error(f"AI分析[liuren] 请求失败（{e}），已降级为本地兜底")
             else:
-                logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+                logger.error(f"AI分析[liuren] 调用失败（{e}），已降级为本地兜底",
+                             exc_info=True)
         except ImportError:
-            logger.warning(f"AI分析调用失败: {e}，将使用本地规则生成分析")
+            logger.error(f"AI分析[liuren] 调用失败（{e}），已降级为本地兜底",
+                         exc_info=True)
         from .analysis_fallback import generate_fallback_analysis
         dummy_analysis = generate_fallback_analysis('liuren', chart_data or {})
 

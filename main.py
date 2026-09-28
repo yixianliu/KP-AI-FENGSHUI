@@ -23,6 +23,59 @@ if _ai_extra_dir.is_dir():
     if _ai_extra_str not in sys.path:
         sys.path.append(_ai_extra_str)
 
+# UI 依赖目录（PySide6 / shiboken6 等）
+# 用户全局 site-packages 中的 PySide6 可能只剩 .pyi 存根而缺失原生 .pyd，
+# 因此把本项目自带的 ui_extra 插入到 sys.path 最前，优先命中完整版本。
+_ui_extra_dir = _project_root / 'Lib' / 'site-packages' / 'ui_extra'
+_ui_extra_str = str(_ui_extra_dir) if _ui_extra_dir.is_dir() else ''
+
+
+def _fix_pyside6_resolution():
+    """确保 PySide6.QtWidgets 可导入（不修改任何磁盘文件，仅调整本进程 sys.path）。
+
+    背景：全局 site-packages 里的 PySide6 安装可能只剩 .pyi 存根，缺
+    QtWidgets.pyd / Qt6Widgets.dll，导致 `from PySide6.QtWidgets import ...`
+    报 ModuleNotFoundError。修复策略：把项目内置的 ui_extra 提到 sys.path
+    最前，同时暂时屏蔽其它路径上残缺的 PySide6，再重新 import。
+    """
+    try:
+        import PySide6.QtWidgets  # noqa: F401 快速探测，已可用则直接返回
+        return True
+    except ImportError:
+        pass
+
+    if not _ui_extra_str or not (_project_root / 'Lib' / 'site-packages' / 'ui_extra' / 'PySide6').is_dir():
+        return False
+
+    # 清理已加载的残缺模块，避免缓存污染
+    for _name in list(sys.modules):
+        if _name == 'PySide6' or _name.startswith('PySide6.') or _name == 'shiboken6' or _name.startswith('shiboken6.'):
+            del sys.modules[_name]
+
+    # 项目依赖置最前，其余路径中若已含残缺 PySide6 的目录则暂时移出
+    if _ui_extra_str in sys.path:
+        sys.path.remove(_ui_extra_str)
+    sys.path.insert(0, _ui_extra_str)
+    _shadowed = []
+    for _p in list(sys.path):
+        try:
+            _pd = Path(_p) / 'PySide6'
+            if _pd.is_dir() and str(_pd) != str((_project_root / 'Lib' / 'site-packages' / 'ui_extra' / 'PySide6')):
+                sys.path.remove(_p)
+                _shadowed.append(_p)
+        except (TypeError, OSError):
+            continue
+
+    try:
+        import PySide6.QtWidgets  # noqa: F401
+        return True
+    except ImportError:
+        # 恢复原状，交由后续诊断处理
+        for _p in _shadowed:
+            sys.path.append(_p)
+        return False
+
+
 # frozen 环境处理
 if getattr(sys, 'frozen', False):
     meipass = getattr(sys, '_MEIPASS', None)
@@ -30,14 +83,59 @@ if getattr(sys, 'frozen', False):
         sys.path.insert(0, str(meipass))
 
 # 关键修复：在导入任何 Qt 模块之前，强制指定 Qt 平台插件目录
-if getattr(sys, 'frozen', False):
-    # 打包环境中，平台插件位于 _MEIPASS/platforms/
-    plugin_dir = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)), 'platforms')
-    if os.path.isdir(plugin_dir):
-        os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugin_dir
+# 无论打包环境还是源码运行，都需要设置此环境变量，否则 Qt 无法创建窗口
+def _set_qt_platform_plugin_path():
+    """定位并设置 Qt 平台插件目录（qwindows.dll 所在目录）。
+
+    搜索顺序：
+    1. 打包环境：_MEIPASS/platforms/
+    2. 项目内置 pyside6_packages/PySide6/plugins/platforms/
+    3. 项目内置 Lib/site-packages/ui_extra/PySide6/plugins/platforms/
+    4. PySide6 包目录下的 plugins/platforms/
+    """
+    candidates = []
+    # 1. 打包环境
+    if getattr(sys, 'frozen', False):
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            candidates.append(os.path.join(meipass, 'platforms'))
+        candidates.append(os.path.join(os.path.dirname(sys.executable), 'platforms'))
+    # 2. 项目内置 pyside6_packages
+    builtin_plugins = _project_root / 'pyside6_packages' / 'PySide6' / 'plugins' / 'platforms'
+    if builtin_plugins.is_dir():
+        candidates.append(str(builtin_plugins))
+    builtin_plugins2 = _project_root / 'pyside6_packages' / 'plugins' / 'platforms'
+    if builtin_plugins2.is_dir():
+        candidates.append(str(builtin_plugins2))
+    # 3. ui_extra
+    ui_extra_plugins = _project_root / 'Lib' / 'site-packages' / 'ui_extra' / 'PySide6' / 'plugins' / 'platforms'
+    if ui_extra_plugins.is_dir():
+        candidates.append(str(ui_extra_plugins))
+    # 4. PySide6 包目录
+    try:
+        import PySide6
+        pyside6_dir = os.path.dirname(PySide6.__file__)
+        candidates.append(os.path.join(pyside6_dir, 'plugins', 'platforms'))
+    except ImportError:
+        pass
+
+    for plugin_dir in candidates:
+        if os.path.isdir(plugin_dir):
+            qwindows = os.path.join(plugin_dir, 'qwindows.dll')
+            if os.path.isfile(qwindows):
+                os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugin_dir
+                print(f"[DLL] Qt 平台插件已设置: {plugin_dir}", file=sys.stderr)
+                return
+    print("[DLL] 警告：未找到 Qt 平台插件（qwindows.dll）", file=sys.stderr)
+
+
+_set_qt_platform_plugin_path()
 
 from core.dll_diagnostic import fix_dll_loading_order
 fix_dll_loading_order()
+
+# 必须在 DLL 搜索路径注入之后执行：PySide6.QtWidgets 加载需要 ICU 等 Qt 依赖
+_fix_pyside6_resolution()
 
 from core.path_utils import get_resource_path, get_logs_dir
 from core.secure_log import install_log_scrubber, scrub

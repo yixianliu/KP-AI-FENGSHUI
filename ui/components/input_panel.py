@@ -4,13 +4,29 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QComboBox, QPushButton, QFrame, QButtonGroup,
-                             QDateEdit, QTextEdit, QScrollArea)
+                             QDateEdit, QTextEdit, QScrollArea, QSpinBox)
 from PySide6.QtCore import QDate, Qt
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.components.collapsible_card import CollapsibleCard
 
 HOUR_NAMES = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时',
               '午时', '未时', '申时', '酉时', '戌时', '亥时']
 HOUR_RANGES = [(23,1),(1,3),(3,5),(5,7),(7,9),(9,11),(11,13),(13,15),(15,17),(17,19),(19,21),(21,23)]
+
+
+def hour_to_index(hour: int) -> int:
+    """T3.2 由小时数换算时辰索引（0=子时 … 11=亥时）。
+
+    时辰以 2 小时为一格且子时跨日（23:00~01:00），故先把 23 点折算到 -1
+    再看落在哪一格：((h + 1) // 2) % 12 即覆盖全部 24 小时且天然处理跨日。
+
+    Args:
+        hour: 小时数（0~23）
+
+    Returns:
+        int: 时辰索引
+    """
+    return ((int(hour) + 1) // 2) % 12
 
 PAN_TYPES = [
     ('bazi','八字四柱'),('ziwei','紫微斗数'),('qimen','奇门遁甲'),
@@ -58,13 +74,13 @@ class InputPanel(QWidget):
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
         lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(16)
+        lay.setSpacing(Spacing.S4)
 
         # 标题
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.S2)
         icon = QLabel('☯')
-        icon.setStyleSheet(f"font-size: 14px; color: {Colors.LIUJIN};")
+        icon.setStyleSheet(f"font-size: 13px; color: {Colors.LIUJIN};")
         title = QLabel('风水排盘参数')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_SECTION};
@@ -83,19 +99,27 @@ class InputPanel(QWidget):
         div.setStyleSheet(f"background-color: {Colors.QINGHUA_LIGHT};")
         lay.addWidget(div)
 
-        # ===== 姓名 =====
+        # ===== 基本信息分组（姓名 / 历法 / 日期 / 时辰时间 / 性别 / 类型） =====
+        basic_card = CollapsibleCard('基本信息', '☯', accent_color=Colors.QINGHUA, collapsed=False)
+        basic_body = QWidget()
+        basic_body.setStyleSheet("background: transparent;")
+        basic_lay = QVBoxLayout(basic_body)
+        basic_lay.setContentsMargins(6, 6, 6, 6)
+        basic_lay.setSpacing(Spacing.S3)
+
+        # 姓名
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('姓名'))
         self.name_edit = QLineEdit()
         self.name_edit.setStyleSheet(Stylesheets.INPUT)
         self.name_edit.setPlaceholderText('请输入姓名')
         row.addWidget(self.name_edit, 1)
-        lay.addLayout(row)
+        basic_lay.addLayout(row)
 
-        # ===== 历法 =====
+        # 历法
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('历法'))
         self.solar_btn = QPushButton('公历')
         self.solar_btn.setStyleSheet(Stylesheets.BTN_SWITCH)
@@ -109,11 +133,11 @@ class InputPanel(QWidget):
         row.addWidget(self.solar_btn)
         row.addWidget(self.lunar_btn)
         row.addStretch()
-        lay.addLayout(row)
+        basic_lay.addLayout(row)
 
-        # ===== 日期 =====
+        # 日期
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('日期'))
         self.date_edit = QDateEdit()
         self.date_edit.setStyleSheet(Stylesheets.DATE)
@@ -121,11 +145,11 @@ class InputPanel(QWidget):
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setDisplayFormat('yyyy-MM-dd')
         row.addWidget(self.date_edit, 1)
-        lay.addLayout(row)
+        basic_lay.addLayout(row)
 
-        # ===== 时辰 + 时间 =====
+        # T3.2 时辰 / 时间：时辰下拉（快速选）+ 时分双输入（精确调）+ 实时时辰映射
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('时辰'))
         self.hour_combo = QComboBox()
         self.hour_combo.setStyleSheet(Stylesheets.COMBO)
@@ -133,27 +157,40 @@ class InputPanel(QWidget):
             self.hour_combo.addItem(f'{n} ({HOUR_RANGES[i][0]:02d}:00~{HOUR_RANGES[i][1]:02d}:00)', i)
         self.hour_combo.setCurrentIndex(6)
         row.addWidget(self.hour_combo, 1)
-        self.time_edit = QLineEdit()
-        self.time_edit.setStyleSheet(Stylesheets.INPUT)
-        self.time_edit.setPlaceholderText('时:分')
-        self.time_edit.setFixedWidth(70)
-        self.time_edit.setText('12:00')
-        row.addWidget(self.time_edit)
-        lay.addLayout(row)
 
-        # ===== 出生地（手动文本，可经 AI 解析经纬度/时区）=====
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(self._label('出生地'))
-        self.location_edit = QLineEdit()
-        self.location_edit.setStyleSheet(Stylesheets.INPUT)
-        self.location_edit.setPlaceholderText('如：北京市朝阳区 / 纽约 / 洛杉矶（留空则按默认经度 120°E 计算）')
-        row.addWidget(self.location_edit, 1)
-        lay.addLayout(row)
+        # 时 / 分 双 SpinBox：替代原单文本 time_edit，杜绝手填非法格式
+        self.hour_spin = QSpinBox()
+        self.hour_spin.setRange(0, 23)
+        self.hour_spin.setValue(12)
+        self.hour_spin.setSuffix(' 时')
+        self.hour_spin.setFixedWidth(72)
+        self.hour_spin.setStyleSheet(Stylesheets.INPUT)
+        self.minute_spin = QSpinBox()
+        self.minute_spin.setRange(0, 59)
+        self.minute_spin.setValue(0)
+        self.minute_spin.setSuffix(' 分')
+        self.minute_spin.setFixedWidth(72)
+        self.minute_spin.setStyleSheet(Stylesheets.INPUT)
+        row.addWidget(self.hour_spin)
+        row.addWidget(self.minute_spin)
+        basic_lay.addLayout(row)
 
-        # ===== 性别 =====
+        # 实时时辰映射标签：随时分变化显示「午时 (11:00~13:00)」。
+        # 独立成行并允许自动换行，避免与上方下拉/双微调争夺横向空间导致截断。
+        self.time_label = QLabel()
+        self.time_label.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};"
+        )
+        self.time_label.setWordWrap(True)
+        tl_row = QHBoxLayout()
+        tl_row.setSpacing(Spacing.S2)
+        tl_row.addSpacing(Spacing.S8)  # 与上方输入框左边缘对齐（标签 42 + 间距 8）
+        tl_row.addWidget(self.time_label, 1)
+        basic_lay.addLayout(tl_row)
+
+        # 性别
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('性别'))
         self.gender_grp = QButtonGroup(self)
         self.male_btn = QPushButton('♂ 男')
@@ -170,14 +207,11 @@ class InputPanel(QWidget):
         row.addWidget(self.male_btn)
         row.addWidget(self.female_btn)
         row.addStretch()
-        lay.addLayout(row)
+        basic_lay.addLayout(row)
 
-        # 注：原「类型」选择按钮组已移除——八字标签仅支持八字四柱，
-        # 旧代码列出的紫微斗数/奇门遁甲/六爻/风水等未实现，属误导性选项。
-
-        # ===== 排盘类型（当前标签即八字排盘，类型固定，避免误导） =====
+        # 类型徽章（八字标签类型固定，避免误导）
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('类型'))
         type_badge = QLabel('八字四柱')
         type_badge.setCursor(Qt.PointingHandCursor)
@@ -197,34 +231,101 @@ class InputPanel(QWidget):
         """)
         row.addWidget(type_badge)
         row.addStretch()
-        lay.addLayout(row)
+        basic_lay.addLayout(row)
 
-        # ===== 流派 =====
+        basic_card.set_content(basic_body)
+        lay.addWidget(basic_card)
+
+        # ===== 地点与偏好分组（出生地 / 流派） =====
+        pref_card = CollapsibleCard('地点与偏好', '◎', accent_color=Colors.QINGHUA, collapsed=False)
+        pref_body = QWidget()
+        pref_body.setStyleSheet("background: transparent;")
+        pref_lay = QVBoxLayout(pref_body)
+        pref_lay.setContentsMargins(6, 6, 6, 6)
+        pref_lay.setSpacing(Spacing.S3)
+
+        # 出生地（手动文本，可经 AI 解析经纬度/时区）
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.S2)
+        row.addWidget(self._label('出生地'))
+        self.location_edit = QLineEdit()
+        self.location_edit.setStyleSheet(Stylesheets.INPUT)
+        self.location_edit.setPlaceholderText('如：北京市朝阳区 / 纽约 / 洛杉矶（留空则按默认经度 120°E 计算）')
+        row.addWidget(self.location_edit, 1)
+        pref_lay.addLayout(row)
+
+        # 流派
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S2)
         row.addWidget(self._label('流派'))
         self.school_combo = QComboBox()
         self.school_combo.setStyleSheet(Stylesheets.COMBO)
         self.school_combo.addItems(['子平真诠', '滴天髓', '三命通会'])
         row.addWidget(self.school_combo, 1)
-        lay.addLayout(row)
+        pref_lay.addLayout(row)
 
-        # ===== 备注 =====
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(self._label('备注'))
+        pref_card.set_content(pref_body)
+        lay.addWidget(pref_card)
+
+        # ===== 时间校准分组（6.1.3：默认折叠，展示出生时间与经度说明） =====
+        # 输入面板不做任何命理计算（零功能变更），真太阳时由排盘引擎内部依据
+        # 经度与节气校正；此处仅展示原始输入时间、经度基准与校正说明。
+        self._ts_time_label = QLabel()
+        self._ts_time_label.setStyleSheet(
+            f"font-size:{Fonts.SZ_BODY}; color:{Colors.TEXT}; font-family:{Fonts.BODY};")
+        self._ts_hour_label = QLabel()
+        self._ts_hour_label.setStyleSheet(
+            f"font-size:{Fonts.SZ_BODY}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
+        self._ts_note = QLabel(
+            '真太阳时校正由排盘引擎依据出生地与节气自动完成，无需手动输入。'
+            '出生地填写具体城市（如「北京市朝阳区」）可让引擎估算更精确的经度。')
+        self._ts_note.setStyleSheet(
+            f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+        self._ts_note.setWordWrap(True)
+
+        ts_card = CollapsibleCard('时间校准', '◷', accent_color=Colors.YU, collapsed=True)
+        ts_body = QWidget()
+        ts_body.setStyleSheet("background: transparent;")
+        ts_lay = QVBoxLayout(ts_body)
+        ts_lay.setContentsMargins(6, 6, 6, 6)
+        ts_lay.setSpacing(Spacing.S2)
+        ts_lay.addWidget(self._label('原始出生时间'))
+        ts_lay.addWidget(self._ts_time_label)
+        ts_lay.addWidget(self._label('当前时辰'))
+        ts_lay.addWidget(self._ts_hour_label)
+        ts_lay.addWidget(self._label('经度基准'))
+        lng = QLabel('默认 120°E（东八区标准经度）；填写具体出生城市后将按实际经度校正。')
+        lng.setStyleSheet(
+            f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
+        lng.setWordWrap(True)
+        ts_lay.addWidget(lng)
+        ts_lay.addWidget(self._ts_note)
+        ts_card.set_content(ts_body)
+        lay.addWidget(ts_card)
+        self._refresh_true_solar()
+        # 保留历史遗留兼容字段（仍有下游按属性名读取），但由新卡片驱动展示
+        self.true_solar_switch = ts_card
+
+        # ===== 备注分组 =====
+        notes_card = CollapsibleCard('备注', '✎', accent_color=Colors.TEXT3, collapsed=False)
+        notes_body = QWidget()
+        notes_body.setStyleSheet("background: transparent;")
+        notes_lay = QVBoxLayout(notes_body)
+        notes_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
+        notes_lay.setContentsMargins(6, 6, 6, 6)
         self.notes_edit = QTextEdit()
         self.notes_edit.setStyleSheet(Stylesheets.TEXT_EDIT)
         self.notes_edit.setPlaceholderText('可选补充…')
         self.notes_edit.setFixedHeight(60)
-        row.addWidget(self.notes_edit, 1)
-        lay.addLayout(row)
+        notes_lay.addWidget(self.notes_edit)
+        notes_card.set_content(notes_body)
+        lay.addWidget(notes_card)
 
         lay.addStretch()
 
         # ===== 按钮 =====
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(12)
+        btn_row.setSpacing(Spacing.S3)
         self.submit_btn = QPushButton('开始排盘')
         self.submit_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
         self.submit_btn.setCursor(Qt.PointingHandCursor)
@@ -238,6 +339,7 @@ class InputPanel(QWidget):
 
         scroll.setWidget(content)
         outer = QVBoxLayout(self)
+        outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
@@ -245,11 +347,19 @@ class InputPanel(QWidget):
         self.lng_edit = QLineEdit(); self.lng_edit.setVisible(False)
         self.lat_edit = QLineEdit(); self.lat_edit.setVisible(False)
         self.day_night_switch = QFrame(); self.day_night_switch.setVisible(False)
-        self.true_solar_switch = QFrame(); self.true_solar_switch.setVisible(False)
+        # 备注：true_solar_switch 已在「时间校准」卡片构建处指向真实折叠卡，
+        # 此处不再用隐藏 QFrame 覆盖，保留属性名供下游读取。
 
         # 信号
         self.hour_combo.currentIndexChanged.connect(self._on_hour)
-        self.time_edit.textChanged.connect(self._validate)
+        # T3.2 时分 SpinBox 变更 → 反推时辰并回写下拉框（信号屏蔽防循环触发）
+        self.hour_spin.valueChanged.connect(self._on_time_spin)
+        self.minute_spin.valueChanged.connect(self._on_time_spin)
+        self.date_edit.dateChanged.connect(self._refresh_true_solar)
+        self.solar_btn.clicked.connect(self._refresh_true_solar)
+        self.lunar_btn.clicked.connect(self._refresh_true_solar)
+        self._sync_time_label()
+        self._refresh_true_solar()
         self.name_edit.textChanged.connect(self._validate)
         self.solar_btn.clicked.connect(lambda: self._cal(True))
         self.lunar_btn.clicked.connect(lambda: self._cal(False))
@@ -286,8 +396,48 @@ class InputPanel(QWidget):
         """
         self.selected_hour = i
         s, _ = HOUR_RANGES[i]
-        self.time_edit.setText(f'{s:02d}:00')
+        # 同步时 SpinBox 为该时辰起始整点（如子时 23 点）；分保持不变
+        self.hour_spin.blockSignals(True)
+        self.hour_spin.setValue(s)
+        self.hour_spin.blockSignals(False)
+        self._sync_time_label()
         self._validate()
+
+    def _on_time_spin(self, *_):
+        """T3.2 时分 SpinBox 变更槽：反推时辰并同步下拉框与映射标签。
+
+        用户直接调时分时，时辰下拉框需跟着走，否则两处显示会互相矛盾；
+        回写前屏蔽 combo 信号，避免与 _on_hour 形成互相触发的死循环。
+        """
+        idx = hour_to_index(self.hour_spin.value())
+        self.selected_hour = idx
+        if self.hour_combo.currentIndex() != idx:
+            self.hour_combo.blockSignals(True)
+            self.hour_combo.setCurrentIndex(idx)
+            self.hour_combo.blockSignals(False)
+        self._sync_time_label()
+        self._validate()
+
+    def _sync_time_label(self):
+        """T3.2 刷新实时时辰映射标签（如「午时 (11:00~13:00)」）。"""
+        idx = self.selected_hour
+        s, e = HOUR_RANGES[idx]
+        self.time_label.setText(
+            f'{HOUR_NAMES[idx]} ({s:02d}:00~{e:02d}:00)')
+        self._refresh_true_solar()
+
+    def _refresh_true_solar(self):
+        """6.1.3 刷新「时间校准」折叠卡显示的原始出生时间与时辰。"""
+        if not hasattr(self, '_ts_time_label'):
+            return
+        cal = '公历' if self.solar_btn.isChecked() else '农历'
+        d = self.date_edit.date().toString('yyyy-MM-dd')
+        hh = self.hour_spin.value()
+        mm = self.minute_spin.value()
+        self._ts_time_label.setText(f'{cal} {d} {hh:02d}:{mm:02d}')
+        idx = self.selected_hour
+        s, e = HOUR_RANGES[idx]
+        self._ts_hour_label.setText(f'{HOUR_NAMES[idx]}（{s:02d}:00~{e:02d}:00）')
 
     def _cal(self, s):
         """历法切换槽（由 solar_btn / lunar_btn 的 clicked 触发）。
@@ -313,30 +463,28 @@ class InputPanel(QWidget):
     def _validate(self):
         """实时校验输入，决定「开始排盘」按钮是否可点。
 
-        触发时机：姓名或时间输入框内容变化时。
-        通过条件：姓名非空，且时间为合法的 HH:MM（0-23 时、0-59 分）。
+        触发时机：姓名输入变化、时辰下拉或时分 SpinBox 变化时。
+        通过条件：姓名非空（时分由 SpinBox 限定了 0-23 / 0-59，恒为合法值）。
         """
         name = self.name_edit.text().strip()
-        t = self.time_edit.text().strip()
-        if not name or not t:
-            self.submit_btn.setEnabled(False)
-            return
-        try:
-            h, m = map(int, t.split(':'))
-            self.submit_btn.setEnabled(0 <= h <= 23 and 0 <= m <= 59)
-        except ValueError:
-            # 用户尚未输完或格式不含冒号/含非数字，属正常中间态，静默禁用按钮
-            self.submit_btn.setEnabled(False)
+        self.submit_btn.setEnabled(bool(name))
+
+    def _time_tuple(self):
+        """T3.2 读取时分 SpinBox 并做范围兜底，返回 (时, 分)。
+
+        返回:
+            tuple[int, int]: 合法时分的二元组
+        抛出:
+            ValueError: 越界时抛出（SpinBox 正常情况下不会触发，属防御性校验）
+        """
+        hh, mm = self.hour_spin.value(), self.minute_spin.value()
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            raise ValueError(f"时间范围错误: {hh:02d}:{mm:02d}")
+        return hh, mm
 
     def get_data(self):
-        """获取输入数据。若时间格式非法则直接抛出 ValueError，不调用方做阻断。"""
-        t = self.time_edit.text().strip()
-        try:
-            hh, mm = map(int, t.split(':'))
-            if not (0 <= hh <= 23 and 0 <= mm <= 59):
-                raise ValueError(f"时间格式或范围错误: {t}")
-        except ValueError as e:
-            raise ValueError(f"时间格式错误（需 HH:MM，00:00~23:59）: {e}") from e
+        """获取输入数据。若时间范围非法则抛出 ValueError。"""
+        hh, mm = self._time_tuple()
 
         d = self.date_edit.date()
         year, month, day = d.year(), d.month(), d.day()
@@ -367,5 +515,7 @@ class InputPanel(QWidget):
         self.date_edit.setDate(QDate.currentDate())
         self.male_btn.setChecked(True); self.female_btn.setChecked(False)
         self.solar_btn.setChecked(True); self.lunar_btn.setChecked(False)
-        self.hour_combo.setCurrentIndex(6); self.time_edit.setText('12:00')
+        self.hour_combo.setCurrentIndex(6)
+        self.hour_spin.setValue(12); self.minute_spin.setValue(0)
+        self._sync_time_label()
         self.notes_edit.clear(); self.submit_btn.setEnabled(False)

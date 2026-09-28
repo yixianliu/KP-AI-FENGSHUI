@@ -12,7 +12,7 @@
 """
 import logging
 
-from ._baazi_compat import BaZiCalculator
+from .bazi._baazi_compat import BaZiCalculator
 
 logger = logging.getLogger(__name__)
 

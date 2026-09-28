@@ -6,10 +6,16 @@ PDF 导出器（reportlab）
 中文使用 reportlab 内置 CID 字体 STSong-Light。
 """
 from typing import Dict, Any, List
-from .base_exporter import BaseExporter
+import io
+from ui.styles import Colors
+from .base_exporter import (BaseExporter, has_chapter, extract_pillars,
+                            extract_wuxing, PILLAR_FIELDS, PILLAR_LABELS)
 from .ai_titles import AI_SECTION_TITLE
 
 # AI 分析区章节标题（单一权威源：ui/export/ai_titles.py）
+# 带下划线的别名：历史调用点（_build_ai 等）沿用 _AI_SECTION_TITLE，
+# 此前该名未定义会导致带 AI 数据的报告整体导出失败，故在此显式绑定权威常量。
+_AI_SECTION_TITLE = AI_SECTION_TITLE
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -18,7 +24,7 @@ try:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        ListFlowable, ListItem, HRFlowable,
+        ListFlowable, ListItem, HRFlowable, PageBreak,
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -41,16 +47,26 @@ except Exception:
     _REPORTLAB_OK = False
 
 
-# 命理主题色（与界面一致）
+# 命理主题色（PDF 打印专用调色板）
+#
+# 【已归位 Colors.PDF_* 令牌组】此前此色板是裸 hex 硬编码、被记为「已知审计
+# 豁免」（理由：8 色中仅 3 个与既有令牌重合，其余无 UI 对应，提级会让 Colors
+# 表膨胀）。现已提级为 styles.py 的 PDF_* 令牌组——单一真相源收敛到 Colors，
+# 与 UI 深色主题、export_dialog 纸质主题（PAPER_*）并列，语义互不干扰。
+#
+# 服务对象是导出成品（PDF / 打印），色值比屏幕版更「实」以保证打印对比度
+# （PDF_LIUJIN #B88A30 vs 屏幕 GOLD #c9a227；PDF_TEXT #333333 vs TEXT #F5F1E8）。
+# 命名注意：PDF_QINGHUA 是真正的青（#4A7A90），而 Colors.QINGHUA 已收敛为
+# 古金别名（= BRAND），二者语义不同，故 PDF_ 前缀独立命名。
 try:
-    _C_ZHUSHA = colors.HexColor('#C45545')   # 朱砂
-    _C_QINGHUA = colors.HexColor('#4A7A90')  # 青华
-    _C_LIUJIN = colors.HexColor('#B88A30')    # 流金
-    _C_BG = colors.HexColor('#F7F4EE')
-    _C_CARD = colors.HexColor('#FFFFFF')
-    _C_TEXT = colors.HexColor('#333333')
-    _C_LINE = colors.HexColor('#D9CDB8')
-    _C_MUTED = colors.HexColor('#8A7F6B')
+    _C_ZHUSHA = colors.HexColor(Colors.PDF_ZHUSHA)   # 朱砂，标题强调
+    _C_QINGHUA = colors.HexColor(Colors.PDF_QINGHUA)  # 青华，次级强调
+    _C_LIUJIN = colors.HexColor(Colors.PDF_LIUJIN)    # 流金，装饰线
+    _C_BG = colors.HexColor(Colors.PDF_BG)            # 页面底色
+    _C_CARD = colors.HexColor(Colors.PDF_CARD)        # 卡片 / 表格底
+    _C_TEXT = colors.HexColor(Colors.PDF_TEXT)        # 正文墨色
+    _C_LINE = colors.HexColor(Colors.PDF_LINE)        # 表格线 / 分隔线
+    _C_MUTED = colors.HexColor(Colors.PDF_MUTED)      # 次要文字
 except NameError:
     # reportlab 未安装时占位，实例化 PdfExporter 时会抛 RuntimeError
     _C_ZHUSHA = _C_QINGHUA = _C_LIUJIN = _C_BG = _C_CARD = _C_TEXT = _C_LINE = _C_MUTED = None
@@ -99,6 +115,38 @@ def _to_str(v: Any) -> str:
         # 过滤空元素避免出现连续顿号；整体为空列表时同样退回占位符
         return '、'.join(str(x) for x in v if x) if v else '-'
     return str(v)
+
+
+def _app_version() -> str:
+    """T6.4 取应用版本号用于封面，导入失败时回落到常量。"""
+    try:
+        from core.app_version import get_version_label
+        return get_version_label()
+    except Exception:
+        return 'v5.0.6'
+
+
+# reportlab 缺席时退回 object，保证模块级 class 定义不会因 NameError 拖垮
+# 「import pdf_exporter」本身（真正导出时由 PdfExporter.__init__ 抛 RuntimeError）。
+_TocBase = SimpleDocTemplate if _REPORTLAB_OK else object
+
+
+class _TocDocTemplate(_TocBase):
+    """T6.4 带页码采集能力的文档模板。
+
+    覆写 afterFlowable：每当一个带 _toc_anchor 属性的 Flowable 被绘制后，
+    记录「锚点 -> 所在页码」。目录页的真实页码依赖此采集结果，因此报告
+    采用两遍构建（第一遍干跑采集页码，第二遍带目录正式输出）。
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.toc_pages = {}
+
+    def afterFlowable(self, flowable):
+        anchor = getattr(flowable, '_toc_anchor', None)
+        if anchor:
+            self.toc_pages[anchor] = self.page
 
 
 class PdfExporter(BaseExporter):
@@ -181,36 +229,162 @@ class PdfExporter(BaseExporter):
             内容排版失败等）被捕获后打印错误并返回 False，不向上抛出
         """
         try:
-            doc = SimpleDocTemplate(
+            # T6.4 两遍构建：reportlab 在 build 前无法预知章节落在第几页，
+            # 所以先用 BytesIO 干跑一遍采集各章节锚点页码，再带目录正式输出。
+            # 两遍的 story 结构必须保持一致（封面 1 页 + 目录 1 页），
+            # 否则第二遍的页码会整体偏移。
+            self._toc_entries = []
+            buf = io.BytesIO()
+            doc1 = _TocDocTemplate(
+                buf, pagesize=A4,
+                leftMargin=18 * mm, rightMargin=18 * mm,
+                topMargin=16 * mm, bottomMargin=16 * mm,
+                title='八字排盘分析报告', author='龙虎山大师兄',
+            )
+            doc1.build(self._build_story(data, with_toc=False))
+            pages = doc1.toc_pages
+
+            self._toc_entries = []
+            doc2 = _TocDocTemplate(
                 file_path, pagesize=A4,
                 leftMargin=18 * mm, rightMargin=18 * mm,
                 topMargin=16 * mm, bottomMargin=16 * mm,
-                title='八字排盘分析报告',
-                author='龙虎山大师兄',
+                title='八字排盘分析报告', author='龙虎山大师兄',
             )
-            # story 是 reportlab 的「流式内容」列表，各章节按顺序往里追加
-            # Flowable，最后由 doc.build 一次性完成分页与渲染
-            story = []
-            self._build_title(story, data)
-            self._build_basic(story, data)
-            self._build_types(story, data)
-            self._build_pillars(story, data)
-            self._build_wuxing(story, data)
-            self._build_shishen(story, data)
-            self._build_yunshi(story, data)
-            self._build_yuncheng(story, data)
-            self._build_analysis(story, data)
-            self._build_ai(story, data)
-            self._build_meihua(story, data)
-            self._build_liuren(story, data)
-            self._build_zonghe(story, data)
-            doc.build(story)
+            doc2.build(self._build_story(data, with_toc=True, pages=pages))
             return True
         except Exception as e:
             # 导出属于用户主动触发的非关键路径，失败时不应让界面崩溃，
             # 统一吞掉异常并以返回值告知调用方
             print(f"PDF 导出失败: {e}")
             return False
+
+    def _build_story(self, data: Dict[str, Any], with_toc: bool,
+                     pages: Dict[str, int] = None) -> List[Any]:
+        """T6.4 构建完整 story：封面页 + 目录页（可选） + 正文章节。
+
+        Args:
+            data: 排盘结果字典
+            with_toc: True 时插入带真实页码的目录页；False 时插入一个等高的
+                空页占位，保证两遍构建的正文章节起始页码一致
+            pages: 第一遍采集到的「锚点 -> 页码」映射，仅 with_toc=True 时用到
+        """
+        story = []
+        self._build_cover(story, data)
+        story.append(PageBreak())
+        if with_toc:
+            self._build_toc(story, pages or {})
+        story.append(PageBreak())
+
+        # 正文：各章节方法内部自行判空，缺数据的章节直接跳过
+        self._build_title(story, data)
+        self._build_basic(story, data)
+        self._build_types(story, data)
+        self._build_pillars(story, data)
+        self._build_wuxing(story, data)
+        self._build_shishen(story, data)
+        self._build_yunshi(story, data)
+        self._build_yuncheng(story, data)
+        self._build_analysis(story, data)
+        self._build_ai(story, data)
+        self._build_meihua(story, data)
+        self._build_liuren(story, data)
+        self._build_zonghe(story, data)
+        return story
+
+    def _build_cover(self, story, data):
+        """T6.4 渲染封面页：品牌标识、报告名、版本、核心参数与免责提示。"""
+        s = self.styles
+        bi = data.get('basic_info', {}) or {}
+        bz = extract_pillars(data)
+
+        story.append(Spacer(1, 26 * mm))
+        # 品牌标识（太极符号在多数 PDF 字体下可正常显示）
+        brand = Paragraph('☯', ParagraphStyle(
+            'cover_brand', parent=s['title'], fontSize=44, alignment=1,
+            textColor=_C_ZHUSHA, leading=52))
+        story.append(brand)
+        story.append(Spacer(1, 6 * mm))
+
+        story.append(Paragraph('风水排盘专业工具', ParagraphStyle(
+            'cover_brand_name', parent=s['title'], fontSize=18, alignment=1,
+            textColor=_C_QINGHUA, leading=24)))
+        story.append(Paragraph(f'KP-AI-FENGSHUI {_esc(_app_version())}', ParagraphStyle(
+            'cover_ver', parent=s['subtitle'], alignment=1, fontSize=10)))
+        story.append(Spacer(1, 10 * mm))
+        story.append(HRFlowable(width='60%', thickness=1.2, color=_C_LIUJIN,
+                                spaceBefore=2, spaceAfter=10, hAlign='CENTER'))
+        story.append(Paragraph('八字排盘分析报告', ParagraphStyle(
+            'cover_title', parent=s['title'], fontSize=24, alignment=1,
+            textColor=_C_TEXT, leading=32)))
+        story.append(Spacer(1, 16 * mm))
+
+        # 核心参数（缺项自动跳过，避免封面出现一排横杠）
+        pairs = []
+        if bi.get('name'):
+            pairs.append(('姓名', bi.get('name')))
+        if bi.get('gender'):
+            pairs.append(('性别', bi.get('gender')))
+        if bi.get('solar_date'):
+            pairs.append(('公历', bi.get('solar_date')))
+        if bi.get('lunar_date'):
+            pairs.append(('农历', bi.get('lunar_date')))
+        # 八字四柱：拼成一行「年 月 日 时」
+        pillars = [bz.get(k) for k in ('year_pillar', 'month_pillar',
+                                       'day_pillar', 'hour_pillar')]
+        if any(pillars):
+            pairs.append(('八字', '　'.join(_to_str(p) if p else '—' for p in pillars)))
+
+        if pairs:
+            rows = [[Paragraph(_esc(k), s['cell_head']),
+                     Paragraph(_esc(_to_str(v)), s['cell'])] for k, v in pairs]
+            t = Table(rows, colWidths=[32 * mm, 100 * mm], hAlign='CENTER')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), _C_QINGHUA),
+                ('GRID', (0, 0), (-1, -1), 0.5, _C_LINE),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+
+        story.append(Spacer(1, 18 * mm))
+        from datetime import datetime
+        story.append(Paragraph(
+            f'报告生成时间：{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+            ParagraphStyle('cover_time', parent=s['note'], alignment=1)))
+        story.append(Paragraph(
+            '本解读仅供文化研究参考，不构成任何决策依据',
+            ParagraphStyle('cover_disc', parent=s['note'], alignment=1,
+                           textColor=_C_ZHUSHA)))
+
+    def _build_toc(self, story, pages: Dict[str, int]):
+        """T6.4 渲染目录页：章节名 + 页码（页码来自第一遍干跑采集）。"""
+        s = self.styles
+        story.append(Paragraph('目　录', ParagraphStyle(
+            'toc_head', parent=s['title'], fontSize=18, alignment=1,
+            textColor=_C_QINGHUA, leading=26)))
+        story.append(Spacer(1, 6 * mm))
+        if not self._toc_entries:
+            story.append(Paragraph('（无章节）', s['note']))
+            return
+        rows = []
+        for title, anchor in self._toc_entries:
+            rows.append([
+                Paragraph(_esc(title), s['cell']),
+                Paragraph(str(pages.get(anchor, '-')),
+                          ParagraphStyle('toc_page', parent=s['cell'], alignment=2)),
+            ])
+        t = Table(rows, colWidths=[140 * mm, 19 * mm], hAlign='LEFT')
+        t.setStyle(TableStyle([
+            ('LINEBELOW', (0, 0), (-1, -2), 0.4, _C_LINE),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        story.append(t)
 
     # ----------------- 章节构造 -----------------
     def _build_title(self, story, data):
@@ -239,13 +413,22 @@ class PdfExporter(BaseExporter):
     def _section_title(self, story, text):
         """向 story 追加一个二级章节标题（如「一、基本信息」）。
 
-        各 _build_* 方法在确认本章节确有数据后才调用它，以免出现空标题。
+        T6.4：标题附带 HTML 锚点并登记进 self._toc_entries，
+        供目录页回填真实页码（页码由 _TocDocTemplate.afterFlowable 采集）。
 
         Args:
             story: reportlab 的 Flowable 列表，本方法就地追加元素
             text: 章节标题文本，内部会做 XML 转义
         """
-        story.append(Paragraph(_esc(text), self.styles['h2']))
+        if not hasattr(self, '_toc_entries') or self._toc_entries is None:
+            self._toc_entries = []
+        anchor = f'toc_sec_{len(self._toc_entries)}'
+        self._toc_entries.append((text, anchor))
+        # <a name="..."/> 是 reportlab 支持的锚点标记；_toc_anchor 属性
+        # 会被 _TocDocTemplate.afterFlowable 读取以记录页码
+        para = Paragraph(f'<a name="{anchor}"/>' + _esc(text), self.styles['h2'])
+        para._toc_anchor = anchor
+        story.append(para)
 
     def _kv_table(self, story, pairs: List[tuple]):
         """渲染 键值对 表格（两列）"""
@@ -344,15 +527,15 @@ class PdfExporter(BaseExporter):
         Returns:
             None；bazi 缺失或为空时直接返回，不输出标题
         """
-        bz = data.get('bazi', {}) or {}
+        # 兼容两种上游结构：旧结构集中在 data['bazi']，Service 路径摊平在
+        # 顶层，统一由 extract_pillars 兜底（详见 base_exporter）。
+        bz = extract_pillars(data)
         if not bz:
             return
         self._section_title(story, '三、四柱八字')
         rows = [
-            ('年柱', bz.get('year_pillar')),
-            ('月柱', bz.get('month_pillar')),
-            ('日柱', bz.get('day_pillar')),
-            ('时柱', bz.get('hour_pillar')),
+            (PILLAR_LABELS.get(k, k), bz.get(k))
+            for k in PILLAR_FIELDS
         ]
         self._kv_table(story, rows)
 
@@ -369,7 +552,13 @@ class PdfExporter(BaseExporter):
         Returns:
             None；wuxing 缺失、为空或五行项全不存在时直接返回
         """
-        wx = data.get('wuxing', {}) or {}
+        # 兼容两种上游结构：旧结构为 data['wuxing']（五行 -> 分值），Service
+        # 路径为 wuxing_detail（五行 -> {percentage, score}），统一由
+        # extract_wuxing 兜底；percentage 已是百分数语义，这里补上 % 号。
+        wx = extract_wuxing(data)
+        if wx:
+            wx = {n: (f"{v}%" if isinstance(v, (int, float)) else v)
+                  for n, v in wx.items()}
         if not wx:
             return
         self._section_title(story, '四、五行分析')
