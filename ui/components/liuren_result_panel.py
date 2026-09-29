@@ -295,7 +295,7 @@ class LiurenResultPanel(QWidget):
         """)
         status_layout = QHBoxLayout(self.status_bar)
         status_layout.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        status_layout.setContentsMargins(16, 10, 16, 10)
+        status_layout.setContentsMargins(Spacing.S4, Spacing.S_MARGIN_XS, Spacing.S4, Spacing.S_MARGIN_XS)
         status_layout.setAlignment(Qt.AlignCenter)
         self.status_label = QLabel('请完善左侧起课参数')
         self.status_label.setStyleSheet(f"""
@@ -316,7 +316,7 @@ class LiurenResultPanel(QWidget):
         self.content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         self.content_layout.setSpacing(Spacing.S4)
 
         self.empty_state = self._create_empty_state()
@@ -412,12 +412,12 @@ class LiurenResultPanel(QWidget):
         ]
         # 行式布局：鎏金微光小药丸标签 + 粗体值 + 行间细分隔（与梅花「起卦信息」一致）
         vlay = QVBoxLayout()
-        vlay.setContentsMargins(0, 0, 0, 0)
+        vlay.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         vlay.setSpacing(Spacing.S0)
         for i, (k, v) in enumerate(rows):
             row = QWidget()
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(10, 8, 10, 8)
+            rl.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S2, Spacing.S_MARGIN_XS, Spacing.S2)
             rl.setSpacing(Spacing.S3)
             kl = QLabel(k)
             kl.setFixedWidth(64)
@@ -458,7 +458,7 @@ class LiurenResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
-        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
         vlay.setSpacing(Spacing.S3)
 
         # 图例
@@ -543,7 +543,7 @@ class LiurenResultPanel(QWidget):
                     }}
                 """)
             cl = QVBoxLayout(cell)
-            cl.setContentsMargins(2, 6, 2, 6)
+            cl.setContentsMargins(Spacing.S_MIN, Spacing.S_PAD_SM, Spacing.S_MIN, Spacing.S_PAD_SM)
             cl.setSpacing(Spacing.S1)
 
             # 地盘宫位（灰小字）
@@ -587,7 +587,7 @@ class LiurenResultPanel(QWidget):
         order = [('干上（第一课）', 'gan_shang'), ('干阴（第二课）', 'gan_yin'),
                   ('支上（第三课）', 'zhi_shang'), ('支阴（第四课）', 'zhi_yin')]
         grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         grid.setSpacing(Spacing.S3)
         grid.setColumnStretch(1, 1)
         for i, (label, key) in enumerate(order):
@@ -625,7 +625,7 @@ class LiurenResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
-        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
         vlay.setSpacing(Spacing.S3)
 
         # 门法徽章（置顶）
@@ -681,7 +681,7 @@ class LiurenResultPanel(QWidget):
                 """)
                 val_color = Colors.QINGHUA
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(10, 10, 10, 10)
+            cl.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS)
             cl.setSpacing(Spacing.S1)
             lab = QLabel(label)
             lab.setAlignment(Qt.AlignCenter)
@@ -724,7 +724,7 @@ class LiurenResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(w)
-        vlay.setContentsMargins(4, 4, 4, 4)
+        vlay.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
         vlay.setSpacing(Spacing.S2)
 
         legend = QLabel('▍吉将（贵人/六合/青龙/太常/太阴/天后）标绿｜凶将（螣蛇/朱雀/勾陈/天空/白虎/玄武）标红')
@@ -755,7 +755,7 @@ class LiurenResultPanel(QWidget):
                 }}
             """)
             cl = QHBoxLayout(cell)
-            cl.setContentsMargins(10, 6, 10, 6)
+            cl.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_PAD_SM, Spacing.S_MARGIN_XS, Spacing.S_PAD_SM)
             cl.setSpacing(Spacing.S2)
             pos_lbl = QLabel(f"{t.get('pos', '')}宫")
             pos_lbl.setStyleSheet(
@@ -789,7 +789,7 @@ class LiurenResultPanel(QWidget):
         """
         sha = r.get('shen_sha', {})
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S2)
         if not sha:
             layout.addWidget(self._muted('本课无明显神煞'))
@@ -843,7 +843,7 @@ class LiurenResultPanel(QWidget):
         w = QWidget()
         w.setProperty('is_placeholder', True)
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S3)
         layout.addWidget(self._muted(f'{AI_SECTION_TITLE}将在起课后自动生成，或点击右上角「重新解读」。'))
         return w

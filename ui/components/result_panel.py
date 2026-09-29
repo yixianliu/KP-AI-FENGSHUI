@@ -55,6 +55,7 @@ class ResultPanel(QWidget):
         """
         super().__init__(parent)
         self._current_result = None
+        self._error_holder = None  # 初始化错误态 holder
         # 智能 功能可用性标记（由 MainWindow 在初始化后注入）
         self._available = True
         self._fade_anims = []
@@ -68,7 +69,7 @@ class ResultPanel(QWidget):
         """
         self.setStyleSheet(f"background-color: {Colors.BG};")
         main = QVBoxLayout(self)
-        main.setContentsMargins(0, 0, 0, 0)
+        main.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         main.setSpacing(Spacing.S0)
 
         # 内容滚动区
@@ -215,7 +216,7 @@ class ResultPanel(QWidget):
     def _info_row(self, data):
         """信息行 - 响应式流式网格（宽屏 3 列、窄屏自动降列）"""
         flow = ResponsiveFlow(min_item_width=210, max_cols=3, min_cols=1, spacing=12)
-        flow.setContentsMargins(8, 6, 8, 6)
+        flow.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         for label, value in data:
             item_w = QFrame()
             item_w.setStyleSheet(f"""
@@ -226,7 +227,7 @@ class ResultPanel(QWidget):
                 }}
             """)
             il = QVBoxLayout(item_w)
-            il.setContentsMargins(14, 10, 14, 10)
+            il.setContentsMargins(Spacing.S_PAD_XS, Spacing.S_MARGIN_XS, Spacing.S_PAD_XS, Spacing.S_MARGIN_XS)
             il.setSpacing(Spacing.S1)
             lb = QLabel(label)
             lb.setStyleSheet(f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; font-family: {Fonts.BODY}; background: transparent;")
@@ -271,7 +272,7 @@ class ResultPanel(QWidget):
 
         # 响应式流式网格：宽屏四柱横排、窄屏自动换为 2 列 / 1 列
         flow = ResponsiveFlow(min_item_width=190, max_cols=4, min_cols=1, spacing=14)
-        flow.setContentsMargins(10, 6, 10, 6)
+        flow.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_PAD_SM, Spacing.S_MARGIN_XS, Spacing.S_PAD_SM)
 
         for idx, (name, p) in enumerate([('年柱', bazi['year_pillar']), ('月柱', bazi['month_pillar']),
                                           ('日柱', bazi['day_pillar']), ('时柱', bazi['hour_pillar'])]):
@@ -301,7 +302,7 @@ class ResultPanel(QWidget):
                 """)
 
             cl = QVBoxLayout(c)
-            cl.setContentsMargins(16, 12, 16, 12)
+            cl.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
             cl.setSpacing(Spacing.S2)
             cl.setAlignment(Qt.AlignCenter)
 
@@ -377,7 +378,7 @@ class ResultPanel(QWidget):
             detail_widget = QWidget()
             detail_widget.setStyleSheet("background: transparent;")
             detail_row = QHBoxLayout(detail_widget)
-            detail_row.setContentsMargins(0, 0, 0, 0)
+            detail_row.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             detail_row.setSpacing(Spacing.S1)
             detail_row.setAlignment(Qt.AlignCenter)
 
@@ -444,7 +445,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(12, 10, 12, 10)
+        l.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
         l.setSpacing(Spacing.S3)
 
         els = [
@@ -465,7 +466,7 @@ class ResultPanel(QWidget):
             row = QWidget()
             row.setStyleSheet("background: transparent;")
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             rl.setSpacing(Spacing.S3)
 
             # ---- 彩色圆角标签 ----
@@ -562,7 +563,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S3)
         for item in data:
             tp = item.get('type', '中')
@@ -585,7 +586,7 @@ class ResultPanel(QWidget):
                 }}
             """)
             cl = QHBoxLayout(card)
-            cl.setContentsMargins(12, 10, 12, 10)
+            cl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
             cl.setSpacing(Spacing.S3)
 
             # 徽章
@@ -614,7 +615,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S4)
 
         # 日主强弱
@@ -669,7 +670,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S3)
 
         items = ss_data.get('shier_shen', [])
@@ -701,7 +702,7 @@ class ResultPanel(QWidget):
             row = QWidget()
             row.setStyleSheet("background: transparent;")
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(4, 4, 4, 4)
+            rl.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
             rl.setSpacing(Spacing.S3)
 
             pn = QLabel(pillar)
@@ -746,7 +747,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S3)
 
         sections = [
@@ -815,7 +816,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S3)
 
         th = QLabel('▍ 地支关系（四柱干支相互作用）')
@@ -847,7 +848,7 @@ class ResultPanel(QWidget):
                     border-radius: {Spacing.RADIUS_SM}; }}
             """)
             lg = QHBoxLayout(legend)
-            lg.setContentsMargins(12, 8, 12, 8)
+            lg.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2)
             lg.setSpacing(Spacing.S4)
             lt = QLabel('图例')
             lt.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
@@ -887,7 +888,7 @@ class ResultPanel(QWidget):
                 }}
             """)
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(14, 12, 14, 12)
+            cl.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
             cl.setSpacing(Spacing.S2)
 
             # 顶行：关系徽章 + 说明
@@ -1026,7 +1027,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S4)
 
         # 综合（置顶高亮）
@@ -1054,7 +1055,7 @@ class ResultPanel(QWidget):
             sub = QWidget()
             sub.setStyleSheet("background: transparent;")
             sl = QVBoxLayout(sub)
-            sl.setContentsMargins(0, 0, 0, 0)
+            sl.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             sl.setSpacing(Spacing.S1)
             th = QLabel(f'▍ {title}')
             th.setStyleSheet(
@@ -1077,7 +1078,7 @@ class ResultPanel(QWidget):
             tg = QWidget()
             tg.setStyleSheet("background: transparent;")
             tl = QHBoxLayout(tg)
-            tl.setContentsMargins(0, 4, 0, 0)
+            tl.setContentsMargins(Spacing.S0, Spacing.S1, Spacing.S0, Spacing.S0)
             tl.setSpacing(Spacing.S2)
             for t in tags[:8]:
                 chip = QLabel(t)
@@ -1165,7 +1166,8 @@ class ResultPanel(QWidget):
                     'month_zhi': rd.get('month_zhi', ''),
                     'hour_zhi': rd.get('hour_zhi', ''),
                 }
-            if bazi:
+            # 验证四柱数据有效性（每柱至少2个字符）
+            if bazi and all(len(str(bazi.get(k, ''))) >= 2 for k in ['year_pillar', 'month_pillar', 'day_pillar', 'hour_pillar']):
                 bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
                 bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
                 self.clay.addWidget(bazi_card)
@@ -1747,7 +1749,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S3)
         for idx, item in enumerate(items):
             row = QHBoxLayout()
@@ -1806,7 +1808,7 @@ class ResultPanel(QWidget):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         l = QVBoxLayout(w)
-        l.setContentsMargins(8, 6, 8, 6)
+        l.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         l.setSpacing(Spacing.S1)
         txt = QLabel(text)
         txt.setWordWrap(True)

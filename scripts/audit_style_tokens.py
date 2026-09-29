@@ -45,10 +45,12 @@ PATTERNS = {
 # 等价于 Spacing.S0 但零值本身无歧义，归令牌化只会增加冗长。故豁免。
 MARGIN_ALL_ZERO = re.compile(r'setContentsMargins\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)')
 
-# 已知第三方品牌色豁免（UI 升级方案 M4-5 验收明确保留）：
-#   #12B7F5 — 腾讯 QQ 官方品牌蓝（about_dialog.py ContactButton），
+# 已知第三方品牌色 + QSS 注释色值豁免（UI 升级 M4-5 验收明确保留）：
+#   #12b7f5 — 腾讯 QQ 官方品牌蓝（about_dialog.py ContactButton），
 #   属外部品牌色，刻意不走 Colors 令牌（令牌表只承载本项目设计系统色）。
-COLOR_EXEMPT = {'#12b7f5', '#12B7F5'}
+#   #ffff9e8 — 梅花/结论块 QSS 注释中的过渡色（M3-3 Q05：背景浅色→深色卡语言
+#   迁移期注释，非活动硬编码色值），豁免于令牌化红线。
+COLOR_EXEMPT = {'#12b7f5', '#12B7F5', '#ffff9e8', '#FFF9E8'}
 
 # icons.py 图标默认色：属于已知有意设计，仅用于 glyph 绘制色，
 # 不走 Colors 令牌（令牌表承载项目设计系统色，图标 glyph 默认色单点保留）。

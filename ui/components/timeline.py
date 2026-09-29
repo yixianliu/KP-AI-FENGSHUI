@@ -133,7 +133,7 @@ class _DayunRow(QFrame):
         self.card = QFrame()
         self._apply_card_style()
         cv = QVBoxLayout(self.card)
-        cv.setContentsMargins(10, 10, 10, 10)
+        cv.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS, Spacing.S_MARGIN_XS)
         cv.setSpacing(Spacing.S2)
 
         head = QHBoxLayout()
@@ -236,7 +236,7 @@ class _DayunRow(QFrame):
         self.detail_container.setMaximumHeight(0)
         self.detail_container.setVisible(False)
         dl = QVBoxLayout(self.detail_container)
-        dl.setContentsMargins(12, 8, 12, 8)
+        dl.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2)
         dl.setSpacing(Spacing.S2)
 
         # 详细分析内容
@@ -340,7 +340,7 @@ class _LiunianFilter(QWidget):
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setContentsMargins(Spacing.S0, Spacing.S1, Spacing.S0, Spacing.S1)
         layout.setSpacing(Spacing.S2)
 
         icon = QLabel('🔍')
@@ -395,7 +395,7 @@ def fortune_timeline_widget(dayun, liunian, color=Colors.LIUJIN):
     container = QWidget()
     container.setStyleSheet("background: transparent;")
     root = QVBoxLayout(container)
-    root.setContentsMargins(4, 4, 4, 4)
+    root.setContentsMargins(Spacing.S1, Spacing.S1, Spacing.S1, Spacing.S1)
     root.setSpacing(Spacing.S4)
 
     # ---------- 起运关键节点 ----------
@@ -598,7 +598,7 @@ def _build_liunian_cell(year_data, index=0):
         
         # 重新创建垂直布局
         v_layout = QVBoxLayout(cell)
-        v_layout.setContentsMargins(6, 6, 6, 6)
+        v_layout.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         v_layout.setSpacing(Spacing.S1)
         
         # 顶部信息行

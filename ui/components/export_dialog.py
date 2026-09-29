@@ -166,7 +166,7 @@ class ExportDialog(QDialog):
 
         layout = QVBoxLayout()
         layout.setSpacing(Spacing.S3)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(Spacing.S5, Spacing.S5, Spacing.S5, Spacing.S5)
 
         title_label = QLabel('导出排盘结果')
         title_label.setStyleSheet(f"""
@@ -211,7 +211,7 @@ class ExportDialog(QDialog):
         self._fmt_hint.setStyleSheet(
             f'font-size: 11px; color: {Colors.TEXT_PAPER_DIM};'
             ' font-family: "Microsoft YaHei";')
-        self._fmt_hint.setContentsMargins(2, 2, 2, 0)
+        self._fmt_hint.setContentsMargins(Spacing.S_MIN, Spacing.S_MIN, Spacing.S_MIN, Spacing.S0)
         format_layout.addWidget(self._fmt_hint)
         self._update_fmt_hint('csv')
 
@@ -372,7 +372,7 @@ class _FormatCard(QFrame):
         self.setCursor(Qt.PointingHandCursor)
 
         v = QVBoxLayout(self)
-        v.setContentsMargins(12, 10, 12, 10)
+        v.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
         v.setSpacing(Spacing.S1)
 
         icon_lbl = QLabel(icon)
@@ -462,7 +462,7 @@ class _ChapterGroup(QFrame):
         )
         header.clicked.connect(self.toggle)
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
+        hl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
         hl.setSpacing(Spacing.S2)
 
         bar = QFrame()
@@ -490,7 +490,7 @@ class _ChapterGroup(QFrame):
         self._content = QWidget()
         self._content.setStyleSheet('background: transparent;')
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(14, 10, 14, 12)
+        self._content_layout.setContentsMargins(Spacing.S_PAD_XS, Spacing.S_MARGIN_XS, Spacing.S_PAD_XS, Spacing.S_MARGIN_XS)
         self._content_layout.setSpacing(Spacing.S2)
         main.addWidget(self._content)
 

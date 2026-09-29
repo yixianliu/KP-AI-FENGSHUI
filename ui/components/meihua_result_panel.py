@@ -148,7 +148,7 @@ class MeihuaResultPanel(QWidget):
         # 不显式设 spacing 会取 Qt 默认值 6（非 8-4 体系）；此布局仅一个子项，
         # 设 S2 使实测值落入体系，不影响单居中子项的视觉表现
         status_layout.setSpacing(Spacing.S2)
-        status_layout.setContentsMargins(16, 10, 16, 10)
+        status_layout.setContentsMargins(Spacing.S4, Spacing.S_MARGIN_XS, Spacing.S4, Spacing.S_MARGIN_XS)
         status_layout.setAlignment(Qt.AlignCenter)
 
         self.status_label = QLabel('ℹ 请完善左侧参数，点击「起卦」获取卦象分析')
@@ -171,7 +171,7 @@ class MeihuaResultPanel(QWidget):
         self.content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         self.content_layout.setSpacing(Spacing.S4)
 
         self.empty_state = self._create_empty_state()
@@ -219,7 +219,7 @@ class MeihuaResultPanel(QWidget):
         """创建卦象展示组件（优化版：头部卦名 + 上/下卦卡 + 卦辞原文块 + 释义，与爻辞详解一致）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S3)
 
         name = hexagram_info.get('name', '')
@@ -285,7 +285,7 @@ class MeihuaResultPanel(QWidget):
                 }}
             """)
             ob_lay = QVBoxLayout(orig_block)
-            ob_lay.setContentsMargins(12, 8, 12, 8)
+            ob_lay.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2)
             ob_lay.setSpacing(Spacing.S1)
 
             orig_tag = QLabel('卦辞')
@@ -305,7 +305,7 @@ class MeihuaResultPanel(QWidget):
         if explanation:
             exp_block = QWidget()
             eb_lay = QVBoxLayout(exp_block)
-            eb_lay.setContentsMargins(12, 4, 12, 4)
+            eb_lay.setContentsMargins(Spacing.S3, Spacing.S1, Spacing.S3, Spacing.S1)
             eb_lay.setSpacing(Spacing.S1)
             exp_tag = QLabel('释义')
             exp_tag.setStyleSheet(
@@ -335,7 +335,7 @@ class MeihuaResultPanel(QWidget):
         """
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S3)
 
         for yao in yao_info_list:
@@ -355,13 +355,13 @@ class MeihuaResultPanel(QWidget):
             """)
 
             card_lay = QVBoxLayout(yao_card)
-            card_lay.setContentsMargins(0, 0, 0, 0)
+            card_lay.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             card_lay.setSpacing(Spacing.S0)
 
             # ---- 爻头：强调色条 + 爻名 + （动爻徽标） ----
             header = QWidget()
             header_lay = QHBoxLayout(header)
-            header_lay.setContentsMargins(12, 10, 12, 10)
+            header_lay.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
             header_lay.setSpacing(Spacing.S2)
 
             bar = QFrame()
@@ -413,7 +413,7 @@ class MeihuaResultPanel(QWidget):
                     }}
                 """)
                 ob_lay = QVBoxLayout(orig_block)
-                ob_lay.setContentsMargins(12, 8, 12, 8)
+                ob_lay.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2)
                 ob_lay.setSpacing(Spacing.S1)
 
                 orig_tag = QLabel('爻辞原文')
@@ -435,7 +435,7 @@ class MeihuaResultPanel(QWidget):
             if explanation:
                 exp_block = QWidget()
                 eb_lay = QVBoxLayout(exp_block)
-                eb_lay.setContentsMargins(12, 8, 12, 10)
+                eb_lay.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S_MARGIN_XS)
                 eb_lay.setSpacing(Spacing.S1)
 
                 exp_tag = QLabel('释义')
@@ -461,7 +461,7 @@ class MeihuaResultPanel(QWidget):
         """创建吉凶总览"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S3)
 
         overall = overall_info.get('overall', '')
@@ -514,7 +514,7 @@ class MeihuaResultPanel(QWidget):
         """创建建议列表"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S2)
 
         for i, suggestion in enumerate(suggestions, 1):
@@ -528,7 +528,7 @@ class MeihuaResultPanel(QWidget):
             """)
 
             sug_layout = QHBoxLayout(sug_widget)
-            sug_layout.setContentsMargins(12, 8, 12, 8)
+            sug_layout.setContentsMargins(Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2)
             sug_layout.setSpacing(Spacing.S3)
 
             num_badge = QLabel(str(i))
@@ -568,7 +568,7 @@ class MeihuaResultPanel(QWidget):
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         layout.setSpacing(Spacing.S3)
 
         upper_element = ben_gua.get('upper_element', '')
@@ -637,7 +637,7 @@ class MeihuaResultPanel(QWidget):
                 }}
             """)
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(8, 8, 8, 8)
+            cl.setContentsMargins(Spacing.S2, Spacing.S2, Spacing.S2, Spacing.S2)
             cl.setSpacing(Spacing.S1)
             tag = QLabel(tag_text)
             tag.setAlignment(Qt.AlignCenter)
@@ -671,7 +671,7 @@ class MeihuaResultPanel(QWidget):
                 }}
             """)
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(8, 8, 8, 8)
+            cl.setContentsMargins(Spacing.S2, Spacing.S2, Spacing.S2, Spacing.S2)
             cl.setSpacing(Spacing.S1)
             ic = QLabel(icon)
             ic.setAlignment(Qt.AlignCenter)
@@ -716,7 +716,7 @@ class MeihuaResultPanel(QWidget):
         """创建卦象演变流程图（优化版：阶段序号徽标 + 鎏金顶条，与爻辞详解视觉一致）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S3)
 
         ben_gua = result_data.get('ben_gua', {})
@@ -749,7 +749,7 @@ class MeihuaResultPanel(QWidget):
                 }}
             """)
             card_lay = QVBoxLayout(card)
-            card_lay.setContentsMargins(0, 0, 0, 0)
+            card_lay.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             card_lay.setSpacing(Spacing.S2)
             card_lay.setAlignment(Qt.AlignCenter)
 
@@ -795,7 +795,7 @@ class MeihuaResultPanel(QWidget):
             slot = QWidget()
             slot.setStyleSheet("background: transparent;")
             sl = QHBoxLayout(slot)
-            sl.setContentsMargins(0, 0, 0, 0)
+            sl.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
             sl.setSpacing(Spacing.S2)
             sl.addWidget(card, 1)
             if i < len(stages) - 1:
@@ -984,13 +984,13 @@ class MeihuaResultPanel(QWidget):
         """创建信息网格（标签徽标 + 值，行间细分隔，与面板国风风格一致）。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         layout.setSpacing(Spacing.S0)
 
         for i, (label, value) in enumerate(data):
             row = QWidget()
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(10, 8, 10, 8)
+            rl.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S2, Spacing.S_MARGIN_XS, Spacing.S2)
             rl.setSpacing(Spacing.S3)
 
             # 标签：鎏金微光小药丸（与卦象类型徽标同源）

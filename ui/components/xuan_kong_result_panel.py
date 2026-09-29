@@ -200,7 +200,7 @@ class XuanKongResultPanel(QWidget):
 
     def _build(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
         lay.setSpacing(Spacing.S3)
 
         hdr = QHBoxLayout()
@@ -228,7 +228,7 @@ class XuanKongResultPanel(QWidget):
             f"background-color: {Colors.CANVAS_DARK}; border-radius: 8px;")
         grid_lay = QHBoxLayout(self.grid_canvas)
         grid_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        grid_lay.setContentsMargins(12, 12, 12, 12)
+        grid_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
         grid_lay.addWidget(QLabel('九宫飞星盘'))
         grid_lay.addStretch()
         lay.addWidget(self.grid_canvas)
@@ -239,7 +239,7 @@ class XuanKongResultPanel(QWidget):
         self.detail_area.setStyleSheet(Stylesheets.SCROLL)
         self.detail_content = QWidget()
         self.detail_layout = QVBoxLayout(self.detail_content)
-        self.detail_layout.setContentsMargins(0, 0, 0, 0)
+        self.detail_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         self.detail_layout.setSpacing(Spacing.S2)
         self.detail_area.setWidget(self.detail_content)
         lay.addWidget(self.detail_area)

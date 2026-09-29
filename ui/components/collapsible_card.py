@@ -146,7 +146,7 @@ class CollapsibleCard(QFrame):
         """)
         self._header.clicked.connect(self.toggle)
         header_layout = QHBoxLayout(self._header)
-        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
         header_layout.setSpacing(Spacing.S3)
 
         # 强调色条（视觉层次标识：排盘=青 / AI=金）
@@ -191,7 +191,7 @@ class CollapsibleCard(QFrame):
         self._content_container = QWidget()
         self._content_container.setStyleSheet("background: transparent; border: none;")
         self._content_layout = QVBoxLayout(self._content_container)
-        self._content_layout.setContentsMargins(16, 0, 16, 14)
+        self._content_layout.setContentsMargins(Spacing.S4, Spacing.S0, Spacing.S4, Spacing.S4)
         self._content_layout.setSpacing(Spacing.S0)
         self._main_layout.addWidget(self._content_container)
 
@@ -459,7 +459,7 @@ class LoadingPanel(QWidget):
         self.setStyleSheet('background: transparent;')
         outer = QVBoxLayout(self)
         outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        outer.setContentsMargins(24, 48, 24, 48)
+        outer.setContentsMargins(Spacing.S6, Spacing.S8, Spacing.S6, Spacing.S8)
         outer.addStretch(1)
 
         col = QVBoxLayout()
@@ -639,7 +639,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
         }}
     """)
     v = QVBoxLayout(container)
-    v.setContentsMargins(22, 18, 22, 18)
+    v.setContentsMargins(Spacing.S_MARGIN_EXTRA, Spacing.S_GAP_SM, Spacing.S_MARGIN_EXTRA, Spacing.S_GAP_SM)
     v.setSpacing(Spacing.S3)
 
     # ---------- 顶部：图标 + 标题 + 时间戳 ----------
@@ -659,7 +659,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     """)
     icon_outer_lay = QVBoxLayout(icon_outer)
     icon_outer_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-    icon_outer_lay.setContentsMargins(4, 4, 4, 4)
+    icon_outer_lay.setContentsMargins(Spacing.S_MIN, Spacing.S_MIN, Spacing.S_MIN, Spacing.S_MIN)
     icon_outer_lay.setAlignment(Qt.AlignCenter)
 
     icon_box = QFrame()
@@ -711,7 +711,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     # 三段式标签：体现「算命」语境而非 AI 语境
     tag_row = QHBoxLayout()
     tag_row.setSpacing(Spacing.S2)
-    tag_row.setContentsMargins(0, 4, 0, 0)
+    tag_row.setContentsMargins(Spacing.S0, Spacing.S1, Spacing.S0, Spacing.S0)
     tag_items = [
         ('古法', Colors.ZHUSHA),
         ('五行', Colors.LIUJIN),
@@ -858,7 +858,7 @@ def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors
     chip_container = QWidget()
     chip_container.setStyleSheet('background: transparent; border: none;')
     chip_layout = QHBoxLayout(chip_container)
-    chip_layout.setContentsMargins(10, 8, 10, 8)
+    chip_layout.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S2, Spacing.S_MARGIN_XS, Spacing.S2)
     chip_layout.setSpacing(Spacing.S2)
 
     btn_group = QButtonGroup(outer)
@@ -977,7 +977,7 @@ def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
         }}
     """)
     hl = QHBoxLayout(container)
-    hl.setContentsMargins(12, 10, 12, 10)
+    hl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
     hl.setSpacing(Spacing.S3)
 
     # 图标由 ⭐ 改为 批（算命语境专属标识，呼应「大师兄亲批」标题）
@@ -1134,7 +1134,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
 
     container = QWidget()
     v = QVBoxLayout(container)
-    v.setContentsMargins(6, 6, 6, 6)
+    v.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
     v.setSpacing(Spacing.S4)
 
     items = []
@@ -1253,7 +1253,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                     }}
                 """)
                 hh = QHBoxLayout(header_wrap)
-                hh.setContentsMargins(10, 6, 10, 6)
+                hh.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_PAD_SM, Spacing.S_MARGIN_XS, Spacing.S_PAD_SM)
                 hh.setSpacing(Spacing.S2)
 
                 # 装饰性左侧色条
@@ -1321,7 +1321,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                     return False
             row.installEventFilter(_ShadowSwapFilter(row, _row_shadow))
             rv = QVBoxLayout(row)
-            rv.setContentsMargins(14, 12, 14, 14)
+            rv.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S_PAD_XS)
             rv.setSpacing(Spacing.S3)
 
             head = QHBoxLayout()
@@ -1548,7 +1548,7 @@ def _build_explanation_box(dimension_labels, color=Colors.LIUJIN) -> QWidget:
         }}
     """)
     bl = QVBoxLayout(box)
-    bl.setContentsMargins(12, 10, 12, 10)
+    bl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
     bl.setSpacing(Spacing.S2)
 
     head = QLabel('📜 如何理解这些批断？')
@@ -1585,7 +1585,7 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
         }}
     """)
     main = QHBoxLayout(container)
-    main.setContentsMargins(8, 6, 8, 6)
+    main.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
     main.setSpacing(Spacing.S3)
 
     title = QLabel('强度')
@@ -1608,7 +1608,7 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
             }}
         """)
         h = QHBoxLayout(w)
-        h.setContentsMargins(4, 2, 4, 2)
+        h.setContentsMargins(Spacing.S_MIN, Spacing.S0, Spacing.S_MIN, Spacing.S0)
         h.setSpacing(Spacing.S1)
         dot = QFrame()
         dot.setFixedSize(8, 8)
@@ -1651,7 +1651,7 @@ def conclusion_block(text: str, color=Colors.LIUJIN) -> QWidget:
         }}
     """)
     bl = QVBoxLayout(box)
-    bl.setContentsMargins(14, 12, 14, 12)
+    bl.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
     bl.setSpacing(Spacing.S2)
 
     # 标题行
@@ -1700,7 +1700,7 @@ def suggestion_block(items, color=Colors.SUCCESS) -> QWidget:
         }}
     """)
     bl = QVBoxLayout(box)
-    bl.setContentsMargins(14, 12, 14, 12)
+    bl.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
     bl.setSpacing(Spacing.S2)
 
     # 标题行
@@ -1919,7 +1919,7 @@ def risk_aware_label(text: str, color=Colors.LIUJIN, show_sentiment: bool = True
         }}
     """)
     cl = QVBoxLayout(container)
-    cl.setContentsMargins(12, 10, 12, 10)
+    cl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
     cl.setSpacing(Spacing.S2)
 
     # 标题行：标题 + 情感徽章
@@ -1982,7 +1982,7 @@ def risk_aware_label(text: str, color=Colors.LIUJIN, show_sentiment: bool = True
             """)
 
         sl = QHBoxLayout(row)
-        sl.setContentsMargins(8, 6, 8, 6)
+        sl.setContentsMargins(Spacing.S2, Spacing.S_PAD_SM, Spacing.S2, Spacing.S_PAD_SM)
         sl.setSpacing(Spacing.S2)
 
         # 图标前缀
@@ -2051,7 +2051,7 @@ def ai_section_card_header(
     container.setStyleSheet('background: transparent; border: none;')
 
     h = QHBoxLayout(container)
-    h.setContentsMargins(0, 4, 0, 8)
+    h.setContentsMargins(Spacing.S0, Spacing.S1, Spacing.S0, Spacing.S2)
     h.setSpacing(Spacing.S3)
     h.setAlignment(Qt.AlignVCenter)
 
@@ -2183,7 +2183,7 @@ def disclaimer_card(text: str = '') -> QWidget:
     content = QFrame()
     content.setStyleSheet('background: transparent; border: none;')
     cl = QVBoxLayout(content)
-    cl.setContentsMargins(16, 14, 16, 14)
+    cl.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
     cl.setSpacing(Spacing.S3)
 
     # 标题行
@@ -2391,7 +2391,7 @@ def _build_conclusion_keypoints(items: List[str], color: str) -> QWidget:
         }}
     """)
     bl = QVBoxLayout(box)
-    bl.setContentsMargins(12, 10, 12, 10)
+    bl.setContentsMargins(Spacing.S3, Spacing.S_MARGIN_XS, Spacing.S3, Spacing.S_MARGIN_XS)
     bl.setSpacing(Spacing.S2)
 
     head = QLabel('✨ 关键要点')
@@ -2460,7 +2460,7 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
         }}
     """)
     bl = QVBoxLayout(box)
-    bl.setContentsMargins(20, 16, 20, 16)
+    bl.setContentsMargins(Spacing.S5, Spacing.S4, Spacing.S5, Spacing.S4)
     bl.setSpacing(Spacing.S3)
 
     # 顶部装饰双线
@@ -2590,7 +2590,7 @@ def rich_list_block(items: List[str], color: str = Colors.QINGHUA, title: str = 
         }}
     """)
     cl = QVBoxLayout(container)
-    cl.setContentsMargins(16, 12, 16, 12)
+    cl.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
     cl.setSpacing(Spacing.S2)
 
     if title:
@@ -2671,7 +2671,7 @@ def rich_list_block(items: List[str],
         }}
     """)
     cl = QVBoxLayout(container)
-    cl.setContentsMargins(16, 12, 16, 12)
+    cl.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
     cl.setSpacing(Spacing.S3)  # M3-4（b）：条目间距 8→12
 
     if title:
@@ -2841,7 +2841,10 @@ def paragraph_block(text: str, max_width: int = Spacing.COL_MAX_TEXT,
     outer.setSpacing(Spacing.S0)
     outer.setAlignment(Qt.AlignHCenter)
     outer.setContentsMargins(0, 0, 0, 0)
-    outer.setMaximumWidth(max_width)
+    # 注：QHBoxLayout 无 setMaximumWidth 方法（旧代码在此抛 AttributeError，
+    # 导致 conclusion_block / 结果面板 AI 结论渲染崩溃）。宽度上限须设在容器
+    # QWidget 上；配合 outer 的 AlignHCenter 实现「超宽居中」。
+    container.setMaximumWidth(max_width)
 
     inner = QVBoxLayout()
     inner.setSpacing(Spacing.S3)  # 段间距 > 行距，形成段落感

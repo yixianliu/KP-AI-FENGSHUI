@@ -110,7 +110,7 @@ class SettingsDialog(QDialog):
     def _build_ui(self):
         """构建对话框布局：标题 / 说明 / 状态横幅 / 只读后端信息卡 / 密钥输入 / 按钮。"""
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
+        root.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         root.setSpacing(Spacing.S4)
 
         title = QLabel('龙虎山大师兄配置')
@@ -150,7 +150,7 @@ class SettingsDialog(QDialog):
             }}
         """)
         info_layout = QVBoxLayout(info)
-        info_layout.setContentsMargins(14, 12, 14, 12)
+        info_layout.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
         info_layout.setSpacing(Spacing.S2)
         info_layout.addWidget(self._label('服务：龙虎山大师兄 AI（Agnes AI）'))
         info_layout.addWidget(self._label(f'端点：{OFFICIAL_AGNES_ENDPOINT}'))
@@ -217,7 +217,7 @@ class SettingsDialog(QDialog):
             f"font-size: {Fonts.SZ_MICRO}; color: {Colors.TEXT3}; "
             f"font-family: {Fonts.BODY}; background: transparent;"
         )
-        sec_lbl.setContentsMargins(4, 0, 0, 0)
+        sec_lbl.setContentsMargins(Spacing.S1, Spacing.S0, Spacing.S0, Spacing.S0)
         root.addWidget(sec_lbl)
 
         root.addStretch()

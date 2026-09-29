@@ -156,7 +156,7 @@ class MeihuaInputPanel(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(24, 18, 24, 18)
+        lay.setContentsMargins(Spacing.S6, Spacing.S4, Spacing.S6, Spacing.S4)
         lay.setSpacing(Spacing.S3)
 
         # 标题
@@ -236,7 +236,7 @@ class MeihuaInputPanel(QWidget):
         # 历法 + 时间输入
         cal_group = QGroupBox('时间设置')
         cal_lay = QVBoxLayout(cal_group)
-        cal_lay.setContentsMargins(12, 12, 12, 12)
+        cal_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
         cal_lay.setSpacing(Spacing.S3)
         
         # 历法单选：公历 / 农历
@@ -292,7 +292,7 @@ class MeihuaInputPanel(QWidget):
         """)
         num_grid = QGridLayout(num_card)
         num_grid.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        num_grid.setContentsMargins(14, 14, 14, 14)
+        num_grid.setContentsMargins(Spacing.S_PAD_XS, Spacing.S_PAD_XS, Spacing.S_PAD_XS, Spacing.S_PAD_XS)
         num_grid.setHorizontalSpacing(10)
         num_grid.setVerticalSpacing(8)
         num_grid.setColumnStretch(0, 1)
@@ -342,7 +342,7 @@ class MeihuaInputPanel(QWidget):
         dir_group = QGroupBox('方位选择')
         dir_lay = QVBoxLayout(dir_group)
         dir_lay.setSpacing(Spacing.S3)
-        dir_lay.setContentsMargins(12, 12, 12, 12)
+        dir_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
 
         self.dir_combo = QComboBox()
         self.dir_combo.setStyleSheet(Stylesheets.COMBO)
@@ -375,7 +375,7 @@ class MeihuaInputPanel(QWidget):
         text_group = QGroupBox('文字设置')
         text_lay = QGridLayout(text_group)
         text_lay.setSpacing(Spacing.S2)
-        text_lay.setContentsMargins(12, 12, 12, 12)
+        text_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
 
         self.char_mode_combo = QComboBox()
         self.char_mode_combo.addItems(['单字', '多字'])
@@ -410,7 +410,7 @@ class MeihuaInputPanel(QWidget):
         coin_group = QGroupBox('铜钱摇卦')
         coin_lay = QVBoxLayout(coin_group)
         coin_lay.setSpacing(Spacing.S2)
-        coin_lay.setContentsMargins(12, 12, 12, 12)
+        coin_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
         
         coin_hint = QLabel('摇6次铜钱（从初爻到上爻）：\n● 少阳(1背2面) ○ 老阴(3背) ● 少阴(2背1面) ✕ 老阳(3面)\n默认初始：每次点击"自动"随机生成')
         coin_hint.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT2}; background: {Colors.ZHUSHA}; padding: 6px; border-radius: 4px;")
@@ -466,7 +466,7 @@ class MeihuaInputPanel(QWidget):
         stroke_group = QGroupBox('笔画起卦')
         stroke_lay = QGridLayout(stroke_group)
         stroke_lay.setSpacing(Spacing.S2)
-        stroke_lay.setContentsMargins(12, 12, 12, 12)
+        stroke_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
 
         stroke_label = QLabel('输入汉字:')
         stroke_lay.addWidget(stroke_label, 0, 0)
@@ -733,7 +733,7 @@ class MeihuaInputPanel(QWidget):
         """)
         gl = QGridLayout(card)
         gl.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        gl.setContentsMargins(14, 12, 14, 12)
+        gl.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
         gl.setHorizontalSpacing(0)
         gl.setVerticalSpacing(6)
 

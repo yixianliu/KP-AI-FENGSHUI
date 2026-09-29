@@ -176,7 +176,7 @@ class XuanKongInputPanel(QWidget):
 
     def _build(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         lay.setSpacing(Spacing.S4)
 
         # 标题

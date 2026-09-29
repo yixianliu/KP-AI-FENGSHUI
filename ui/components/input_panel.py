@@ -73,7 +73,7 @@ class InputPanel(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         lay.setSpacing(Spacing.S4)
 
         # 标题
@@ -104,7 +104,7 @@ class InputPanel(QWidget):
         basic_body = QWidget()
         basic_body.setStyleSheet("background: transparent;")
         basic_lay = QVBoxLayout(basic_body)
-        basic_lay.setContentsMargins(6, 6, 6, 6)
+        basic_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         basic_lay.setSpacing(Spacing.S3)
 
         # 姓名
@@ -241,7 +241,7 @@ class InputPanel(QWidget):
         pref_body = QWidget()
         pref_body.setStyleSheet("background: transparent;")
         pref_lay = QVBoxLayout(pref_body)
-        pref_lay.setContentsMargins(6, 6, 6, 6)
+        pref_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         pref_lay.setSpacing(Spacing.S3)
 
         # 出生地（手动文本，可经 AI 解析经纬度/时区）
@@ -287,7 +287,7 @@ class InputPanel(QWidget):
         ts_body = QWidget()
         ts_body.setStyleSheet("background: transparent;")
         ts_lay = QVBoxLayout(ts_body)
-        ts_lay.setContentsMargins(6, 6, 6, 6)
+        ts_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         ts_lay.setSpacing(Spacing.S2)
         ts_lay.addWidget(self._label('原始出生时间'))
         ts_lay.addWidget(self._ts_time_label)
@@ -312,7 +312,7 @@ class InputPanel(QWidget):
         notes_body.setStyleSheet("background: transparent;")
         notes_lay = QVBoxLayout(notes_body)
         notes_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-        notes_lay.setContentsMargins(6, 6, 6, 6)
+        notes_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         self.notes_edit = QTextEdit()
         self.notes_edit.setStyleSheet(Stylesheets.TEXT_EDIT)
         self.notes_edit.setPlaceholderText('可选补充…')

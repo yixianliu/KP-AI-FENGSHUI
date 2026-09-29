@@ -451,7 +451,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setSpacing(Spacing.S0)
 
         # ===== 顶部导航栏 =====
         self._create_navbar(root)
@@ -538,15 +538,15 @@ class MainWindow(QMainWindow):
         """)
 
         h = QHBoxLayout(bar)
-        h.setContentsMargins(20, 0, 16, 0)
-        h.setSpacing(0)
+        h.setContentsMargins(Spacing.S5, Spacing.S0, Spacing.S4, Spacing.S0)
+        h.setSpacing(Spacing.S0)
 
         # Logo区：鎏金太极图标 + 宋体标题
         logo_container = QFrame()
         logo_container.setStyleSheet("background: #1a1a2e; border: none;")
         logo_hl = QHBoxLayout(logo_container)
         logo_hl.setContentsMargins(0, 0, 0, 0)
-        logo_hl.setSpacing(8)
+        logo_hl.setSpacing(Spacing.S2)
 
         logo_icon = QLabel('☯')
         logo_icon.setStyleSheet(f"font-size: 20px; color: {Colors.LIUJIN};")
@@ -563,7 +563,7 @@ class MainWindow(QMainWindow):
         logo_hl.addWidget(logo_icon)
         logo_hl.addWidget(logo_title)
         h.addWidget(logo_container)
-        h.addSpacing(24)
+        h.addSpacing(Spacing.S6)
 
         # 分隔竖线（淡金色）
         sep = QFrame()
@@ -571,14 +571,14 @@ class MainWindow(QMainWindow):
         sep.setFixedHeight(24)
         sep.setStyleSheet(f"background-color: {Colors.LIUJIN_LIGHT};")
         h.addWidget(sep)
-        h.addSpacing(16)
+        h.addSpacing(Spacing.S4)
 
         # 导航按钮组：无边框胶囊，简洁横向排列
         nav_container = QFrame()
         nav_container.setStyleSheet("background: transparent; border: none;")
         nav_hl = QHBoxLayout(nav_container)
         nav_hl.setContentsMargins(0, 0, 0, 0)
-        nav_hl.setSpacing(0)
+        nav_hl.setSpacing(Spacing.S0)
 
         self.nav_btns = {}
         for item in NAV:

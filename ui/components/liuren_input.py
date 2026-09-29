@@ -73,7 +73,7 @@ class LiurenInputPanel(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {Colors.BG};")
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         lay.setSpacing(Spacing.S4)
 
         # 标题
