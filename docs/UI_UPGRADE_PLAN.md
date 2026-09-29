@@ -512,6 +512,11 @@ apply_density(self.detail_layout, DEFAULT_DENSITY)     # xuan_kong
   - 离屏：`result_panel` 的 `main.itemAt(0).widget() is result_panel._header_widget` 为 True（头部在滚动区外）。
   - 滚动到内容底部后，`_header_widget.isVisible()` 与 `y()==0` 恒真。
   - 目录条 `objectName()=='ai_toc_bar'` 且滚动 2000px 后仍 `isVisible()`。
+- **落地状态**（2026-09-29 核查）：
+  - ✅ **前半（sticky header）已完成**：`_header_widget` 已移出滚动区，置于 `main` 布局（`result_panel.py:103`），`_clear_content` 同步调整。
+  - ❌ **后半（常驻/悬浮目录 `ai_toc_bar`）未实施**：`ai_section_nav()` 现仍**内联插入滚动内容**（`ai_analysis_renderer.py:342-343` → `root.addWidget(nav_widget)`），随内容滚走；全库 **无 `ai_toc_bar` / `_toc_bar` 标识**。
+  - ⚠️ **规格歧义**：本节既要求目录条「置于 `ai_analysis_container` 第 0 位」，又要求「滚动时悬浮吸顶」——二者为「内联元素 + 悬浮副本」复合模式，实施前需先定形态（内联+悬浮副本 / 顶部固定条）。
+  - ⚠️ **改动面**：`render_analysis()` 被 bazi/meihua/liuren 三面板共用，实施需引入 host 回调（类比既有 `register_anchor_scroller`），并补离屏回归断言。**判定：不宜擅自实施，待设计确认后再排期。**
 
 #### M3-3 分区（Section）与视觉层级（修 Q05 字号部分）
 
