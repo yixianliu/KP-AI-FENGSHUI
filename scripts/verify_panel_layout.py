@@ -137,6 +137,26 @@ def main():
 
     check('sizeHint 合理（布局未崩坏）', sizehint)
 
+    # M3-1：内容区边距统一。bazi/meihua/liuren 的内容布局须同为 (24,24,24,24)/16。
+    # xuan_kong 结构特殊（九宫格直挂根布局 + 内层 detail），按用户决议暂不纳入统一口径。
+    CONTENT_ATTR = {'bazi': 'clay', 'meihua': 'content_layout', 'liuren': 'content_layout'}
+    TARGET_MARGINS = (24, 24, 24, 24)
+    TARGET_SPACING = 16
+
+    def content_margins():
+        for key, attr in CONTENT_ATTR.items():
+            _cls, w = built[key]
+            lay = getattr(w, attr, None)
+            assert lay is not None, f"{key} 缺少内容布局 `{attr}`"
+            m = lay.contentsMargins()
+            vals = (m.left(), m.top(), m.right(), m.bottom())
+            assert vals == TARGET_MARGINS, f"{key} 内容区边距 {vals} != {TARGET_MARGINS}"
+            assert lay.spacing() == TARGET_SPACING, \
+                f"{key} 内容区间距 {lay.spacing()} != {TARGET_SPACING}"
+            print(f"       · {key:<9} {attr:<16} margins={vals} spacing={lay.spacing()}")
+
+    check('M3-1 内容区边距统一 (24,24,24,24)/16（bazi/meihua/liuren）', content_margins)
+
     def shots():
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         for key, (cls, w) in built.items():

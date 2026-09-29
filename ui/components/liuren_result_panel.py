@@ -9,7 +9,7 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, Property,
                             QPointF, QRectF)
 from PySide6.QtGui import QPainter, QColor, QPen, QFont
 import math
-from ui.styles import Stylesheets, Colors, Fonts, Spacing
+from ui.styles import Stylesheets, Colors, Fonts, Spacing, apply_density, DEFAULT_DENSITY
 # 别名导入：本模块多处存在局部变量 `icon = QLabel(...)`，用原名调用有遮蔽地雷风险
 from ui.components.icons import icon as load_icon
 from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
@@ -237,8 +237,8 @@ class LiurenResultPanel(QWidget):
         """)
 
         main_layout = QVBoxLayout()
-        card_padding = int(Spacing.CARD_PADDING.replace('px', ''))
-        main_layout.setContentsMargins(card_padding, card_padding, card_padding, card_padding)
+        # M3-1：根布局归 0，内容区内边距统一由 content_layout 承载（与 bazi 形态一致）
+        main_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         main_layout.setSpacing(Spacing.S4)
 
         # 头部
@@ -316,8 +316,8 @@ class LiurenResultPanel(QWidget):
         self.content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.content_widget.setStyleSheet(f"background-color: {Colors.BG};")
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
-        self.content_layout.setSpacing(Spacing.S4)
+        # M3-1：内容区边距/间距唯一入口 apply_density（normal 档 (24,24,24,24)/16）
+        apply_density(self.content_layout, DEFAULT_DENSITY)
 
         self.empty_state = self._create_empty_state()
         self.content_layout.addWidget(self.empty_state)

@@ -487,6 +487,11 @@ apply_density(self.detail_layout, DEFAULT_DENSITY)     # xuan_kong
 - **验收**：
   - 新增 `scripts/verify_panel_margin.py`：离屏构造 4 个结果面板，断言 `layout.contentsMargins() == (24,24,24,24)` 且 `layout.spacing() == 16`（标准档），四者**完全一致**。
   - 切板块后重测，值不变（无跳变）。
+- **落地状态**（2026-09-29）：
+  - **口径决议**：采用「根布局归 0 + 内容布局承载密度内边距」形态（与 bazi 既有形态一致）。bazi=`clay`、meihua/liuren=`content_layout` 均改为 `apply_density(DEFAULT_DENSITY)` → **(24,24,24,24)/16**；header 内边距沿用 Qt 默认 9px（与 bazi 同）。
+  - **xuan_kong 暂不纳入**：其九宫格 `grid_canvas` 直挂根布局，改根归 0 会令九宫格贴边，需单独设计（待后续）。
+  - **运行时回归断言**已落在 `scripts/verify_panel_layout.py`（检查项「M3-1 内容区边距统一」），`verify_panel_margin.py` 保持为源码裸数字扫描器。
+  - 已知隐患：bazi/meihua/liuren 的 header 内边距为 Qt 默认 **9px**（非 8-4 网格令牌），如后续要求网格严格化需显式令牌化（含 bazi）。
 
 #### M3-2 Sticky 头部工具条 + 常驻目录（修 Q08、Q14）
 
