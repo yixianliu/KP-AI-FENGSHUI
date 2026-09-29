@@ -163,16 +163,15 @@ def main():
     print("verify_panel_margin: 面板/卡片间距令牌化合规校验（M3-3）")
     print("=" * 64)
 
-    total_files = len(TARGET_FILES)
     all_pass = True
     for rel in TARGET_FILES:
         problems, abnormal = scan_file(rel, spacing_values)
         # 已令牌化文件：内边距已统一引用 Spacing 令牌，不作为裸数字命中
         file_ok = not problems and not abnormal
-        status = 'PASS' if file_ok else 'FAIL'
-        print(f"\n[{status}] {rel}")
         if not file_ok:
             all_pass = False
+        # 记录到 RESULTS（驱动汇总行计数），check() 内部打印 [PASS]/[FAIL] 行
+        check(rel, file_ok)
         if problems:
             for p in problems:
                 print(f"  ✗ 间距调用含裸数字违规: {p[2]} — {p[3]}")
