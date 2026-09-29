@@ -487,11 +487,11 @@ apply_density(self.detail_layout, DEFAULT_DENSITY)     # xuan_kong
 - **验收**：
   - 新增 `scripts/verify_panel_margin.py`：离屏构造 4 个结果面板，断言 `layout.contentsMargins() == (24,24,24,24)` 且 `layout.spacing() == 16`（标准档），四者**完全一致**。
   - 切板块后重测，值不变（无跳变）。
-- **落地状态**（2026-09-29）：
-  - **口径决议**：采用「根布局归 0 + 内容布局承载密度内边距」形态（与 bazi 既有形态一致）。bazi=`clay`、meihua/liuren=`content_layout` 均改为 `apply_density(DEFAULT_DENSITY)` → **(24,24,24,24)/16**；header 内边距沿用 Qt 默认 9px（与 bazi 同）。
-  - **xuan_kong 暂不纳入**：其九宫格 `grid_canvas` 直挂根布局，改根归 0 会令九宫格贴边，需单独设计（待后续）。
-  - **运行时回归断言**已落在 `scripts/verify_panel_layout.py`（检查项「M3-1 内容区边距统一」），`verify_panel_margin.py` 保持为源码裸数字扫描器。
-  - 已知隐患：bazi/meihua/liuren 的 header 内边距为 Qt 默认 **9px**（非 8-4 网格令牌），如后续要求网格严格化需显式令牌化（含 bazi）。
+- **落地状态**（2026-09-29，四面板全部完成）：
+  - **口径决议**：采用「根布局归 0 + 内容布局承载密度内边距」形态（与 bazi 既有形态一致）。bazi=`clay`、meihua/liuren=`content_layout`、xuan_kong=`detail_layout` 均走 `apply_density(DEFAULT_DENSITY)` → **(24,24,24,24)/16**，**四者完全一致**。
+  - **xuan_kong 处理**：九宫格 `grid_canvas` 与底部按钮行各外包一行布局并设左右 24 内边距（`grid_row` / `btn_hl`），根布局归 0；实测 `grid_canvas.x()=24`、`refresh_btn.x()=24`、滚动区满宽（内容内缩 24）——与 bazi 的「滚动区满宽 + 内容 24」形态一致。
+  - **运行时回归断言**已落在 `scripts/verify_panel_layout.py`（检查项「M3-1 内容区边距统一（四面板）」，显式 accessor 映射），`verify_panel_margin.py` 保持为源码裸数字扫描器。
+  - ⚠️ **header 内边距的真实行为**（实测更正）：嵌套布局（`addLayout`）默认边距为 **(0,0,0,0)**，**不是** 9px；只有「挂在 QWidget 上的布局」才继承样式默认 9px。故 header 左内缩：bazi=**9**（其在 `_header_widget` 上），meihua/liuren/xuan_kong=**0**。若需 header 严格网格化/统一，须显式令牌化（建议 S3=12，含 bazi），属后续独立项。
 
 #### M3-2 Sticky 头部工具条 + 常驻目录（修 Q08、Q14）
 

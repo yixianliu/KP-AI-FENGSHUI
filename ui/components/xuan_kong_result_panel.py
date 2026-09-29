@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QScrollArea, QFrame, QMessageBox)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush
-from ui.styles import Colors, Fonts, Spacing, Stylesheets
+from ui.styles import (Colors, Fonts, Spacing, Stylesheets,
+                       apply_density, DEFAULT_DENSITY)
 
 
 def _clear_layout(layout):
@@ -200,8 +201,9 @@ class XuanKongResultPanel(QWidget):
 
     def _build(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
-        lay.setSpacing(Spacing.S3)
+        # M3-1：根布局归 0（与 bazi/meihua/liuren 一致），标题靠默认边距，内容区由内层承载 24
+        lay.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
+        lay.setSpacing(Spacing.S4)
 
         hdr = QHBoxLayout()
         hdr.setSpacing(Spacing.S2)
@@ -231,7 +233,11 @@ class XuanKongResultPanel(QWidget):
         grid_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
         grid_lay.addWidget(QLabel('九宫飞星盘'))
         grid_lay.addStretch()
-        lay.addWidget(self.grid_canvas)
+        # M3-1：九宫格外包一行，左右 24 内边距，与其余面板内容区口径一致
+        grid_row = QHBoxLayout()
+        grid_row.setContentsMargins(Spacing.S6, Spacing.S0, Spacing.S6, Spacing.S0)
+        grid_row.addWidget(self.grid_canvas)
+        lay.addLayout(grid_row)
 
         # 文字详情
         self.detail_area = QScrollArea()
@@ -239,8 +245,8 @@ class XuanKongResultPanel(QWidget):
         self.detail_area.setStyleSheet(Stylesheets.SCROLL)
         self.detail_content = QWidget()
         self.detail_layout = QVBoxLayout(self.detail_content)
-        self.detail_layout.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
-        self.detail_layout.setSpacing(Spacing.S2)
+        # M3-1：详情内容区边距/间距唯一入口 apply_density（normal 档 (24,24,24,24)/16）
+        apply_density(self.detail_layout, DEFAULT_DENSITY)
         self.detail_area.setWidget(self.detail_content)
         lay.addWidget(self.detail_area)
 
@@ -248,6 +254,8 @@ class XuanKongResultPanel(QWidget):
 
         # 底部按钮
         btn_hl = QHBoxLayout()
+        # M3-1：底部按钮行左右 24 内边距，与内容区对齐
+        btn_hl.setContentsMargins(Spacing.S6, Spacing.S0, Spacing.S6, Spacing.S0)
         btn_hl.setSpacing(Spacing.S2)
         self.refresh_btn = QPushButton('刷新')
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
