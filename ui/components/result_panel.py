@@ -276,6 +276,9 @@ class ResultPanel(QWidget):
 
         for idx, (name, p) in enumerate([('年柱', bazi['year_pillar']), ('月柱', bazi['month_pillar']),
                                           ('日柱', bazi['day_pillar']), ('时柱', bazi['hour_pillar'])]):
+            # 防御：空/过短 pillar 跳过，避免 p[0]/p[1] 越界
+            if not p or len(p) < 2:
+                continue
             is_day = name == '日柱'
 
             # 整柱横向排列：天干·地支 左右并排
