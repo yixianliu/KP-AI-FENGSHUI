@@ -137,7 +137,6 @@ def _smart_fix_json(content: str) -> Optional[dict]:
     depth = 0
     in_string = False
     escape = False
-    last_complete_key_end = -1  # 最后一个完整 "key": 的位置
 
     for i, ch in enumerate(text):
         if in_string:
@@ -157,9 +156,6 @@ def _smart_fix_json(content: str) -> Optional[dict]:
             if depth == 0:
                 # 完整 JSON 对象结束，但外层 parse 失败了——尝试去掉尾部垃圾
                 return json.loads(text[:i + 1]) if i + 1 <= len(text) else None
-        elif ch == ':' and depth == 1:
-            # 冒号后是值，记录位置
-            pass
 
     # 未闭合，尝试补全：截断到最后一个完整的 "key": "value" 或 "key": [...]
     # 从末尾删除未完成的字符串/数组/对象
@@ -251,6 +247,167 @@ class AnalysisStorage:
         ensure_cache_table()
 
 
+def _check_bazi_cache(input_data: dict) -> Optional[dict]:
+    """检查八字分析缓存，如果存在则返回缓存结果。
+    
+    Args:
+        input_data: 输入数据（年月日时等）
+        
+    Returns:
+        如果存在缓存则返回缓存结果字典，否则返回None
+    """
+    from ..ai_cache import get_cached_result
+    question = None
+    return get_cached_result('bazi', input_data, question)
+
+
+def _calculate_bazi_chart_data(input_data: dict) -> dict:
+    """从输入数据计算八字排盘数据。
+    
+    Args:
+        input_data: 输入数据（年月日时等）
+        
+    Returns:
+        计算得到的八字排盘数据字典
+        
+    Raises:
+        Exception: 如果计算过程中发生任何错误
+    """
+    from core.bazi.bazi_calculator import BaziCalculator
+    calculator = BaziCalculator()
+    return calculator.calculate(
+        year=input_data.get('year'),
+        month=input_data.get('month'),
+        day=input_data.get('day'),
+        hour=input_data.get('hour'),
+        minute=input_data.get('minute', 0),
+        longitude=input_data.get('longitude', 120.0),
+        is_lunar=input_data.get('is_lunar', False)
+    )
+
+
+def _check_bazi_ai_config() -> Optional[dict]:
+    """检查AI配置，如果未配置则返回降级分析结果。
+    
+    Returns:
+        如果AI未配置则返回降级分析结果字典，否则返回None
+    """
+    try:
+        from core.ai_config import get_config_manager
+        if get_config_manager().get_active() is None:
+            logger.warning("AI未配置，八字分析降级为本地规则兜底")
+            from .analysis_fallback import generate_fallback_analysis
+            # 注意：这里需要chart_data参数，但我们无法获取到
+            # 这个函数只能在有chart_data的情况下被调用
+            return {'needs_fallback': True}
+    except Exception:
+        pass
+    return None
+
+
+def _invoke_bazi_ai_analysis(chart_data: dict) -> dict:
+    """调用AI进行八字分析并处理响应。
+    
+    Args:
+        chart_data: 八字排盘数据
+        
+    Returns:
+        包含AI分析结果的字典
+        
+    Raises:
+        Exception: 如果AI调用过程中发生任何错误
+    """
+    from api.agnes_client import get_agnes_client
+    agnes_client = get_agnes_client()
+
+    # 构建提示词（大师兄人设 + 排盘数据 + JSON schema）
+    prompt = _user_prompt('bazi', chart_data)
+
+    # 调用AI
+    response = agnes_client.chat_completion([
+        {"role": "system", "content": _system_prompt('bazi')},
+        {"role": "user", "content": prompt}
+    ])
+
+    # 解析AI返回的JSON内容
+    content = response.get('content', '')
+    ai_analysis = agnes_client.parse_json_response(content)
+
+    # 如果解析失败，尝试提取JSON部分
+    if ai_analysis is None:
+        # 尝试从内容中提取JSON
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            try:
+                ai_analysis = json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                ai_analysis = None
+
+    # 如果仍然失败，改用本地命理规则引擎生成白话兜底分析（而非占位符）
+    if ai_analysis is None:
+        # 二次尝试：使用 _smart_fix_json 修复可能的截断 JSON
+        try:
+            fixed = _smart_fix_json(content)
+            if fixed is not None:
+                ai_analysis = fixed
+        except Exception:
+            pass
+        if ai_analysis is None:
+            logger.warning(f"AI分析返回非JSON内容: {content[:200]}...，改用本地规则兜底")
+            from .analysis_fallback import generate_fallback_analysis
+            ai_analysis = generate_fallback_analysis('bazi', chart_data or {})
+
+    # 获取token使用量
+    token_usage = response.get('usage', {})
+
+    return {
+        'success': True,
+        'from_cache': False,
+        'token_usage': token_usage,
+        'ai_analysis': ai_analysis,
+    }
+
+
+def _handle_bazi_ai_exception(e: Exception, chart_data: dict) -> dict:
+    """处理八字AI调用异常，生成降级分析结果。
+    
+    Args:
+        e: 发生的异常
+        chart_data: 八字排盘数据
+        
+    Returns:
+        包含降级分析结果的字典
+    """
+    # AI调用失败，使用本地命理规则生成有意义的分析结果
+    # 区分不同错误类型，给出准确的日志和降级行为
+    try:
+        from api.agnes_client import AgnesResponseError, AgnesTimeoutError, AgnesRequestError, AgnesQuotaError
+        if isinstance(e, AgnesQuotaError):
+            logger.error(f"AI分析[bazi] 配额用尽（{e}），已降级为本地兜底")
+        elif isinstance(e, AgnesTimeoutError):
+            logger.error(f"AI分析[bazi] 请求超时（{e}），已降级为本地兜底")
+        elif isinstance(e, AgnesResponseError):
+            logger.error(f"AI分析[bazi] 响应异常（{e}），已降级为本地兜底")
+        elif isinstance(e, AgnesRequestError):
+            logger.error(f"AI分析[bazi] 请求失败（{e}），已降级为本地兜底")
+        else:
+            logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
+                         exc_info=True)
+    except ImportError:
+        logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
+                     exc_info=True)
+    from .analysis_fallback import generate_fallback_analysis
+    dummy_analysis = generate_fallback_analysis('bazi', chart_data or {})
+
+    return {
+        'success': True,
+        'from_cache': False,
+        'token_usage': 0,
+        'ai_analysis': dummy_analysis,
+        'ai_error': str(e),
+    }
+
+
 def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = None):
     """
     执行八字AI分析
@@ -262,37 +419,27 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
     t_start = time.time()
     # 确保缓存表就绪
     AnalysisStorage()
-    from ..ai_cache import get_cached_result, save_to_cache
+    from ..ai_cache import save_to_cache
 
     # 使用input_data和固定的question=None作为缓存键
     # 注意：实际应用中，question可能来自用户输入，但在此上下文中我们假设为None
     question = None
-    cached = get_cached_result('bazi', input_data, question)
-    if cached is not None:
+
+    # 1. 检查缓存
+    cached_result = _check_bazi_cache(input_data)
+    if cached_result is not None:
         return {
             'success': True,
             'from_cache': True,
             'token_usage': 0,
-            'ai_analysis': cached,
+            'ai_analysis': cached_result,
             'elapsed_seconds': round(time.time() - t_start, 2),
         }
 
-    # 未命中缓存，需要计算
-    # 如果未提供chart_data，则从input_data计算
+    # 2. 计算排盘数据（如果需要）
     if chart_data is None:
         try:
-            from .bazi_calculator import BaziCalculator
-            calculator = BaziCalculator()
-            # 假设input_data包含所需字段
-            chart_data = calculator.calculate(
-                year=input_data.get('year'),
-                month=input_data.get('month'),
-                day=input_data.get('day'),
-                hour=input_data.get('hour'),
-                minute=input_data.get('minute', 0),
-                longitude=input_data.get('longitude', 120.0),
-                is_lunar=input_data.get('is_lunar', False)
-            )
+            chart_data = _calculate_bazi_chart_data(input_data)
         except Exception as e:
             error_result = {
                 'success': False,
@@ -304,116 +451,40 @@ def run_bazi_analysis(input_data: dict, chart_data: dict = None, task_id: str = 
             # 错误结果不缓存
             return error_result
 
-    # 检查 AI 是否已配置，未配置则直接降级为本地兜底分析
-    try:
-        from core.ai_config import get_config_manager
-        if get_config_manager().get_active() is None:
-            logger.warning("AI未配置，八字分析降级为本地规则兜底")
-            from .analysis_fallback import generate_fallback_analysis
-            dummy_analysis = generate_fallback_analysis('bazi', chart_data or {})
-            save_to_cache('bazi', input_data, question, dummy_analysis)
-            elapsed = round(time.time() - t_start, 2)
-            return {
-                'success': True,
-                'from_cache': False,
-                'token_usage': 0,
-                'ai_analysis': dummy_analysis,
-                'ai_error': 'AI模型未配置，已使用本地规则兜底',
-                'elapsed_seconds': elapsed,
-            }
-    except Exception:
-        pass
-
-    # 生成AI分析结果
-    try:
-        from api.agnes_client import get_agnes_client
-        agnes_client = get_agnes_client()
-
-        # 构建提示词（大师兄人设 + 排盘数据 + JSON schema）
-        prompt = _user_prompt('bazi', chart_data)
-
-        # 调用AI
-        response = agnes_client.chat_completion([
-            {"role": "system", "content": _system_prompt('bazi')},
-            {"role": "user", "content": prompt}
-        ])
-
-        # 解析AI返回的JSON内容
-        content = response.get('content', '')
-        ai_analysis = agnes_client.parse_json_response(content)
-
-        # 如果解析失败，尝试提取JSON部分
-        if ai_analysis is None:
-            # 尝试从内容中提取JSON
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                try:
-                    ai_analysis = json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    ai_analysis = None
-
-        # 如果仍然失败，改用本地命理规则引擎生成白话兜底分析（而非占位符）
-        if ai_analysis is None:
-            # 二次尝试：使用 _smart_fix_json 修复可能的截断 JSON
-            try:
-                fixed = _smart_fix_json(content)
-                if fixed is not None:
-                    ai_analysis = fixed
-            except Exception:
-                pass
-            if ai_analysis is None:
-                logger.warning(f"AI分析返回非JSON内容: {content[:200]}...，改用本地规则兜底")
-                from .analysis_fallback import generate_fallback_analysis
-                ai_analysis = generate_fallback_analysis('bazi', chart_data or {})
-
-        # 获取token使用量
-        token_usage = response.get('usage', {})
-
-        # 保存到缓存（不包含我们附加的success、from_cache、token_usage字段）
-        save_to_cache('bazi', input_data, question, ai_analysis)
-
-        elapsed = round(time.time() - t_start, 2)
-        return {
-            'success': True,
-            'from_cache': False,
-            'token_usage': token_usage,
-            'ai_analysis': ai_analysis,
-            'elapsed_seconds': elapsed,
-        }
-    except Exception as e:
-        # AI调用失败，使用本地命理规则生成有意义的分析结果
-        # 区分不同错误类型，给出准确的日志和降级行为
-        try:
-            from api.agnes_client import AgnesResponseError, AgnesTimeoutError, AgnesRequestError, AgnesQuotaError
-            if isinstance(e, AgnesQuotaError):
-                logger.error(f"AI分析[bazi] 配额用尽（{e}），已降级为本地兜底")
-            elif isinstance(e, AgnesTimeoutError):
-                logger.error(f"AI分析[bazi] 请求超时（{e}），已降级为本地兜底")
-            elif isinstance(e, AgnesResponseError):
-                logger.error(f"AI分析[bazi] 响应异常（{e}），已降级为本地兜底")
-            elif isinstance(e, AgnesRequestError):
-                logger.error(f"AI分析[bazi] 请求失败（{e}），已降级为本地兜底")
-            else:
-                logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
-                             exc_info=True)
-        except ImportError:
-            logger.error(f"AI分析[bazi] 调用失败（{e}），已降级为本地兜底",
-                         exc_info=True)
+    # 3. 检查AI配置
+    ai_config_result = _check_bazi_ai_config()
+    if ai_config_result is not None and ai_config_result.get('needs_fallback'):
         from .analysis_fallback import generate_fallback_analysis
         dummy_analysis = generate_fallback_analysis('bazi', chart_data or {})
-
-        # 保存到缓存
         save_to_cache('bazi', input_data, question, dummy_analysis)
-
         elapsed = round(time.time() - t_start, 2)
         return {
             'success': True,
             'from_cache': False,
             'token_usage': 0,
             'ai_analysis': dummy_analysis,
-            'ai_error': str(e),
+            'ai_error': 'AI模型未配置，已使用本地规则兜底',
             'elapsed_seconds': elapsed,
         }
+
+    # 4. 调用AI分析
+    try:
+        ai_result = _invoke_bazi_ai_analysis(chart_data)
+        
+        # 5. 保存到缓存并返回结果
+        save_to_cache('bazi', input_data, question, ai_result['ai_analysis'])
+        elapsed = round(time.time() - t_start, 2)
+        ai_result['elapsed_seconds'] = elapsed
+        return ai_result
+        
+    except Exception as e:
+        # 6. 处理异常
+        error_result = _handle_bazi_ai_exception(e, chart_data)
+        # 保存降级结果到缓存
+        save_to_cache('bazi', input_data, question, error_result['ai_analysis'])
+        elapsed = round(time.time() - t_start, 2)
+        error_result['elapsed_seconds'] = elapsed
+        return error_result
 
 
 def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str = None):
@@ -565,7 +636,7 @@ def run_meihua_analysis(input_data: dict, chart_data: dict = None, task_id: str 
 
         # 如果仍然失败，使用本地命理规则生成有意义的分析结果（而非无意义占位符）
         if ai_analysis is None:
-            logger.warning(f"AI分析返回非JSON内容（已尝试补全仍失败），将使用本地规则生成分析")
+            logger.warning("AI分析返回非JSON内容（已尝试补全仍失败），将使用本地规则生成分析")
             from .analysis_fallback import generate_fallback_analysis
             ai_analysis = generate_fallback_analysis('meihua', chart_data)
 

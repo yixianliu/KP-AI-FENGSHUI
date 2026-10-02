@@ -10,8 +10,9 @@ UI 升级方案 M3：替代各面板"自造轮子"的空/错误实现，
     - LoadingState：加载中（复用 CollapsibleCard.TaijiSpinner + 主文案 + 轮播提示）
     - ErrorState：错误/异常（图标 + 标题 + 描述 + 重试按钮，retry 信号）
 """
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QTimer
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel,
+                               QPushButton, QGraphicsOpacityEffect)
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve
 
 from ui.styles import Colors, Fonts, Spacing
 
@@ -226,3 +227,42 @@ class ErrorState(QWidget):
         """工厂方法：构造一个 ErrorState。"""
         return ErrorState(title=title, message=message, retry_hint=retry_hint,
                           show_retry=show_retry, parent=parent)
+
+
+def mount_error_state(layout, message: str, *, title: str = '排盘失败',
+                      retry=None, retry_hint: str = '重试',
+                      color: str = Colors.DANGER):
+    """在 ``layout`` 中挂载统一错误态（M3-6 统一错误视觉 + 可选重试）。
+
+    供四结果面板的 ``show_error()`` 共用，避免每个面板各自复制一份
+    「透明 holder + ErrorState + 重试连线」实现。
+
+    参数：
+        layout:     目标内容布局（调用方须先清空该布局）。
+        message:    错误说明文案（通常来自异常）。
+        title:      错误标题。
+        retry:      重试回调；None 时不显示重试按钮（仅展示错误）。
+        retry_hint: 重试按钮文案。
+        color:      图标色（默认 DANGER）。
+    返回：
+        (holder, err)：holder 为承载控件（调用方保存引用以便清理），
+        err 为 ErrorState 实例。
+    """
+    holder = QWidget()
+    holder.setStyleSheet('background: transparent;')
+    v = QVBoxLayout(holder)
+    v.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
+    v.setSpacing(Spacing.S0)
+    err = ErrorState(
+        title=title,
+        message=message,
+        retry_hint=retry_hint,
+        show_retry=retry is not None,
+        color=color,
+        parent=holder,
+    )
+    if retry is not None:
+        err.retry.connect(retry)
+    v.addWidget(err, 1)
+    layout.addWidget(holder)
+    return holder, err

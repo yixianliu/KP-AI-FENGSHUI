@@ -8,7 +8,7 @@ PDF 导出器（reportlab）
 from typing import Dict, Any, List
 import io
 from ui.styles import Colors
-from .base_exporter import (BaseExporter, has_chapter, extract_pillars,
+from .base_exporter import (BaseExporter, extract_pillars,
                             extract_wuxing, PILLAR_FIELDS, PILLAR_LABELS)
 from .ai_titles import AI_SECTION_TITLE
 

@@ -43,8 +43,10 @@ class StorageLogHandler(logging.Handler):
         if self._failed:
             return
         try:
-            from core.database_manager import get_db_manager
-            mgr = get_db_manager()
+            # 用 peek（绝不在主线程触发 DB 初始化）：后台异步打开 DB 期间返回 None，
+            # 仅跳过落库，避免启动期一条日志同步阻塞约 1.7s（抵消异步打开优化）。
+            from core.database_manager import peek_db_manager
+            mgr = peek_db_manager()
             if mgr is None:
                 return
             # 避免把本 handler 自己的错误再写回后端造成递归

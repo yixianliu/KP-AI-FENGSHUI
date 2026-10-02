@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFrame, QApplication, QStatusBar,
                                QPushButton, QStackedWidget, QSplitter,
                                QMessageBox, QGraphicsOpacityEffect)
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, Signal
+from PySide6.QtCore import (Qt, QTimer, QPropertyAnimation, Signal,
+                            QAbstractAnimation)
 from PySide6.QtGui import QFont, QIcon
 from ui.styles import Stylesheets, Colors, Fonts, Spacing, FOCUS_BORDER
 from core.path_utils import get_resource_path
@@ -22,20 +23,21 @@ from ui.components.xuan_kong_result_panel import XuanKongResultPanel
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
-from core.bazi.bazi_calculator import BaziCalculator
-from core.lunar_converter import LunarConverter
+# 注：core.bazi.bazi_calculator 与 core.lunar_converter 改为**惰性导入**
+# （见下方 bazi_calc / lunar_conv property）。二者 import 时会经
+# core.bazi._baazi_compat._ensure() **同步加载日历数据库**（实测 ~1.5s），
+# 是冷启动耗时的首因。延迟到首次八字排盘再付这笔成本，启动不再受影响。
 from core.calendar_utils import SolarTimeCalculator
 from core.location_db import LocationDB
 from core.divination.meihua import MeiHuaCalculator
 from core.divination.hexagram_analyzer import HexagramAnalyzer
 from core.divination.liuren import LiuRenCalculator
-from core.fengshui.xuan_kong import XuanKongCalculator, xuan_kong_divination
+from core.fengshui.xuan_kong import XuanKongCalculator
 from core.log_handler import setup_app_logging
 from datetime import datetime
 import traceback
 import logging
 import uuid
-import sys
 
 NAV = [
     {'id': 'bazi', 'name': '八字排盘', 'icon': '☯'},
@@ -162,12 +164,17 @@ class MainWindow(QMainWindow):
     @property
     def bazi_calc(self):
         if self._bazi_calc is None:
+            # 冷启动优化：延迟导入 core.bazi.bazi_calculator。
+            # 其 import 会触发 core.bazi._baazi_compat._ensure() → 同步加载日历 DB（~1.5s）。
+            from core.bazi.bazi_calculator import BaziCalculator
             self._bazi_calc = BaziCalculator()
         return self._bazi_calc
 
     @property
     def lunar_conv(self):
         if self._lunar_conv is None:
+            # 同上：core.lunar_converter 亦 import `_baazi_compat`，一并延迟。
+            from core.lunar_converter import LunarConverter
             self._lunar_conv = LunarConverter()
         return self._lunar_conv
 
@@ -806,7 +813,17 @@ class MainWindow(QMainWindow):
                 except RuntimeError:
                     pass
             eff = widget.graphicsEffect()
-            op = QGraphicsOpacityEffect(widget) if eff is None else eff
+            if eff is None:
+                op = QGraphicsOpacityEffect(widget)
+                # 【必须真正安装】只创建 QGraphicsOpacityEffect 而不 setGraphicsEffect，
+                # 动画会作用于一个游离对象 → 板块切换淡入完全无效（本缺陷实测存在）。
+                widget.setGraphicsEffect(op)
+                installed_by_us = True
+            else:
+                # 已有 effect（可能是 apply_shadow 挂的投影）：复用其 opacity 属性，
+                # 绝不能拆掉——拆除会让阴影永久丢失。
+                op = eff
+                installed_by_us = False
             op.setOpacity(0.0)
             anim = QPropertyAnimation(op, b'opacity', self)
             anim.setDuration(DURATION_NORMAL)
@@ -815,13 +832,32 @@ class MainWindow(QMainWindow):
             anim.setEasingCurve(EASING_OUT)
             widget._page_fade_anim = anim
             widget._page_fade_eff = op
-            # 动画完成或中途中止后清理 effect，避免残留
+
             def _cleanup():
-                try:
-                    widget.setGraphicsEffect(None)
-                except RuntimeError:
-                    pass
+                """动画终止后复原：自装 effect 则摘除，复用 effect 则把透明度还原。"""
+                if installed_by_us:
+                    try:
+                        widget.setGraphicsEffect(None)
+                    except RuntimeError:
+                        pass
+                else:
+                    try:
+                        op.setOpacity(1.0)
+                    except RuntimeError:
+                        pass
+
+            def _on_state(state, _anim=anim, _widget=widget):
+                """状态机兜底：`stop()` 不会发 finished，只靠 finished 会残留半透明页面。
+
+                仅当本动画仍是该 widget 的当前动画时才清理，避免快速连续切换板块时，
+                旧动画的 Stopped 信号误拆新动画刚装好的 effect。
+                """
+                if (state == QAbstractAnimation.Stopped
+                        and getattr(_widget, '_page_fade_anim', None) is _anim):
+                    _cleanup()
+
             anim.finished.connect(_cleanup)
+            anim.stateChanged.connect(_on_state)
             anim.start()
         except Exception:
             # 动画异常不影响切换本身（页面已 setCurrentIndex）
@@ -929,6 +965,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
+            # 排盘失败必须落到错误态：否则面板会永远停在 loading（转圈 + 按钮隐藏）
+            self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
 
     def _do_bazi(self, data, task_id=None):
         """执行八字排盘核心流程（由 _on_bazi 经定时器延迟调用）。
@@ -1101,13 +1139,15 @@ class MainWindow(QMainWindow):
 
             # ★ 显示排盘结果（关键修复：之前遗漏了此调用导致"无内容显示"）
             self.bazi_result.display_result(result)
-            self.statusBar().showMessage(f'八字排盘完成 · 准备启动龙虎山大师兄分析…')
+            self.statusBar().showMessage('八字排盘完成 · 准备启动龙虎山大师兄分析…')
 
             # ★ v5.0: 排盘完成后自动触发AI分析
             QTimer.singleShot(300, self._trigger_bazi_auto_ai)
         except Exception as e:
             self.statusBar().showMessage(f'计算错误: {e}')
             traceback.print_exc()
+            # 计算阶段异常同样要落错误态，避免面板卡在 loading
+            self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
 
     def _trigger_bazi_auto_ai(self):
         """排盘完成后自动触发AI深度分析"""
@@ -1296,6 +1336,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             self._logger.warning(f"[梅花] 起卦参数校验失败: {e}")
+            # 起卦失败必须落错误态：否则面板会永远停在 loading
+            self.meihua_result.show_error(f'起卦失败：{e}', retry=self._on_meihua)
 
 
     def _do_meihua(self, data, task_id=None):
@@ -1441,6 +1483,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f'起卦错误: {e}')
             traceback.print_exc()
+            # 起卦阶段异常同样要落错误态，避免面板卡在 loading
+            self.meihua_result.show_error(f'起卦失败：{e}', retry=self._on_meihua)
 
     def _trigger_meihua_auto_ai(self):
         """起卦完成后自动触发AI深度解读"""
@@ -1489,6 +1533,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
+            self.liuren_result.show_error(f'起课失败：{e}', retry=self._on_liuren)
 
 
     def _do_liuren(self, data, task_id=None):
@@ -1526,8 +1571,8 @@ class MainWindow(QMainWindow):
             self._last_liuren_hr = hr
             QTimer.singleShot(300, self._trigger_liuren_auto_ai)
         except Exception as e:
-            # 异常时恢复 empty_state，防止布局处于空状态导致白屏
-            self.liuren_result.clear()
+            # 异常时展示统一错误态（含重试），避免面板卡在 loading / 白屏
+            self.liuren_result.show_error(f'起课失败：{e}', retry=self._on_liuren)
             self.statusBar().showMessage(f'起课错误: {e}')
             traceback.print_exc()
 
@@ -1578,6 +1623,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
+            self.xuan_kong_result.show_error(f'排盘失败：{e}', retry=self._on_xuan_kong)
 
     def _do_xuan_kong(self, data, task_id=None):
         """执行玄空飞星排盘流程。
@@ -1600,7 +1646,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._logger.error("[玄空] 排盘失败: %s", e, exc_info=True)
             self.statusBar().showMessage(f"玄空飞星排盘失败: {e}")
-            self.xuan_kong_result.clear() if hasattr(self.xuan_kong_result, 'clear') else None
+            # 少白屏：落统一错误态（含重试），而非静默 clear
+            self.xuan_kong_result.show_error(f'排盘失败：{e}', retry=self._on_xuan_kong)
 
     def _on_xuan_kong_reset(self):
         """玄空飞星『重置』按钮槽：清空输入面板与结果面板。"""

@@ -16,11 +16,11 @@ core/data_validator_v2.py — 数据校验 v2（基于 Pydantic 风格强类型�
 from __future__ import annotations
 
 import re
-from datetime import datetime, date
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from core.ganzhi_constants import (
-    TIAN_GAN, DI_ZHI, SIXTY_JIAZI, GAN_INDEX, ZHI_INDEX,
+    DI_ZHI, SIXTY_JIAZI, GAN_INDEX, ZHI_INDEX,
     GAN_YANG, ZHI_YANG,
 )
 

@@ -5,8 +5,8 @@
 """
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QCheckBox, QPushButton, QWidget,
-                             QGroupBox, QLineEdit, QRadioButton,
-                             QMessageBox, QGridLayout, QFrame, QScrollArea)
+                             QGroupBox, QLineEdit,
+                             QMessageBox, QFrame, QScrollArea)
 from PySide6.QtCore import Signal, Qt, QPropertyAnimation
 
 from ui.export.base_exporter import CHAPTERS

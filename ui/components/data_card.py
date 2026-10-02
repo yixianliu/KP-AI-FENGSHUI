@@ -5,7 +5,7 @@ ui/components/data_card.py — 数值卡片组件
 UI 升级方案 M5 / 4.2：展示「指标 + 数值 + 单位 + 可选徽章 + 可选迷你趋势」
 的紧凑数据卡片，供各结果面板的统计/指标区复用。
 """
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
+from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt
 
 from ui.styles import Colors, Fonts, Spacing

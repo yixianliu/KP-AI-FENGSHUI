@@ -1,21 +1,18 @@
 """
 梅花易数起卦结果展示面板
 """
-import re
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QGridLayout, QSizePolicy,
+                             QScrollArea, QPushButton, QSizePolicy,
                              QGraphicsOpacityEffect)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, Property
 from PySide6.QtGui import QPainter
 from ui.styles import Stylesheets, Colors, Fonts, Spacing, apply_density, DEFAULT_DENSITY
 # 别名导入：本模块多处存在局部变量 `icon = QLabel(...)`，用原名调用有遮蔽地雷风险
 from ui.components.icons import icon as load_icon
-from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
-                                          highlight_label, probability_stats_widget,
+from ui.components.collapsible_card import (CollapsibleCard,
                                           loading_panel, ResponsiveFlow,
                                           set_all_cards_collapsed)
-from ui.components.states import EmptyState, ErrorState
 
 
 class RotatingLabel(QLabel):
@@ -826,6 +823,9 @@ class MeihuaResultPanel(QWidget):
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # M3-2：钉住目录条挂在滚动视口（不在 content_layout 内），需单独回收
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'content_area', None))
         # M3-6：显示结果前清理旧错误态 holder，避免残留
         self._clear_error_holder()
 
@@ -1142,7 +1142,7 @@ class MeihuaResultPanel(QWidget):
         self._clear_prev_ai_container()
         self.display_result(rd)
         from ui.components.ai_analysis_renderer import render_analysis as render
-        render("meihua", smart_data, self.content_layout)
+        render("meihua", smart_data, self.content_layout, scroll_area=self.content_area)
         self.status_bar.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(90, 143, 110, 0.08);
@@ -1162,6 +1162,41 @@ class MeihuaResultPanel(QWidget):
         self.smart_analyze_btn.setEnabled(True)
         self.smart_analyze_btn.setText("⚡ 智能分析")
         QTimer.singleShot(50, self._scroll_to_section_meihua)
+
+    def show_error(self, message: str, retry=None):
+        """展示**起卦失败**的错误态（M3-6 统一错误视觉 + 可选重试）。
+
+        Args:
+            message: 错误说明（来自异常）。
+            retry:   重试回调（一般为 MainWindow 的 _on_meihua 槽）；
+                     None 时只展示错误、不提供重试。
+
+        背景：``_on_meihua`` 先 ``show_loading()`` 再起卦，起卦抛异常时若只写
+        statusBar，面板会**永远停在 loading**（转圈 + 按钮隐藏）→ 用户卡死。
+        此处隐藏「智能分析」（起卦失败没有可分析内容），只保留 ErrorState 的重试入口。
+        """
+        from ui.components.states import mount_error_state
+
+        # 清空内容区旧控件（含旧错误态/提示）
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item is not None and item.widget() is not None:
+                item.widget().deleteLater()
+        for btn_name in ('smart_analyze_btn', 'export_btn', 'collapse_all_btn'):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.setVisible(False)
+        self.status_label.setText('⚠ 起卦失败')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY};
+            color: {Colors.DANGER};
+            font-family: {Fonts.FAMILY_CN};
+            font-weight: {Fonts.WEIGHT_BOLD};
+        """)
+        self._clear_error_holder()
+        holder, _err = mount_error_state(
+            self.content_layout, message, title='起卦失败', retry=retry)
+        self._set_error_holder(holder)
 
     def _show_error(self, message: str):
         """展示 AI 解读异常提示，委托 ErrorState（M3-6：统一错误视觉 + 重试信号）。
@@ -1228,6 +1263,9 @@ class MeihuaResultPanel(QWidget):
     def _clear_prev_ai_container(self):
         """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
         防止连续起课/重复完成回调导致两份 AI 解读并存。"""
+        # M3-2：先回收钉住目录条（挂在滚动视口，不在 content_layout 内）
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'content_area', None))
         try:
             for i in range(self.content_layout.count() - 1, -1, -1):
                 item = self.content_layout.itemAt(i)
@@ -1348,6 +1386,9 @@ class MeihuaResultPanel(QWidget):
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # M3-2：回收钉住目录条
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'content_area', None))
         # M3-6：清空错误态 holder 引用，避免遗留已删控件
         self._clear_error_holder()
 

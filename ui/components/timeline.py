@@ -13,9 +13,9 @@
 设计系统：沿用 ui/styles.py 青花蓝/鎏金/五行色系
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-                               QLabel, QFrame, QLineEdit, QScrollArea, QSizePolicy)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QEvent, QRect, QSize
-from PySide6.QtGui import QFont, QCursor
+                               QLabel, QFrame, QLineEdit)
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QSize
+from PySide6.QtGui import QCursor
 
 from ui.styles import Colors, Fonts, Spacing
 from ui.components.badge import Badge

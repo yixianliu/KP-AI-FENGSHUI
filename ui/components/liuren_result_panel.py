@@ -5,17 +5,17 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QPushButton, QGridLayout, QSizePolicy,
                              QStackedWidget)
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, Property,
-                            QPointF, QRectF)
+from PySide6.QtCore import (Qt, Property, QPointF, QRectF)
 from PySide6.QtGui import QPainter, QColor, QPen, QFont
 import math
 from ui.styles import Stylesheets, Colors, Fonts, Spacing, apply_density, DEFAULT_DENSITY
 # 别名导入：本模块多处存在局部变量 `icon = QLabel(...)`，用原名调用有遮蔽地雷风险
 from ui.components.icons import icon as load_icon
-from ui.components.collapsible_card import (CollapsibleCard, ai_section_header,
-                                          highlight_label, probability_stats_widget,
+from ui.components.collapsible_card import (CollapsibleCard,
+                                          probability_stats_widget,
                                           loading_panel, ResponsiveFlow,
-                                          set_all_cards_collapsed)
+                                          set_all_cards_collapsed,
+                                          conclusion_block, risk_aware_label)
 
 # 文案常量：优先使用 ai_analysis_renderer 维护的单一权威源；缺失时退回本地兜底
 try:  # 兼容独立导入 / API 层独立打包场景
@@ -39,10 +39,7 @@ except Exception:
             return '\n'.join(f'{k}: {v2}' for k, v2 in v.items())
         return str(v).strip()
 
-# 地支五行对照表复用排盘引擎的定义，展示层不再自建一份
-from core.divination.liuren import ZHI_WX
 from core.ganzhi_constants import DI_ZHI
-from ui.components.states import EmptyState
 
 #: 五行 → 盘面标注文字色（面板局部色板，高饱和版）。
 #: 刻意不用 Colors.WOOD/FIRE/... 令牌：那是深底提亮版，用于盘面背景块；
@@ -851,6 +848,9 @@ class LiurenResultPanel(QWidget):
     # ---------- 对外入口 ----------
     def _clear_dynamic_content(self):
         """清理动态内容控件（empty_state 为持久控件，绝不可删除）。"""
+        # M3-2：回收钉住目录条（挂在滚动视口，不在 content_layout 内）
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'content_area', None))
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             w = item.widget()
@@ -944,7 +944,7 @@ class LiurenResultPanel(QWidget):
 
             self.smart_analyze_btn.setVisible(True)
             self.smart_analyze_btn.setEnabled(True)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
 
@@ -1016,7 +1016,8 @@ class LiurenResultPanel(QWidget):
         if isinstance(smart_analysis, dict):
             self._current_智能 = smart_analysis
         from ui.components.ai_analysis_renderer import render_analysis as render
-        render('liuren', smart_analysis, self.content_layout)
+        render('liuren', smart_analysis, self.content_layout,
+               scroll_area=self.content_area)
 
         # 2) 恢复顶部状态栏：AI 已完成（不再停留在「解读中…」）
         try:
@@ -1033,6 +1034,9 @@ class LiurenResultPanel(QWidget):
     def _clear_prev_ai_container(self):
         """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
         防止连续起课/重复完成回调导致两份 AI 解读并存。"""
+        # M3-2：先回收钉住目录条（挂在滚动视口，不在 content_layout 内）
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'content_area', None))
         try:
             for i in range(self.content_layout.count() - 1, -1, -1):
                 item = self.content_layout.itemAt(i)
@@ -1068,7 +1072,6 @@ class LiurenResultPanel(QWidget):
             ('概率统计', '📊', Colors.LIUJIN, ai.get('probability_stats')),
             (DISCLAIMER_TITLE, '⚠', Colors.TEXT_TERTIARY, ai.get('disclaimer')),
         ]
-        _PROBABILITY_TITLE = '概率统计'
         for title, icon, color, text in sections:
             if text is None:
                 continue
@@ -1099,6 +1102,37 @@ class LiurenResultPanel(QWidget):
                 card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
             cards.append(card)
         return cards
+
+    def show_error(self, message: str, retry=None):
+        """展示**起课失败**的错误态（M3-6 统一错误视觉 + 可选重试）。
+
+        Args:
+            message: 错误说明（来自异常）。
+            retry:   重试回调（一般为 MainWindow 的 _on_liuren 槽）；
+                     None 时只展示错误、不提供重试。
+
+        背景：``_on_liuren`` 先 ``show_loading()`` 再起课，起课抛异常时若只写
+        statusBar，面板会**永远停在 loading**（转圈 + 按钮隐藏）→ 用户卡死。
+        此处撤下空状态占位与操作按钮，改用统一 ErrorState 展示。
+        """
+        from ui.components.states import mount_error_state
+
+        self._clear_dynamic_content()  # 清动态内容（含旧错误态）
+        if self.content_layout.indexOf(self.empty_state) != -1:
+            self.content_layout.removeWidget(self.empty_state)
+        self._safe_set_visible(self.empty_state, False)
+        for btn_name in ('smart_analyze_btn', 'export_btn', 'collapse_all_btn'):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.setVisible(False)
+        self.status_label.setText('⚠ 起课失败')
+        self.status_label.setStyleSheet(f"""
+            font-size: {Fonts.SIZE_BODY}; color: {Colors.DANGER};
+            font-family: {Fonts.FAMILY_CN};
+        """)
+        self._error_holder, _err = mount_error_state(
+            self.content_layout, message, title='起课失败', retry=retry)
+        self._current_result = {}
 
     def clear(self):
         """清空面板：移除动态内容、恢复空状态占位与初始提示文案，并隐藏操作按钮。"""

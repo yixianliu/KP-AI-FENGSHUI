@@ -8,11 +8,11 @@ from pathlib import Path
 # Project root directory
 project_root = Path(__file__).resolve().parent
 
-# Add pyside6_packages to path so PyInstaller can find them
-pyside6_packages = project_root / "pyside6_packages"
-if pyside6_packages.exists():
-    if str(pyside6_packages) not in sys.path:
-        sys.path.insert(0, str(pyside6_packages))
+# No longer need to add pyside6_packages to path as we use venv's PySide6
+# pyside6_packages = project_root / "pyside6_packages"
+# if pyside6_packages.exists():
+#     if str(pyside6_packages) not in sys.path:
+#         sys.path.insert(0, str(pyside6_packages))
 
 # PyInstaller configuration using PyInstaller.__main__
 import PyInstaller.__main__
@@ -158,7 +158,7 @@ pyinstaller_args = [
     
     # QR code images directory (payment QR codes - Alipay/WeChat)
     # qrcode 目录位于项目父级: D:\PythonProject\qrcode
-    f"--add-data=D:\\\\PythonProject\\\\qrcode;qrcode",
+    "--add-data=D:\\\\PythonProject\\\\qrcode;qrcode",
     
     # Clean build
     "--clean",

@@ -5,9 +5,8 @@ ui/components/xuan_kong_result_panel.py — 玄空飞星结果展示面板
 九宫格绘制依据洛书九宫方位：巽离坤 / 震中兑 / 艮坎乾。
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QScrollArea, QFrame, QMessageBox)
+                               QPushButton, QScrollArea, QFrame)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QFont, QColor, QPen, QBrush
 from ui.styles import (Colors, Fonts, Spacing, Stylesheets,
                        apply_density, DEFAULT_DENSITY)
 
@@ -341,6 +340,24 @@ class XuanKongResultPanel(QWidget):
         canvas.set_result(result)
         layout.addWidget(canvas, alignment=Qt.AlignHCenter)
         self._grid_canvas_widget = canvas
+
+    def show_error(self, message: str, retry=None):
+        """展示**排盘失败**的错误态（M3-6 统一错误视觉 + 可选重试）。
+
+        Args:
+            message: 错误说明（来自异常）。
+            retry:   重试回调（一般为 MainWindow 的 _on_xuan_kong 槽）；
+                     None 时只展示错误、不提供重试。
+
+        背景：``_on_xuan_kong`` 触发排盘后若抛异常，此前只写 statusBar，
+        详情区一片空白、用户不知道发生了什么。此处用统一 ErrorState 兜底。
+        """
+        from ui.components.states import mount_error_state
+
+        _clear_layout(self.detail_layout)
+        self._current_result = None
+        self._error_holder, _err = mount_error_state(
+            self.detail_layout, message, title='排盘失败', retry=retry)
 
     def clear(self):
         """清空结果。"""

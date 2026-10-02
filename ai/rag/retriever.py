@@ -18,9 +18,7 @@ ai/rag/retriever.py — BM25 + 向量混合检索器
 """
 from __future__ import annotations
 
-import json
 import logging
-import math
 import os
 from typing import Optional
 
@@ -142,7 +140,7 @@ class HybridRetriever:
             else:
                 self._embedding_fn = None
                 logger.info('[RAG] 嵌入模型未缓存，使用纯 BM25 降级模式'
-                            f'（首次联网运行后将自动启用向量检索）')
+                            '（首次联网运行后将自动启用向量检索）')
         else:
             logger.info('[RAG] chromadb 未安装，使用纯 BM25 降级模式')
 

@@ -4,8 +4,6 @@
 包含：呼吸光环头像 · 卡片淡入动画 · 按钮发光反馈 · 国风青花蓝/朱砂红配色 · 支付二维码
 """
 import logging
-import os
-import sys
 from pathlib import Path
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QFrame, QWidget, QMessageBox,
@@ -14,7 +12,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer, QSize
 from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
                            QLinearGradient, QPen, QPainterPath, QDesktopServices,
-                           QPixmap, QPalette)
+                           QPixmap)
 
 from ui.styles import Colors, Fonts, Spacing
 from core.path_utils import get_resource_path, get_app_dir

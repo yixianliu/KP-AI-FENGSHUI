@@ -30,7 +30,7 @@ def parse_unihan_strokes(unihan_file_path):
                     char = chr(code_point)
                     strokes = int(value)
                     stroke_data.append({'char': char, 'strokes': strokes})
-                except (ValueError, OverflowError) as e:
+                except (ValueError, OverflowError):
                     # Skip invalid entries
                     pass
     return stroke_data

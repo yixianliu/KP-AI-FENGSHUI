@@ -27,10 +27,10 @@
 import re
 import logging
 from datetime import datetime
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Optional
 
 from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-                               QGraphicsOpacityEffect, QButtonGroup,
+                               QButtonGroup,
                                QPushButton, QScrollArea, QGridLayout, QSizePolicy,
                                QGraphicsDropShadowEffect)
 from PySide6.QtCore import (Qt, QEvent, QPropertyAnimation, QEasingCurve, QTimer,
@@ -677,7 +677,7 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     icon_lay.setContentsMargins(0, 0, 0, 0)
     icon_inner = QLabel(icon)
     icon_inner.setAlignment(Qt.AlignCenter)
-    icon_inner.setStyleSheet(f"""
+    icon_inner.setStyleSheet("""
         font-size: 30px;
         color: white;
         background: transparent;
@@ -805,7 +805,8 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
     return container
 
 
-def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors.LIUJIN) -> QWidget:
+def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors.LIUJIN,
+                   object_name: str = 'ai_toc_bar') -> QWidget:
     """AI 解读区目录导航条 v2.2：横向胶囊按钮组 + 滚动支持。
 
     提供可视化的章节目录，点击触发锚点跳转。章节按钮采用圆角胶囊样式，
@@ -817,11 +818,14 @@ def ai_section_nav(items: List[Tuple[str, str, str]], active_color: str = Colors
                 - label: 按钮文字
                 - icon: 按钮左侧图标
         active_color: 默认主题色（鎏金）
+        object_name: 导航条 widget 的 objectName（默认 'ai_toc_bar'；
+                     悬浮吸顶副本传 'ai_toc_bar_pinned' 以便区分与回收）
 
     Returns:
         可直接 addWidget 的 QWidget（导航条容器）
     """
     outer = QFrame()
+    outer.setObjectName(object_name)
     outer.setStyleSheet(f"""
         QFrame {{
             background: {Colors.CARD};
@@ -1130,8 +1134,6 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
     Returns:
         可直接 set_content / addWidget 的 QWidget。
     """
-    import html  # 添加HTML转义导入
-
     container = QWidget()
     v = QVBoxLayout(container)
     v.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
@@ -1150,7 +1152,11 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
     #   纯描述文本
     _num_pat = re.compile(
         r'[:：]?\s*'
-        r'(\[?[\u4e00-\u9fff\w]+\]?\s*)?'  # 可选等级标签 [高]/[强] 等
+        # 【等级标签组必须排除数字】原写法用了 `[\u4e00-\u9fff\w]+`，而 `\w` 含 0-9，
+        # 于是「健康：90%」会被切成「标签=9、数值=0」→ 90% 解析成 0%；所有单值百分比
+        # 都被截成最后一位（85%→5%、80%→0%），导致色标/趋势研判/趋吉避凶建议全按
+        # 错误低值走「弱」分支。故显式限定标签为 CJK 或拉丁字母，不得含数字。
+        r'(\[[\u4e00-\u9fffA-Za-z]+\]|[\u4e00-\u9fffA-Za-z]+)?\s*'  # 可选等级标签 [高]/[强]
         r'([0-9]+(?:\.[0-9]+)?)'          # 数值
         r'\s*([-%％分]?)'                  # 单位
         r'(?:\s*[~-]\s*([0-9]+(?:\.[0-9]+)?)\s*[%％])?'  # 可选范围上限
@@ -1185,7 +1191,10 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
             if unit in ('%', '％'):
                 pct_min = num
             elif unit == '分':
-                pct_min = num * 10 if num <= 10 else (num / 100 if num <= 100 else num)
+                # 10 分制换算为百分制（8分→80%）；>10 视为已是百分制（「85分」=85%）。
+                # 原 `num / 100` 分支把 85分 算成 0.85% —— 与本文档声明的
+                # 「事业 85分」格式直接矛盾（8分→80% 但 85分→0.85%，自相矛盾）。
+                pct_min = num * 10 if num <= 10 else num
             elif num <= 1.5:
                 pct_min = num * 100
             else:
@@ -1559,7 +1568,7 @@ def _build_explanation_box(dimension_labels, color=Colors.LIUJIN) -> QWidget:
 
     dims = '、'.join(dimension_labels) if dimension_labels else '各维度'
     lines = [
-        f'含义：以上为龙虎山大师兄据命主八字推演所得的趋势强弱判断，每维度以「强 / 中 / 弱」呈现。',
+        '含义：以上为龙虎山大师兄据命主八字推演所得的趋势强弱判断，每维度以「强 / 中 / 弱」呈现。',
         f'涉及维度：{dims}（按命局结构自动给出）。',
         '实际用途：用于直观对比命主各维度走势、辅助整体判断；非统计采样结果，仅供文化研究参考。',
     ]
@@ -2447,10 +2456,15 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     """
     score, _, _ = _compute_sentiment(text)
 
+    # M3-3（Q05）：背景由浅色 #FFF9E8 渐变改为深色卡片语言，消除浅色孤岛。
+    # 注意：QSS 字符串里**不得**写 `# 注释…` —— Qt QSS 的注释语法是 /* */，
+    # `#` 在 QSS 里是「对象名选择器」而不是注释符。一旦把 `# 说明…` 写进样式串，
+    # Qt 会把后续声明挂到那个畸形选择器上，`QFrame` 规则整体失效：
+    # 实测该处渲染回退为 Qt 默认浅灰底 #efefef（正是本段想消除的「浅色孤岛」）。
+    # 故注释只能放在 QSS 字符串之外。
     box = QFrame()
     box.setStyleSheet(f"""
         QFrame {{
-            # M3-3（Q05）：背景由浅色 #FFF9E8 渐变改为深色卡片语言，消除浅色孤岛
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 {Colors.CARD_HOVER},
                 stop:0.5 {Colors.CARD},
@@ -2562,84 +2576,6 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
 
     return box
 
-
-def rich_list_block(items: List[str], color: str = Colors.QINGHUA, title: str = '', icon: str = '') -> QWidget:
-    """强化版列表块 v2.2：编号 + 引述竖线 + 关键词高亮。
-
-    替代原有扁平化列表，提供：
-    - 序号（01、02、03...）
-    - 引述竖线（左侧彩色）
-    - 富文本关键词高亮
-
-    Args:
-        items: 字符串列表
-        color: 强调色
-        title: 列表标题（可选）
-        icon: 标题图标（可选）
-
-    Returns:
-        可直接 addWidget 的 QWidget
-    """
-    container = QFrame()
-    container.setStyleSheet(f"""
-        QFrame {{
-            background: {Colors.CARD};
-            border: 1px solid {Colors.BORDER};
-            border-left: 4px solid {color};
-            border-radius: {Spacing.RADIUS};
-        }}
-    """)
-    cl = QVBoxLayout(container)
-    cl.setContentsMargins(Spacing.S4, Spacing.S3, Spacing.S4, Spacing.S3)
-    cl.setSpacing(Spacing.S2)
-
-    if title:
-        head = QLabel(f'{icon} {title}' if icon else title)
-        head.setStyleSheet(f"""
-            font-size: 13px;
-            font-weight: {Fonts.W_BOLD};
-            color: {color};
-            font-family: {Fonts.TITLE};
-            background: transparent;
-            padding-bottom: 4px;
-        """)
-        cl.addWidget(head)
-
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            f"stop:0 {color}55, stop:1 transparent); border: none;"
-        )
-        cl.addWidget(div)
-
-    for idx, item in enumerate(items or [], 1):
-        if not item or not str(item).strip():
-            continue
-        row = QHBoxLayout()
-        row.setSpacing(Spacing.S3)
-        row.setAlignment(Qt.AlignTop)
-
-        num_lbl = QLabel(f'{idx:02d}')
-        num_lbl.setStyleSheet(f"""
-            color: {color};
-            font-size: 13px;
-            font-weight: {Fonts.W_BOLD};
-            font-family: {Fonts.MONO};
-            background: transparent;
-            min-width: 22px;
-        """)
-        num_lbl.setAlignment(Qt.AlignTop | Qt.AlignRight)
-
-        text_lbl = QLabel()
-        text_lbl.setWordWrap(True)
-        text_lbl.setTextFormat(Qt.RichText)
-        text_lbl.setOpenExternalLinks(False)
-        text_lbl.setText(_highlight_keywords_in_text(str(item).strip(), color))
-        text_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Colors.TEXT}; "
-            f"font-family: {Fonts.BODY}; line-height: 1.8;"
-        )
 
 def rich_list_block(items: List[str],
                      color: str = Colors.QINGHUA,
@@ -2835,7 +2771,7 @@ def paragraph_block(text: str, max_width: int = Spacing.COL_MAX_TEXT,
     """
     container = QFrame()
     container.setObjectName('paragraph_block')
-    container.setStyleSheet(f"background: transparent; border: none;")
+    container.setStyleSheet("background: transparent; border: none;")
 
     outer = QHBoxLayout(container)
     outer.setSpacing(Spacing.S0)

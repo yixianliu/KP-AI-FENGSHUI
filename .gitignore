@@ -64,3 +64,4 @@ api
 /_build_single/
 /database/
 database
+docs

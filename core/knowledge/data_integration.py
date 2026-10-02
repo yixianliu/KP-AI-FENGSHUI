@@ -403,18 +403,10 @@ class DataIntegrator:
 
         return '\n'.join(parts)
 
-    def _build_bazi_prompt_parts(self) -> List[str]:
-        """构建八字分析提示词 - 增强版"""
+    def _build_basic_info_part(self) -> List[str]:
+        """构建命主基本信息部分"""
         parts = []
-
         input_data = self.cleaned_data.get('input', {})
-        bazi = self.cleaned_data.get('bazi', {})
-        wuxing = self.cleaned_data.get('wuxing', {})
-        shishen = self.cleaned_data.get('shishen', {})
-        mingli = self.cleaned_data.get('mingli', {})
-        fortune = self.cleaned_data.get('major_fortune', {})
-        relationships = self.relationships
-
         parts.append("=" * 70)
         parts.append("【命主基本信息】")
         parts.append("=" * 70)
@@ -430,8 +422,13 @@ class DataIntegrator:
             parts.append(f"出生时间：{h:02d}:{mi:02d}")
         parts.append(f"出生地：{input_data.get('location') or input_data.get('city')}（经度：{input_data.get('longitude')}°）")
         parts.append(f"是否农历：{'是' if input_data.get('is_lunar') else '否'}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_bazi_details_part(self) -> List[str]:
+        """构建八字排盘详情部分"""
+        parts = []
+        bazi = self.cleaned_data.get('bazi', {})
+        parts.append("=" * 70)
         parts.append("【八字排盘详情】")
         parts.append("=" * 70)
         parts.append(f"年柱：{bazi.get('year_pillar', '')}")
@@ -446,8 +443,13 @@ class DataIntegrator:
         if bazi.get('solar_time'):
             parts.append(f"真太阳时：{bazi.get('solar_time')}")
             parts.append(f"原时间：{bazi.get('original_time')}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_wuxing_analysis_part(self) -> List[str]:
+        """构建五行分析部分"""
+        parts = []
+        wuxing = self.cleaned_data.get('wuxing', {})
+        parts.append("=" * 70)
         parts.append("【五行分析】")
         parts.append("=" * 70)
         parts.append(f"五行总结：{wuxing.get('summary', '')}")
@@ -469,11 +471,16 @@ class DataIntegrator:
         # 新增：五行生克关系
         shengke = wuxing.get('shengke', {})
         if shengke:
-            parts.append(f"五行生克：")
+            parts.append("五行生克：")
             for relation, desc in shengke.items():
                 parts.append(f"  {relation}：{desc}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_shishen_analysis_part(self) -> List[str]:
+        """构建十神分析部分"""
+        parts = []
+        shishen = self.cleaned_data.get('shishen', {})
+        parts.append("=" * 70)
         parts.append("【十神分析】")
         parts.append("=" * 70)
 
@@ -489,7 +496,7 @@ class DataIntegrator:
 
         total_weights = shishen.get('total_weights', {})
         if total_weights:
-            parts.append(f"十神类别权重：")
+            parts.append("十神类别权重：")
             for category, weight in total_weights.items():
                 parts.append(f"  {category}：{weight:.2f}")
 
@@ -498,7 +505,7 @@ class DataIntegrator:
 
         pillars = shishen.get('pillars', {})
         if pillars:
-            parts.append(f"各柱十神详情：")
+            parts.append("各柱十神详情：")
             for pillar_name, items in pillars.items():
                 pillar_items = [f"{item.get('gan')}{item.get('zhi')}({item.get('shishen')},权重{_to_float(item.get('weight', 0)):.2f})"
                                 for item in items]
@@ -507,11 +514,16 @@ class DataIntegrator:
         # 新增：十神旺衰
         wangshuai = shishen.get('wangshuai', {})
         if wangshuai:
-            parts.append(f"十神旺衰：")
+            parts.append("十神旺衰：")
             for shishen, status in wangshuai.items():
                 parts.append(f"  {shishen}：{status}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_mingli_part(self) -> List[str]:
+        """构建命理特征部分"""
+        parts = []
+        mingli = self.cleaned_data.get('mingli', {})
+        parts.append("=" * 70)
         parts.append("【命理特征】")
         parts.append("=" * 70)
 
@@ -535,11 +547,16 @@ class DataIntegrator:
         # 新增：命理格局详细分析
         pattern_detail = mingli.get('pattern_detail', {})
         if pattern_detail:
-            parts.append(f"格局详细分析：")
+            parts.append("格局详细分析：")
             for key, value in pattern_detail.items():
                 parts.append(f"  {key}：{value}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_fortune_part(self) -> List[str]:
+        """构建大运走势部分"""
+        parts = []
+        fortune = self.cleaned_data.get('major_fortune', {})
+        parts.append("=" * 70)
         parts.append("【大运走势】")
         parts.append("=" * 70)
         parts.append(f"大运方向：{fortune.get('direction', '')}")
@@ -554,11 +571,17 @@ class DataIntegrator:
         # 新增：流年分析
         liunian = fortune.get('liunian', {})
         if liunian:
-            parts.append(f"流年分析：")
+            parts.append("流年分析：")
             for key, value in liunian.items():
                 parts.append(f"  {key}：{value}")
+        return parts
 
-        parts.append("\n" + "=" * 70)
+    def _build_relationships_part(self) -> List[str]:
+        """构建数据关联关系部分"""
+        parts = []
+        relationships = self.relationships
+        bazi = self.cleaned_data.get('bazi', {})
+        parts.append("=" * 70)
         parts.append("【数据关联关系】")
         parts.append("=" * 70)
 
@@ -582,42 +605,62 @@ class DataIntegrator:
 
         wuxing_shengke = relationships.get('wuxing_shengke', {})
         if wuxing_shengke:
-            parts.append(f"五行生克关系：")
+            parts.append("五行生克关系：")
             for relation, desc in wuxing_shengke.items():
                 parts.append(f"  {relation}：{desc}")
 
         shishen_wangshuai = relationships.get('shishen_wangshuai', {})
         if shishen_wangshuai:
-            parts.append(f"十神旺衰：")
+            parts.append("十神旺衰：")
             for shishen, status in shishen_wangshuai.items():
                 parts.append(f"  {shishen}：{status}")
 
         mingli_pattern = relationships.get('mingli_pattern', {})
         if mingli_pattern:
-            parts.append(f"命理格局：")
+            parts.append("命理格局：")
             for key, value in mingli_pattern.items():
                 parts.append(f"  {key}：{value}")
 
         fortune_trend = relationships.get('fortune_trend', {})
         if fortune_trend:
             parts.append(f"大运趋势：方向={fortune_trend.get('direction', '')}，起运={fortune_trend.get('start_age', 0)}岁，共{fortune_trend.get('periods_count', 0)}步")
+        return parts
 
+    def _build_knowledge_part(self) -> List[str]:
+        """构建命理知识库参考部分"""
+        parts = []
         if self.cleaned_data.get('knowledge'):
-            parts.append("\n" + "=" * 70)
+            parts.append("=" * 70)
             parts.append("【命理知识库参考】")
             parts.append("=" * 70)
             parts.append(self.cleaned_data['knowledge'])
+        return parts
 
+    def _build_historical_part(self) -> List[str]:
+        """构建历史分析记录部分"""
+        parts = []
         if self.cleaned_data.get('historical'):
-            parts.append("\n" + "=" * 70)
+            parts.append("=" * 70)
             parts.append("【历史分析记录】")
             parts.append("=" * 70)
             for record in self.cleaned_data['historical'][:5]:  # 显示更多历史记录
                 parts.append(f"  ID:{record.get('report_id')} | 类型:{record.get('type')} | "
                              f"时间:{record.get('created_at', '')[:10]} | 摘要:{record.get('summary', '')}")
-
         return parts
 
+    def _build_bazi_prompt_parts(self) -> List[str]:
+        """构建八字分析提示词 - 增强版"""
+        parts = []
+        parts.extend(self._build_basic_info_part())
+        parts.extend(self._build_bazi_details_part())
+        parts.extend(self._build_wuxing_analysis_part())
+        parts.extend(self._build_shishen_analysis_part())
+        parts.extend(self._build_mingli_part())
+        parts.extend(self._build_fortune_part())
+        parts.extend(self._build_relationships_part())
+        parts.extend(self._build_knowledge_part())
+        parts.extend(self._build_historical_part())
+        return parts
     def _build_meihua_prompt_parts(self) -> List[str]:
         """构建梅花易数提示词 - 增强版"""
         parts = []

@@ -1,6 +1,5 @@
 """批量更新 import 引用路径（core.X → 新子包路径）"""
 
-import re
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,7 +39,6 @@ def fix_import_lines(content: str) -> tuple[str, int]:
     lines = content.split("\n")
 
     for i, line in enumerate(lines):
-        original = line
         # 处理 from core.X import ...
         for old_mod, new_mod in MOVES.items():
             old_path = f"core.{old_mod}"
@@ -65,9 +63,8 @@ def fix_import_lines(content: str) -> tuple[str, int]:
             if old_str in line:
                 line = line.replace(old_str, new_str)
                 count += 1
-            old_str2 = f'"{old_mod}"'
-            new_str2 = f'"{new_mod}"'
-            # 不匹配纯字符串，避免误改
+            # 注：原本计划用 `"{old_mod}"` 模式匹配双引号字符串以支持更多格式，
+            # 但双引号路径与单引号路径等价且会增加误改风险，故仅保留单引号路径。
 
         lines[i] = line
 

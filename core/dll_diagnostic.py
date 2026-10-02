@@ -4,7 +4,6 @@ DLL 版本诊断与修复模块 - 简洁版
 解决 Windows 下 PyQt6/PySide6 DLL 冲突问题
 """
 
-import ctypes
 import os
 import sys
 from pathlib import Path
@@ -97,12 +96,12 @@ def fix_dll_loading_order():
                         break
 
         if found and 'pyside6_packages' in found:
-            print(f"[DLL] Qt6Core.dll: pyside6_packages OK", file=sys.stderr)
+            print("[DLL] Qt6Core.dll: pyside6_packages OK", file=sys.stderr)
         elif found and 'PyQt6' in found:
             # PyQt6 的 DLL 已加载，但 PySide6 依赖的 Qt6Gui/Qt6Widgets 会自带其 Qt 依赖
-            print(f"[DLL] Qt6Core.dll: PyQt6 版本（PySide6 运行时正常）", file=sys.stderr)
+            print("[DLL] Qt6Core.dll: PyQt6 版本（PySide6 运行时正常）", file=sys.stderr)
         else:
-            print(f"[DLL] Qt6Core.dll: 未检测（默认使用系统 DLL）", file=sys.stderr)
+            print("[DLL] Qt6Core.dll: 未检测（默认使用系统 DLL）", file=sys.stderr)
         if injected:
             print("[DLL] 已注入 Qt/ICU DLL 搜索路径", file=sys.stderr)
     except Exception:

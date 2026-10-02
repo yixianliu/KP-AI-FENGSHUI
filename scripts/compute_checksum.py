@@ -7,7 +7,6 @@ Compute checksum for stroke_count table data to update EXPECTED_SEED_CHECKSUMS.
 import json
 import hashlib
 import os
-from collections import OrderedDict
 
 def compute_checksum_from_json(json_file_path):
     """Compute row count and MD5 checksum for stroke_count data as would be stored in DB.
@@ -57,5 +56,4 @@ def main():
     return 0
 
 if __name__ == '__main__':
-    import sys
     exit(main())

@@ -1,4 +1,4 @@
-﻿"""
+"""
 命理知识库 - 结构化存储八字命理和梅花易数的专业知识
 支持术语查询、知识检索、分类浏览等功能
 为AI分析提供结构化知识支撑
@@ -495,7 +495,7 @@ class KnowledgeBase:
         
         wuxing_result = bazi_data.get('wuxing', {})
         if wuxing_result:
-            context_parts.append(f"\n【五行生克关系】")
+            context_parts.append("\n【五行生克关系】")
             context_parts.append(f"相生：{WUXING_RELATIONS['sheng']['description']}")
             context_parts.append(f"相克：{WUXING_RELATIONS['ke']['description']}")
         

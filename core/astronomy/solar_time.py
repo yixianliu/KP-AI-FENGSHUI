@@ -176,7 +176,6 @@ def find_jieqi_approx(
     Returns:
         datetime: 近似时刻
     """
-    from datetime import date as _date
     base_jd = _julian_day_from_date(year, 1, 1) + center_day - 1
 
     jd_start = base_jd - half_range

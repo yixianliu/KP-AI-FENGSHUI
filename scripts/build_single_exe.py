@@ -133,7 +133,7 @@ def collect_datas() -> list:
                 datas.append((str(p), f"shiboken6/{os.path.dirname(rel)}"))
 
     # **关键：明确收集 platforms 目录**
-    platforms_src = pkg / "plugins" / "platforms"
+    platforms_src = PYSIDE6_PKG / "plugins" / "platforms"
     if platforms_src.exists():
         for p in platforms_src.rglob("*"):
             if p.is_file():
@@ -296,7 +296,8 @@ def main() -> int:
     datas    = collect_datas()
     print(f"  二进制文件: {len(binaries)} 个")
     print(f"  数据文件:   {len(datas)} 个")
-    spec     = generate_spec(binaries, datas)
+    # generate_spec() 的副作用是写入 SPEC_FILE；返回值此处不需要。
+    generate_spec(binaries, datas)
 
     print("\n[步骤 3/3] PyInstaller 打包中（耗时较长，请耐心等待）...")
     result = run(

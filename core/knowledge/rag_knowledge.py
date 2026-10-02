@@ -16,7 +16,6 @@ core/rag_knowledge.py — RAG 知识库管理器（轻量化本地实现）
 """
 from __future__ import annotations
 
-import json
 import math
 import re
 import threading

@@ -23,15 +23,13 @@ v2.2 视觉交互与排版升级：
 - 文案常量统一由本模块维护，面板不再硬编码同义标题。
 """
 
+import logging
 from typing import List, Tuple
 
-import re
-
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QScrollArea,
+    QWidget, QVBoxLayout, QLabel,
 )
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
 
 from ui.styles import Colors, Fonts, Spacing
 from ui.components.collapsible_card import (
@@ -41,7 +39,6 @@ from ui.components.collapsible_card import (
     ai_section_card_header,
     highlight_label,
     probability_stats_widget,
-    conclusion_block,
     suggestion_block,
     risk_aware_label,
     hero_conclusion_block,
@@ -51,6 +48,8 @@ from ui.components.collapsible_card import (
     code_block,
     _split_blocks,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +219,8 @@ def _anchor_id_for(key: str) -> str:
     return f'ai_anchor_{key}'
 
 
-def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) -> None:
+def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout,
+                    scroll_area=None) -> None:
     """统一渲染 AI 分析结果到目标布局。
 
     Args:
@@ -228,7 +228,10 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
         payload: AI 返回的结构化解读 dict。
         target_layout: 三面板各自的内容布局（bazi.clay / meihua.content_layout /
                        liuren.content_layout），从该布局外部 append 卡片。
+        scroll_area: 可选，面板的 QScrollArea。传入后启用 M3-2 后半的
+                     「目录条悬浮吸顶」——AI 章节目录不随内容滚走。
     """
+    # ----- 0. 参数校准与空容许 -----
     if not payload or not isinstance(payload, dict):
         target_layout.addWidget(_build_empty_widget(
             '龙虎山大师兄未起得有效卦象，请点击「重新测算」再试'
@@ -236,6 +239,8 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
         return
 
     default_color = _color_for_pan(pan_type)
+
+    # ----- 1. 构造容器布局 -----
     container = QWidget()
     container.setObjectName('ai_analysis_container')
     container.setStyleSheet('background: transparent;')
@@ -243,245 +248,258 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout) ->
     root.setContentsMargins(0, 0, 0, 0)
     root.setSpacing(Spacing.S4)
 
-    # ---------- 1) hero 标题区 ----------
+    # ----- 2. 添加 hero 标题区 -----
     root.addWidget(ai_section_header(AI_SECTION_TITLE))
 
+    # ----- 3. 准备状态变量 -----
     has_content = False
-    nav_items: List[Tuple[str, str, str]] = []
-
-    # ---------- 2) 重点提示（高亮块，置顶） ----------
-    key_points = payload.get('key_points')
-    if isinstance(key_points, (list, tuple)):
-        kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
-    elif isinstance(key_points, str):
-        kp_text = key_points
-    else:
-        kp_text = ''
-    kp_text = _truncate_text(kp_text, max_len=2000)
-    if kp_text.strip():
-        root.addWidget(highlight_label(f'{KEY_POINTS_LABEL}\n' + kp_text.strip(), Colors.LIUJIN))
-        has_content = True
-
-    # ---------- 3) 各面板字段映射（带锚点 ID） ----------
-    sections = []
-    if pan_type == 'bazi':
-        sections = [
-            # 注：key_points（重点提示）已在顶部高亮块统一渲染，此处不再重复出卡
-            ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
-            ('personality', '性格特质', '🧠', Colors.QINGHUA, 'list'),
-            ('career', '事业财运', '💼', Colors.LIUJIN, 'list'),
-            ('relationships', '婚姻感情', '💕', Colors.ZHUSHA, 'list'),
-            ('health', '健康注意', '💪', Colors.SUCCESS, 'list'),
-            ('four_pillars_detail', '四柱详细解读', '🕰', Colors.LIUJIN, 'list'),
-            ('annual_fortune', '近期流年提示', '📅', Colors.ZHUSHA, 'list'),
-            ('study_exam', '学业考试运', '🎓', Colors.QINGHUA, 'conclusion'),
-            ('historical_cases', '历史案例', '📚', Colors.ZHUSHA, 'list'),
-            ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
-            ('scenario_advice', '核心建议', '💡', Colors.SUCCESS, 'advice'),
-            ('probability_stats', '概率统计', '📊', Colors.SUCCESS, 'probability'),
-            ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.TEXT3, 'disclaimer'),
-        ]
-    elif pan_type == 'meihua':
-        sections = [
-            ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
-            ('analysis', '卦象分析', '☯', Colors.QINGHUA, 'conclusion'),
-            ('hexagram_interpretations', '卦爻解释', '📖', Colors.LIUJIN, 'list'),
-            ('timing', '应期时机', '⏳', Colors.SUCCESS, 'conclusion'),
-            ('advice', '行动建议', '💡', Colors.LIUJIN, 'advice'),
-            ('scenario_advice', '场景化建议', '🎯', Colors.ZHUSHA, 'conclusion'),
-            ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
-            ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
-            ('probability_stats', '概率统计', '📊', Colors.SUCCESS, 'probability'),
-            ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.ZHUSHA, 'disclaimer'),
-        ]
-    elif pan_type == 'liuren':
-        sections = [
-            ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
-            ('analysis', '课体分析', '☯', Colors.LIUJIN, 'conclusion'),
-            ('tianjiang_detail', '天将神煞详解', '🎭', Colors.QINGHUA, 'list'),
-            ('scene_readings', '分类占断', '🧭', Colors.LIUJIN, 'conclusion'),
-            ('scenario_advice', '综合建议', '✨', Colors.ZHUSHA, 'conclusion'),
-            ('timing', '应期时机', '⏳', Colors.SUCCESS, 'conclusion'),
-            ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
-            ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
-            ('probability_stats', '概率统计', '📊', Colors.LIUJIN, 'probability'),
-            ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.TEXT3, 'disclaimer'),
-        ]
-
     rendered_keys = set()
+    nav_items: List[Tuple[str, str, str]] = []
+    nav_widget = None  # type: QWidget | None
 
-    # 预扫描：确定有效的章节（用于序号 & 目录）
-    valid_sections = []
-    for key, title, icon, color, mode in sections:
-        raw = payload.get(key)
-        if raw is None:
-            continue
-        if mode == 'probability':
-            if not _as_list(raw):
-                continue
-        elif mode in ('list', 'advice'):
-            if not _as_list(raw):
-                continue
-        elif mode in ('conclusion', 'conclusion_hero'):
-            if not _as_text(raw):
-                continue
-        elif mode == 'disclaimer':
-            # disclaimer 始终渲染（即便 AI 返回空，也显示默认声明）
-            pass
+    # ----- 4. 关键信息高亮块 -----
+    def _add_key_points():
+        nonlocal has_content
+        key_points = payload.get('key_points')
+        if isinstance(key_points, (list, tuple)):
+            kp_text = '\n'.join(str(x) for x in key_points if x and str(x).strip())
+        elif isinstance(key_points, str):
+            kp_text = key_points
         else:
-            if not _as_text(raw):
-                continue
-        valid_sections.append((key, title, icon, color, mode))
-
-    # ---------- 4) 目录导航条（仅在章节 ≥3 时显示，避免小报告拥挤） ----------
-    if len(valid_sections) >= 3:
-        nav_items = [
-            (_anchor_id_for(key), title, icon)
-            for key, title, icon, _color, _mode in valid_sections
-        ]
-        nav_widget = ai_section_nav(nav_items, active_color=default_color)
-        root.addWidget(nav_widget)
-
-    # ---------- 5) 章节渲染 ----------
-    for idx, (key, title, icon, color, mode) in enumerate(valid_sections, 1):
-        if key in rendered_keys:
-            continue
-        raw = payload.get(key)
-        anchor = _anchor_id_for(key)
-
-        if mode == 'probability':
-            items = _as_list(raw)
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
-                                    persist_key=f'{pan_type}:{key}')
-            card.set_content(probability_stats_widget(items, color))
-            root.addWidget(card)
-            # 标记锚点
-            card.setObjectName(anchor)
+            kp_text = ''
+        kp_text = _truncate_text(kp_text, max_len=2000)
+        if kp_text.strip():
+            root.addWidget(highlight_label(f'{KEY_POINTS_LABEL}\n' + kp_text.strip(), Colors.LIUJIN))
             has_content = True
-            rendered_keys.add(key)
-            continue
 
-        if mode == 'advice':
-            items = _as_list(raw)
-            if not items:
-                continue
-            # 核心建议：使用 suggestion_block（带情感徽章 + 关键词高亮）
-            root.addWidget(suggestion_block(items, Colors.SUCCESS))
-            has_content = True
-            rendered_keys.add(key)
-            continue
+    _add_key_points()
 
-        if mode == 'disclaimer':
-            # 使用升级版免责声明卡片
-            text = _as_text(raw) if raw is not None else ''
-            root.addWidget(disclaimer_card(text))
-            has_content = True
-            rendered_keys.add(key)
-            continue
-
-        if mode == 'conclusion_hero':
-            # 整体结论 - hero 高视觉权重块
-            text = _as_text(raw)
-            blocks = _split_blocks(text)
-            hero_block = hero_conclusion_block(text, default_color)
-            hero_block.setObjectName(anchor)
-            root.addWidget(hero_block)
-            has_content = True
-            rendered_keys.add(key)
-            continue
-
-        text = _as_text(raw)
-        if not text:
-            continue
-
-        if mode == 'conclusion':
-            # 结论块：先切分段落/代码，再逐块渲染（修 Q09）
-            blocks = _split_blocks(text)
-            _render_blocks(blocks, anchor, color)
-            has_content = True
-            rendered_keys.add(key)
-            continue
-
-        if mode == 'list':
-            items = _as_list(raw)
-            # 列表渲染：使用 rich_list_block 替代扁平列表，更精致；有序语义
-            ordered = True  # 章节列表默认有序
-            list_block = rich_list_block(
-                items=items,
-                color=color,
-                title=title,
-                icon=icon,
-                ordered=ordered,
-            )
-            list_block.setObjectName(anchor)
-            root.addWidget(list_block)
-            has_content = True
-            rendered_keys.add(key)
-            continue
+    # ----- 5. 预扫描章节，生成有效章节列表 -----
+    def _build_sections():
+        nonlocal nav_items, nav_widget, rendered_keys, has_content, root
+        sections = []
+        if pan_type == 'bazi':
+            sections = [
+                # 注：key_points（重点提示）已在顶部高亮块统一渲染，此处不再重复出卡
+                ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
+                ('personality', '性格特质', '🧠', Colors.QINGHUA, 'list'),
+                ('career', '事业财运', '💼', Colors.LIUJIN, 'list'),
+                ('relationships', '婚姻感情', '💕', Colors.ZHUSHA, 'list'),
+                ('health', '健康注意', '💪', Colors.SUCCESS, 'list'),
+                ('four_pillars_detail', '四柱详细解读', '🕰', Colors.LIUJIN, 'list'),
+                ('annual_fortune', '近期流年提示', '📅', Colors.ZHUSHA, 'list'),
+                ('study_exam', '学业考试运', '🎓', Colors.QINGHUA, 'conclusion'),
+                ('historical_cases', '历史案例', '📚', Colors.ZHUSHA, 'list'),
+                ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
+                ('scenario_advice', '核心建议', '💡', Colors.SUCCESS, 'advice'),
+                ('probability_stats', '概率统计', '📊', Colors.SUCCESS, 'probability'),
+                ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.TEXT3, 'disclaimer'),
+            ]
+        elif pan_type == 'meihua':
+            sections = [
+                ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
+                ('analysis', '卦象分析', '☯', Colors.QINGHUA, 'conclusion'),
+                ('hexagram_interpretations', '卦爻解释', '📖', Colors.LIUJIN, 'list'),
+                ('timing', '应期时机', '⏳', Colors.SUCCESS, 'conclusion'),
+                ('advice', '行动建议', '💡', Colors.LIUJIN, 'advice'),
+                ('scenario_advice', '场景化建议', '🎯', Colors.ZHUSHA, 'conclusion'),
+                ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
+                ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
+                ('probability_stats', '概率统计', '📊', Colors.SUCCESS, 'probability'),
+                ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.ZHUSHA, 'disclaimer'),
+            ]
+        elif pan_type == 'liuren':
+            sections = [
+                ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
+                ('analysis', '课体分析', '☯', Colors.LIUJIN, 'conclusion'),
+                ('tianjiang_detail', '天将神煞详解', '🎭', Colors.QINGHUA, 'list'),
+                ('scene_readings', '分类占断', '🧭', Colors.LIUJIN, 'conclusion'),
+                ('scenario_advice', '综合建议', '✨', Colors.ZHUSHA, 'conclusion'),
+                ('timing', '应期时机', '⏳', Colors.SUCCESS, 'conclusion'),
+                ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
+                ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
+                ('probability_stats', '概率统计', '📊', Colors.LIUJIN, 'probability'),
+                ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.TEXT3, 'disclaimer'),
+            ]
         else:
-            card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
-                                    persist_key=f'{pan_type}:{key}')
-            card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
+            sections = []
 
-        card.setObjectName(anchor)
-        root.addWidget(card)
-        has_content = True
-        rendered_keys.add(key)
-
-    # ---------- 6) 兜底：未在 sections 中消费的扩展字段 ----------
-    for key, val in payload.items():
-        if key in rendered_keys:
-            continue
-        text = _as_text(val)
-        # 极端值护栏：空值/过短/过长
-        if not text or len(text.strip()) < 3:
-            continue
-        text = _truncate_text(text, max_len=4000)
-        items = _as_list(val)
-        # 限制列表长度，防止 UI 爆炸
-        if items:
-            # 对每个条目做截断
-            items = [_truncate_text(it, max_len=500) for it in items][:200]
-        # 兜底标题统一走中文映射，避免显示英文 key 名
-        title_cn = _fallback_title(key)
-        if items and len(items) > 1:
-            list_block = rich_list_block(items=items, color=default_color, title=title_cn, icon='📝')
-            list_block.setObjectName(_anchor_id_for(key))
-            root.addWidget(list_block)
-        else:
-            card = CollapsibleCard(title_cn, '📝', accent_color=default_color, collapsed=False,
-                                    persist_key=f'{pan_type}:{key}')
-            card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
-            card.setObjectName(_anchor_id_for(key))
-            root.addWidget(card)
-        has_content = True
-
-    # ---------- 7) 结论块内段落/代码渲染（conclusion/conclusion_hero 共用） ----------
-    def _render_blocks(blocks, anchor, color):
-        """渲染切分后的段落/代码序列到 root。
-
-        Args:
-            blocks:    ('p', text) | ('code', code) 列表
-            anchor:    锚点 ID（用于导航跳转）
-            color:     强调色
-        """
-        for blk in blocks:
-            kind, content = blk
-            if kind == 'code':
-                code_widget = code_block(content, language='AI')
-                code_widget.setObjectName(anchor)
-                root.addWidget(code_widget)
+        valid_sections = []
+        for key, title, icon, color, mode in sections:
+            raw = payload.get(key)
+            if raw is None:
+                continue
+            if mode == 'probability':
+                if not _as_list(raw):
+                    continue
+            elif mode in ('list', 'advice'):
+                if not _as_list(raw):
+                    continue
+            elif mode in ('conclusion', 'conclusion_hero'):
+                if not _as_text(raw):
+                    continue
+            elif mode == 'disclaimer':
+                # disclaimer 始终渲染（即便 AI 返回空，也显示默认声明）
+                pass
             else:
-                para = content
-                # 正文走 paragraph_block（超宽居中，段落感）
-                block_widget = paragraph_block(para)
-                block_widget.setObjectName(anchor)
-                root.addWidget(block_widget)
+                if not _as_text(raw):
+                    continue
+            valid_sections.append((key, title, icon, color, mode))
 
+        # ----- 6. 生成目录导航条（章节 ≥3 时显示） -----
+        if len(valid_sections) >= 3:
+            nav_items = [
+                (_anchor_id_for(key), title, icon)
+                for key, title, icon, _color, _mode in valid_sections
+            ]
+            nav_widget = ai_section_nav(nav_items, active_color=default_color)
+            root.addWidget(nav_widget)
+        else:
+            nav_items = []
+            nav_widget = None
+
+        # ----- 7. 渲染各章节 -----
+        def _render_sections():
+            nonlocal has_content, rendered_keys
+            # 内部渲染块函数（段落/代码）
+            def _render_blocks(blocks, anchor, color):
+                for blk in blocks:
+                    kind, content = blk
+                    if kind == 'code':
+                        code_widget = code_block(content, language='AI')
+                        code_widget.setObjectName(anchor)
+                        root.addWidget(code_widget)
+                    else:
+                        para = content
+                        block_widget = paragraph_block(para)
+                        block_widget.setObjectName(anchor)
+                        root.addWidget(block_widget)
+
+            for idx, (key, title, icon, color, mode) in enumerate(valid_sections, 1):
+                if key in rendered_keys:
+                    continue
+                raw = payload.get(key)
+                anchor = _anchor_id_for(key)
+
+                if mode == 'probability':
+                    items = _as_list(raw)
+                    card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
+                                           persist_key=f'{pan_type}:{key}')
+                    card.set_content(probability_stats_widget(items, color))
+                    root.addWidget(card)
+                    card.setObjectName(anchor)
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                if mode == 'advice':
+                    items = _as_list(raw)
+                    if not items:
+                        continue
+                    root.addWidget(suggestion_block(items, Colors.SUCCESS))
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                if mode == 'disclaimer':
+                    text = _as_text(raw) if raw is not None else ''
+                    root.addWidget(disclaimer_card(text))
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                if mode == 'conclusion_hero':
+                    text = _as_text(raw)
+                    blocks = _split_blocks(text)
+                    hero_block = hero_conclusion_block(text, default_color)
+                    hero_block.setObjectName(anchor)
+                    root.addWidget(hero_block)
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                text = _as_text(raw)
+                if not text:
+                    continue
+
+                if mode == 'conclusion':
+                    blocks = _split_blocks(text)
+                    _render_blocks(blocks, anchor, color)
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                if mode == 'list':
+                    items = _as_list(raw)
+                    ordered = True  # 章节列表默认有序
+                    list_block = rich_list_block(
+                        items=items,
+                        color=color,
+                        title=title,
+                        icon=icon,
+                        ordered=ordered,
+                    )
+                    list_block.setObjectName(anchor)
+                    root.addWidget(list_block)
+                    has_content = True
+                    rendered_keys.add(key)
+                    continue
+
+                # 默认走折叠卡片 + 风险感知标签
+                card = CollapsibleCard(title, icon, accent_color=color, collapsed=False,
+                                       persist_key=f'{pan_type}:{key}')
+                card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
+                card.setObjectName(anchor)
+                root.addWidget(card)
+                has_content = True
+                rendered_keys.add(key)
+
+        _render_sections()
+
+    _build_sections()
+
+    # ----- 8. 兜底：未在 sections 中消费的扩展字段 -----
+    def _render_fallback():
+        nonlocal has_content
+        for key, val in payload.items():
+            if key in rendered_keys:
+                continue
+            text = _as_text(val)
+            if not text or len(text.strip()) < 3:
+                continue
+            text = _truncate_text(text, max_len=4000)
+            items = _as_list(val)
+            if items:
+                items = [_truncate_text(it, max_len=500) for it in items][:200]
+            title_cn = _fallback_title(key)
+            if items and len(items) > 1:
+                list_block = rich_list_block(items=items, color=default_color, title=title_cn, icon='📝')
+                list_block.setObjectName(_anchor_id_for(key))
+                root.addWidget(list_block)
+            else:
+                card = CollapsibleCard(title_cn, '📝', accent_color=default_color, collapsed=False,
+                                       persist_key=f'{pan_type}:{key}')
+                card.set_content(risk_aware_label(text, color=Colors.LIUJIN, show_sentiment=False))
+                card.setObjectName(_anchor_id_for(key))
+                root.addWidget(card)
+            has_content = True
+
+    _render_fallback()
+
+    # ----- 9. 若仍无内容，显示空提示 -----
     if not has_content:
         root.addWidget(_build_empty_widget(
             '龙虎山大师兄未起得有效条目，请点击「重新测算」再试'
         ))
 
-    # 挂载到目标布局，并在外部完成滚动
+    # ----- 10. 挂载到目标布局 -----
     target_layout.addWidget(container)
+
+    # ----- 11. M3-2 后半：目录条悬浮吸顶（面板传入滚动区时启用） -----
+    if nav_widget is not None and scroll_area is not None:
+        try:
+            from ui.components.sticky_toc import StickyTocController, build_pinned_bar
+            pinned = build_pinned_bar(nav_items, default_color, scroll_area.viewport())
+            StickyTocController(scroll_area, nav_widget, pinned, container)
+        except Exception as exc:  # 悬浮吸顶失败不得影响主渲染
+            logger.warning('目录条悬浮吸顶初始化失败：%s', exc)

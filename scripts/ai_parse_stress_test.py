@@ -6,7 +6,6 @@ AI 解析降级路径集成压测与日志样本采集
 """
 import sys
 sys.path.insert(0, '.')
-import json
 from api.agnes_client import _deep_clean_json, AgnesClient
 from core.knowledge.analysis_storage import _smart_fix_json
 

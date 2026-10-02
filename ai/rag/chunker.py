@@ -11,7 +11,6 @@ ai/rag/chunker.py — 古籍文本切分器
 from __future__ import annotations
 
 import re
-from typing import Iterable
 
 
 # 古籍常见分段标点

@@ -17,8 +17,15 @@ scripts/audit_font_scale.py — Font Scale 字号门禁（UI 升级 M1-2）
 用法：
     python scripts/audit_font_scale.py                # 扫描 ui/ 全目录
     python scripts/audit_font_scale.py ui/components/ # 扫描指定目录
-    python scripts/audit_font_scale.py <file.py>
+    python scripts/audit_font_scale.py <file.py> [--allow-empty]
+
 退出码：0 = 无越界命中；1 = 存在越界字号（打印 文件:行 明细）。
+
+空转守卫（2026-09-29 第 7 轮补）：
+    本脚本原本「total=0 即 return 0」，而 total 数的是**越界数**——若扫描目标
+    为空目录、正则失效或文件读取失败，同样得到 0 并判绿，属典型空转假绿。
+    现改为：先把「扫描文件数 / font-size 声明数」作为**校验量**打印出来，并在
+    ① 文件数 0 ② 有读取失败 ③ 声明数 0（未加 --allow-empty）时一律 return 1。
 """
 import re
 import sys
@@ -74,12 +81,19 @@ def _is_exempt(rel: str, size: float) -> bool:
 
 
 def scan_file(path: Path, rel: str, whitelist: set):
-    """扫描单个文件，返回越界命中 [(line_no, size_str, snippet)]。"""
+    """扫描单个文件。
+
+    Returns:
+        tuple: (越界命中 [(line_no, size_str, snippet)], 命中的 font-size 声明总数,
+                文件是否成功读取)。
+    """
     hits = []
     try:
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = path.read_text(encoding='utf-8-sig', errors='replace')
     except OSError:
-        return hits
+        # 读不到文件必须**显式可见**：静默跳过等于「没查也算过」（假绿）。
+        return hits, 0, False
+    decls = 0
     for line_no, line in enumerate(text.splitlines(), start=1):
         for m in FONT_SIZE_RE.finditer(line):
             raw = m.group(1)
@@ -87,15 +101,22 @@ def scan_file(path: Path, rel: str, whitelist: set):
                 size = float(raw)
             except ValueError:
                 continue
+            decls += 1
             if _is_exempt(rel, size):
                 continue
             if size in whitelist:
                 continue
             hits.append((line_no, raw, line.strip()[:90]))
-    return hits
+    return hits, decls, True
 
 
 def main(argv) -> int:
+    # --allow-empty：单文件 ad-hoc 扫描时放行「0 条 font-size 声明」。
+    # 默认（跑全 ui/）不放行 —— 一条声明都没匹配到说明正则失效或路径错误，
+    # 此时「0 越界」是**空转**，不是达标。
+    allow_empty = '--allow-empty' in argv[1:]
+    argv = [a for a in argv if a != '--allow-empty']
+
     # 解析目标：默认 ui/ 目录，可传目录或文件
     if len(argv) > 1:
         targets = []
@@ -111,13 +132,21 @@ def main(argv) -> int:
         targets = sorted(UI_DIR.rglob('*.py'))
 
     whitelist = _whitelist()
-    total = 0
+    total = 0        # 越界命中数
+    decls = 0        # 匹配到的 font-size 声明总数（校验量）
+    files = 0        # 成功读取并扫描的文件数
+    unreadable = []  # 读取失败的文件（必须可见，不可静默跳过）
     for path in targets:
         try:
             rel = str(path.relative_to(ROOT)).replace('\\', '/')
         except ValueError:
             rel = str(path)
-        hits = scan_file(path, rel, whitelist)
+        hits, n_decl, readable = scan_file(path, rel, whitelist)
+        if not readable:
+            unreadable.append(rel)
+            continue
+        files += 1
+        decls += n_decl
         if hits:
             print(f"\n== {rel} ==")
             for line_no, raw, snippet in hits:
@@ -125,10 +154,26 @@ def main(argv) -> int:
                 print(f"          {snippet}")
             total += len(hits)
 
+    print("\n" + "=" * 64)
+    print(f"汇总: {decls - total}/{decls} 项通过"
+          f"（扫描 {files} 个文件，font-size 声明 {decls} 处，越界 {total} 处）")
+
+    # ── 空转守卫：0 项也「绿」的门禁比没有门禁更危险 ──────────────
+    if files == 0:
+        print("audit_font_scale: 未扫描到任何 .py 文件 —— 门禁空转 ❌")
+        return 1
+    if unreadable:
+        print(f"audit_font_scale: {len(unreadable)} 个文件读取失败 ❌ -> {unreadable[:5]}")
+        return 1
+    if decls == 0 and not allow_empty:
+        print("audit_font_scale: 未匹配到任何 font-size 声明 —— 门禁空转 ❌"
+              "（正则失效或路径错误；确需扫描无字号文件请加 --allow-empty）")
+        return 1
+
     if total == 0:
         print(f"audit_font_scale: 无越界字号（白名单={sorted(whitelist, reverse=True)}）✅")
         return 0
-    print(f"\naudit_font_scale: 共 {total} 处越界字号 ⚠️")
+    print(f"audit_font_scale: 共 {total} 处越界字号 ⚠️")
     return 1
 
 

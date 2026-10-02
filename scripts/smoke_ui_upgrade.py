@@ -45,7 +45,8 @@ def check(name, fn):
 
 def main():
     from PySide6.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication(sys.argv)
+    # 仅确保 Qt app 实例存在（offscreen 平台已设置）；返回值未消费。
+    QApplication.instance() or QApplication(sys.argv)
     print("=== UI 升级离屏冒烟 (M1–M7) ===")
 
     # ---------- M1 设计令牌 ----------
@@ -145,7 +146,7 @@ def main():
         DataCard(title='综合评分', value='88', unit='分', badge='吉')
 
     def m5_icons():
-        from ui.components.icons import icon, has_icon
+        from ui.components.icons import icon
         # 缺失图标须回退不崩溃
         ic = icon('__not_exist__', size=24)
         assert ic is not None
@@ -202,6 +203,9 @@ def main():
     total = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
     print('-' * 52)
+    if total == 0:
+        print("smoke_ui_upgrade: ⚠️ 未执行任何检查（0/0 假绿）❌")
+        return 1
     if passed == total:
         print(f"smoke_ui_upgrade: {passed}/{total} 全通过 ✅")
         return 0

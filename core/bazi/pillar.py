@@ -15,7 +15,10 @@ calendar_utils.BaZiCalendar 实现，确保计算准确性。
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - 仅供字符串注解解析，运行期不求值
+    import datetime
 
 # 延迟导入，避免循环依赖
 def _get_calendar():

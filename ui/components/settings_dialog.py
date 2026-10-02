@@ -176,7 +176,6 @@ class SettingsDialog(QDialog):
         except Exception:
             info_layout.addWidget(self._label('AI 缓存：统计不可用'))
         # 查看图表按钮
-        from PySide6.QtWidgets import QPushButton
         btn_chart = QPushButton('查看性能图表')
         btn_chart.clicked.connect(self._open_metrics_chart)
         info_layout.addWidget(btn_chart)

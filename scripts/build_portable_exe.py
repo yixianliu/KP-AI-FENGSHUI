@@ -18,11 +18,11 @@ project_root = Path(__file__).resolve().parent
 # 输出目录 - 作为参数传入，或使用默认值
 DIST_DIR = Path(os.environ.get('DIST_PATH', project_root / 'dist'))
 
-# 添加 pyside6_packages 到路径
-pyside6_packages = project_root / "pyside6_packages"
-if pyside6_packages.exists():
-    if str(pyside6_packages) not in sys.path:
-        sys.path.insert(0, str(pyside6_packages))
+# 无需再添加 pyside6_packages 到路径，因为我们使用 venv 的 PySide6
+# pyside6_packages = project_root / "pyside6_packages"
+# if pyside6_packages.exists():
+#     if str(pyside6_packages) not in sys.path:
+#         sys.path.insert(0, str(pyside6_packages))
 
 # 导入 PyInstaller
 import PyInstaller.__main__

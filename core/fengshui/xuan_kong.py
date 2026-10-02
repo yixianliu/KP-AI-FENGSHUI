@@ -21,8 +21,7 @@ core/fengshui/xuan_kong.py — 玄空飞星排盘引擎
 """
 from __future__ import annotations
 
-import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 # ================================================================
 # 基础常量

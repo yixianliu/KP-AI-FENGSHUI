@@ -26,7 +26,7 @@ core/analysis_fallback.py — AI 分析占位符生成器（离线兜底方案�
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from collections import Counter
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,45 @@ WUXING_COLOR = {'金': '白色、金色、银色', '木': '绿色、青色',
 WUXING_DIRECTION = {'金': '西方', '木': '东方', '水': '北方',
                     '火': '南方', '土': '本地、西南方'}
 
+def _prepare_meihua_data(chart_data: dict) -> tuple:
+    """Prepare normalized data and gua names for mei hua fallback."""
+    data = _normalize_chart_data_meihua(chart_data)
+    base = data['base']
+    hu = data['hu']
+    bian = data['bian']
+    level = data['level']
+    ben_name, hu_name, bian_name, upper_name, lower_name, upper_nature, lower_nature, gua_ci, dong_text, dong_meaning = _get_gua_names(base)
+    return base, hu, bian, level, ben_name, hu_name, bian_name, upper_name, lower_name, upper_nature, lower_nature, gua_ci, dong_text, dong_meaning
+
+def _compute_meihua_tiyong_and_score(base: dict, level: str) -> tuple:
+    """Compute ti yong, relation, base score, luck word, and advice."""
+    ty = _compute_meihua_tiyong(base)
+    relation = ty['relation']
+    base_score, luck_word, luck_advice = _compute_base_score(level, relation)
+    return ty, relation, base_score, luck_word, luck_advice
+
+def _build_meihua_components(base: dict, ty: dict, relation: str, level: str,
+                               ben_name: str, upper_name: str, upper_nature: str,
+                               lower_name: str, lower_nature: str, gua_ci: str,
+                               hu_name: str, bian_name: str, dong_text: str,
+                               dong_meaning: str, luck_word: str, luck_advice: str,
+                               base_score: int) -> tuple:
+    """Build all component strings/lists for mei hua fallback."""
+    final_verdict = _build_final_verdict_meihua(ben_name, upper_name, upper_nature,
+                                                  lower_name, lower_nature, ty,
+                                                  relation, luck_word, luck_advice,
+                                                  hu_name, bian_name, gua_ci)
+    key_points = _build_key_points_meihua(relation, ty, bian_name, level)
+    analysis = _build_analysis_meihua(base, ty, relation, level)
+    hexagram_interpretations = _build_hexagram_interpretations(ty, dong_text, dong_meaning)
+    timing = _build_timing_meihua(ty, relation, bian_name)
+    advice = _build_advice_meihua(relation, ty, bian_name)
+    scenario_advice = _build_scenario_advice_meihua(luck_advice, relation)
+    folklore = _build_folklore_meihua(ty)
+    historical_cases = _build_historical_cases_meihua()
+    probability_stats = _build_probability_stats_meihua(base_score, relation)
+    return (final_verdict, key_points, analysis, hexagram_interpretations, timing,
+            advice, scenario_advice, folklore, historical_cases, probability_stats)
 
 def _get_shishen(rizhu: str, other_gan: str) -> str:
     """根据日干和其他天干，返回十神名称。"""
@@ -482,8 +521,6 @@ def _generate_personality(bazi: dict, wangshuai_level: str, dominant_shishen: li
 def _generate_career(bazi: dict, wangshuai_level: str, dominant_shishen: list,
                      wuxing_scores: dict) -> str:
     """生成事业财运分析。"""
-    rizhu = _get_rizhu(bazi)
-    rizhu_wx = _get_rizhu_wx(rizhu)
     lines = []
 
     # 找出财星和官杀
@@ -681,7 +718,6 @@ def _generate_key_points(bazi: dict, wangshuai_level: str,
                          dominant_shishen: list, wuxing_scores: dict) -> List[str]:
     """生成关键提示要点。"""
     rizhu = _get_rizhu(bazi)
-    rizhu_wx = _get_rizhu_wx(rizhu)
     points = []
 
     # 旺衰要点
@@ -801,7 +837,6 @@ def _generate_probability_stats(bazi: dict, wuxing_scores: dict, wangshuai_level
 def _generate_scenario_advice(bazi: dict, wangshuai_level: str,
                                dominant_shishen: list) -> str:
     """生成场景化建议（求职/财运/健康/感情等真实生活场景）。"""
-    rizhu = _get_rizhu(bazi)
     lines = []
 
     # 事业建议（结合旺衰给可操作的话）
@@ -888,7 +923,6 @@ def _generate_annual_fortune(bazi: dict, wangshuai_level: str,
 
 def _generate_study_exam(bazi: dict, dominant_shishen: list) -> str:
     """生成学业与考试运分析（印星主文书学业，白话给学生/家长看）。"""
-    rizhu = _get_rizhu(bazi)
     lines = []
 
     # 印星=学问文书贵人；食伤=表达发挥
@@ -983,6 +1017,52 @@ def _generate_disclaimer(pan_name: str = '命理') -> str:
 # 主入口函数
 # ================================================================
 
+# schema 中声明为「字符串」的字段（其余一律为 List[str]）
+_SCHEMA_STRING_FIELDS = ('final_verdict', 'disclaimer', 'key_points')
+
+
+def _conform_to_schema(pan_type: str, result: dict) -> dict:
+    """把兜底结果对齐到 `_JSON_SCHEMAS` 声明的类型契约。
+
+    历史问题：各 `_generate_*` 生成器的返回类型与 schema 不一致 ——
+    `_generate_key_points` 返回 list 而 schema 要 str；而
+    career / relationships / health / four_pillars_detail / study_exam /
+    scenario_advice / historical_cases 返回 str 而 schema 要 List[str]。
+    结果 `generate_fallback_analysis` 的产出通不过
+    `DataValidator.validate_*_analysis()`，与它自己 docstring 声明的
+    「符合 _JSON_SCHEMAS 格式」相矛盾。
+
+    渲染层 `ai_analysis_renderer._as_list()` 对 str 只返回**单条目**（不按行拆分），
+    所以线上表现为：AI 路径每行一条、兜底路径整段挤成一块 —— 两条路径版式不一致。
+    本函数在唯一出口处统一形态，使两条路径产出一致。
+
+    规则（无损，不编造内容）：
+        - schema 要 str、拿到 list/tuple → 以换行拼接
+        - schema 要 List[str]、拿到 str → 按行切分为条目（丢弃空行）
+    """
+    try:
+        from core.knowledge.analysis_storage import _JSON_SCHEMAS
+    except Exception:  # pragma: no cover - 导入失败不应影响兜底本身
+        return result
+
+    schema = _JSON_SCHEMAS.get(pan_type)
+    if not isinstance(schema, dict) or not isinstance(result, dict):
+        return result
+
+    out = dict(result)
+    for field in schema:
+        if field not in out:
+            continue
+        value = out[field]
+        if field in _SCHEMA_STRING_FIELDS:
+            if isinstance(value, (list, tuple)):
+                out[field] = '\n'.join(str(x) for x in value if str(x).strip())
+        elif isinstance(value, str):
+            # 空串 → 空列表（不要塞一个空条目，否则渲染出空行）
+            out[field] = [ln.strip() for ln in value.splitlines() if ln.strip()]
+    return out
+
+
 def generate_fallback_analysis(pan_type: str, chart_data: dict) -> Dict[str, Any]:
     """根据排盘数据生成有意义的分析预测（AI不可用时的兜底方案）。
 
@@ -994,14 +1074,16 @@ def generate_fallback_analysis(pan_type: str, chart_data: dict) -> Dict[str, Any
         dict: 符合 _JSON_SCHEMAS 格式的分析结果字典
     """
     if pan_type == 'bazi':
-        return _generate_bazi_fallback(chart_data)
+        result = _generate_bazi_fallback(chart_data)
     elif pan_type == 'meihua':
-        return _generate_meihua_fallback(chart_data)
+        result = _generate_meihua_fallback(chart_data)
     elif pan_type == 'liuren':
-        return _generate_liuren_fallback(chart_data)
+        result = _generate_liuren_fallback(chart_data)
     else:
         logger.warning(f'未知的分析类型: {pan_type}')
         return {}
+    # 唯一出口处统一类型形态，兑现「符合 _JSON_SCHEMAS 格式」的承诺
+    return _conform_to_schema(pan_type, result)
 
 
 def _generate_bazi_fallback(chart_data: dict) -> Dict[str, Any]:
@@ -1104,17 +1186,29 @@ _MH_RELATION_BASE = {
 }
 
 
-def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
-    """生成梅花易数分析的兜底结果（基于本/互/变卦与体用生克的数据驱动白话版）。"""
-    chart_data = chart_data if isinstance(chart_data, dict) else {}
+# Helper functions for _generate_meihua_fallback
+
+def _normalize_chart_data_meihua(chart_data: dict) -> dict:
+    """Normalize and extract inputs from chart_data for mei hua."""
+    if not isinstance(chart_data, dict):
+        chart_data = {}
     base = chart_data.get('base', {}) or {}
     hu = chart_data.get('hu', {}) or {}
     bian = chart_data.get('bian', {}) or {}
     level = chart_data.get('overall_judgment', '') or bian.get('judgment', '') or '平'
+    return {
+        'base': base,
+        'hu': hu,
+        'bian': bian,
+        'level': level,
+    }
 
+
+def _get_gua_names(base: dict) -> tuple:
+    """Extract gua names and natures from base dict."""
     ben_name = base.get('name', '本卦')
-    hu_name = hu.get('name', '')
-    bian_name = bian.get('name', '')
+    hu_name = base.get('hu', {}).get('name', '') if isinstance(base.get('hu'), dict) else ''
+    bian_name = base.get('bian', {}).get('name', '') if isinstance(base.get('bian'), dict) else ''
     upper_name = base.get('upper_name', '')
     lower_name = base.get('lower_name', '')
     upper_nature = base.get('upper_nature', '')
@@ -1122,9 +1216,16 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
     gua_ci = base.get('gua_ci', '') or base.get('description', '')
     dong_text = base.get('changing_yao_text', '')
     dong_meaning = base.get('changing_yao_meaning', '')
+    return ben_name, hu_name, bian_name, upper_name, lower_name, upper_nature, lower_nature, gua_ci, dong_text, dong_meaning
 
-    ty = _meihua_tiyong(base)
-    relation = ty['relation']
+
+def _compute_meihua_tiyong(base: dict) -> dict:
+    """Compute ti yong from base."""
+    return _meihua_tiyong(base)
+
+
+def _compute_base_score(level: str, relation: str) -> tuple:
+    """Compute base score, luck word, luck advice based on level and relation."""
     base_score, luck_word, luck_advice = _MH_RELATION_BASE.get(relation, _MH_RELATION_BASE['未知'])
     # 整体卦象等级微调
     if '吉' in str(level):
@@ -1132,8 +1233,14 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
     elif '凶' in str(level):
         base_score -= 4
     base_score = max(38, min(90, base_score))
+    return base_score, luck_word, luck_advice
 
-    # ---------- final_verdict：三段式白话总断 ----------
+
+def _build_final_verdict_meihua(ben_name: str, upper_name: str, upper_nature: str,
+                                lower_name: str, lower_nature: str, ty: dict,
+                                relation: str, luck_word: str, luck_advice: str,
+                                hu_name: str, bian_name: str, gua_ci: str) -> str:
+    """Build final_verdict string."""
     verdict_lines = [
         f'这一卦是「{ben_name}」（上{upper_name}{upper_nature}、下{lower_name}{lower_nature}），'
         f'动爻在第{ty["dong"] or "?"}爻，{ty["ti_pos"]}是体卦（代表你自己，五行属{ty["ti_wx"] or "?"}），'
@@ -1148,9 +1255,11 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         verdict_lines.append(f'古人给这卦留的卦辞说「{gua_ci[:60]}」，意思也是提醒：{luck_advice}。')
     verdict_lines.append('总体建议：卦象只告诉你眼下的「势」怎么走，事还在人为——'
                          '顺境时把事办实，逆境时把人做好，比什么都强。')
-    final_verdict = '\n'.join(verdict_lines)
+    return '\n'.join(verdict_lines)
 
-    # ---------- key_points：5-6 条具体提示（末尾统一动态编号） ----------
+
+def _build_key_points_meihua(relation: str, ty: dict, bian_name: str, level: str) -> str:
+    """Build key_points string."""
     key_points = [
         f'体用关系是「{relation}」（{ty["relation_plain"].split("（")[0]}），这是整卦吉凶的定盘星，遇事拿不准时就按这个基调决策。',
     ]
@@ -1173,21 +1282,28 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
                              if level in ('吉', '平') else
                              '结局仍有变数，见好就收、别贪多，落袋为安。'))
     key_points.append('卦不替你做决定，只提个醒：重大的钱、合同、健康问题，该核实核实、该问专业人士问专业人士。')
-    # 统一动态编号（部分条目按条件出现，避免编号跳号/重号）
+    # 统一动态编号（最多7条）并转换为字符串
     key_points = [f'{i}. {p}' for i, p in enumerate(key_points[:7], 1)]
+    return '\n'.join(key_points)
 
-    # ---------- analysis：卦象分析（本互变 + 体用） ----------
-    analysis = (
+
+def _build_analysis_meihua(ben_name: str, upper_nature: str, lower_nature: str,
+                           base_desc: str, hu_name: str, bian_name: str,
+                           ty: dict, relation: str, level: str) -> str:
+    """Build analysis string."""
+    return (
         f'【本卦·{ben_name}】问事时的现状。{upper_nature}在上、{lower_nature}在下，'
-        f'卦象取象于「{upper_nature}{lower_nature}」的组合——{base.get("description", "")[:120]}'
+        f'卦象取象于「{upper_nature}{lower_nature}」的组合——{base_desc}'
         f'\n【互卦·{hu_name or "—"}】事情发展到中间的隐情与助力，是过程里容易忽略的暗流。'
         f'\n【变卦·{bian_name or "—"}】动爻一变，事情最终走向这里，代表结局与收尾状态（本卦判为「{level}」）。'
-        f'\n【体用】体卦{ty["ti_pos"]}属{ty["ti_wx"] or "?"}、用卦{ty["yong_pos"]}属{ty["yong_wx"] or "?"}，'
+        f'\n【体用】体卦{ty["ti_pos"]}属{ty["ti_wx"] or "?"}，用卦{ty["yong_pos"]}属{ty["yong_wx"] or "?"}，'
         f'关系为「{relation}」。{ty["relation_plain"]}。'
         f'\n梅花易数断卦，体用生克是主骨，本互变是过程，动爻是机括——几样合参，趋势就清楚了。'
-    )
+    ).replace('{level}', '平' if not ty else '平')  # level not available, but we can ignore; keep as is
 
-    # ---------- hexagram_interpretations：六爻逐条（动爻高亮） ----------
+
+def _build_hexagram_interpretations(ty: dict, dong_text: str, dong_meaning: str) -> list:
+    """Build hexagram_interpretations list."""
     yao_pos_text = {
         1: '初爻：事刚冒头，像种子刚发芽，这时候别急着下结论，多看少动',
         2: '二爻：事情渐渐明朗，内部有底了，可以小步试探，但还没到大动的时候',
@@ -1207,8 +1323,11 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
             yao_items.append(f'第{i}爻（动爻）：{yao_pos_text[i]}{extra}。问事逢动爻，变化就从这里起，重点看它。')
         else:
             yao_items.append(f'第{i}爻：{yao_pos_text[i]}。')
+    return yao_items
 
-    # ---------- timing：应期（动爻远近 + 生克快慢） ----------
+
+def _build_timing_meihua(ty: dict, relation: str, bian_name: str) -> str:
+    """Build timing string."""
     dong = ty['dong'] or 0
     if dong in (1, 2):
         window = '快，大致几天到两周内就有动静'
@@ -1222,14 +1341,16 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         window += '；体用相生相比，好消息来得偏快'
     elif relation == '体生用':
         window += '；体去生用是泄气，事情磨得偏慢，催也没用'
-    timing = (
+    return (
         f'应期就是「事情什么时候见分晓」。这卦动爻在第{dong or "?"}爻，'
         f'按梅花易数的经验，爻位越靠下应得越快、越靠上应得越慢——{window}。'
         f'到了那个时段，多留意消息、回复和偶遇的机缘；'
         f'没到时间也别天天揪着，该干嘛干嘛。'
     )
 
-    # ---------- advice：带优先级的行动建议 ----------
+
+def _build_advice_meihua(relation: str, ty: dict, bian_name: str) -> list:
+    """Build advice list."""
     advice = []
     if relation in ('用生体', '比和'):
         advice.append('【高】趁势把关键一步迈出去：该谈的条件这周就谈、该递的申请别压着——顺的时候办事，成本最低。')
@@ -1247,8 +1368,11 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         advice.append('【高】大事暂缓：辞职、大额投资、分手摊牌这类决定，往后推至少半个月，先看清楚再说。')
         advice.append('【中】守好三样东西——身体别熬夜、现金流别断、合同凭证留齐全，凶象最怕有准备的人。')
         advice.append('【低】等压力松动的信号（消息落实、对方松口、身体回神）再动，不急于一时。')
+    return advice
 
-    # ---------- scenario_advice：场景化建议 ----------
+
+def _build_scenario_advice_meihua(luck_advice: str, relation: str) -> str:
+    """Build scenario_advice string."""
     scene_lines = [
         f'【求职工作】{luck_advice}。眼下谈薪、面试、竞聘'
         + ('可以主动约、大胆提要求' if relation in ('用生体', '比和')
@@ -1259,16 +1383,21 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         f'【感情相处】{ "关系升温的好时候，有误会适合说开，单身者多参加聚会，缘分来得自然" if relation in ("用生体", "比和") else "要靠你主动经营，多替对方着想，光等不来" if relation == "体生用" else "能成但吵吵闹闹，把底线说清、别翻旧账" if relation == "体克用" else "容易闹别扭、冷战，话到嘴边留半句，别在气头上做决定" }。',
         '【身体心情】卦象偏凶偏泄时，最明显的反应是睡不好、心里烦——这不是病，是气在耗。早睡、散步、少刷手机，比瞎琢磨管用；真有不舒服及时就医。',
     ]
-    scenario_advice = '\n'.join(scene_lines)
+    return '\n'.join(scene_lines)
 
-    # ---------- 民俗建议 ----------
+
+def _build_folklore_meihua(ty: dict) -> list:
+    """Build folklore list."""
     folklore = []
     if ty['ti_wx'] in WUXING_COLOR:
         folklore.append(f'问卦这段时间，穿戴、随身物可多用{WUXING_COLOR[ty["ti_wx"]]}一系，出门往{WUXING_DIRECTION.get(ty["ti_wx"], "通风明亮处")}走走，图个扶助人的彩头（民俗说法，图个吉利，不必迷信）。')
     folklore.append('心浮气躁时把问卦的纸条或手机备忘录删了——卦是提醒不是枷锁，日子该怎么过怎么过（民俗说法，图个吉利，不必迷信）。')
+    return folklore
 
-    # ---------- historical_cases：白话案例 ----------
-    historical_cases = (
+
+def _build_historical_cases_meihua() -> str:
+    """Return historical cases string (constant)."""
+    return (
         '【前人占例·观梅占】宋代邵雍（康节）在梅园见两只麻雀争枝坠地，'
         '以当时年月日时起卦，断第二日有女子折花、园丁追赶、女子摔伤大腿，后果然应验。'
         '梅花易数的路子就是「不动不占、因事起卦」——你诚心问的这一卦，'
@@ -1276,8 +1405,10 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         '前人案例重在示范断卦思路，具体到每个人的事，还得结合实际情况看。'
     )
 
-    # ---------- probability_stats：随体用吉凶浮动 ----------
-    probability_stats = [
+
+def _build_probability_stats_meihua(base_score: int, relation: str) -> list:
+    """Build probability_stats list."""
+    return [
         f'整体吉凶：{base_score}%',
         f'事业谋事：{max(35, base_score - 2 + (3 if relation in ("用生体", "比和") else -4))}%',
         f'财运求财：{max(35, base_score - 6 + (4 if relation in ("用生体", "比和") else -3))}%',
@@ -1285,11 +1416,262 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         f'健康平安：{max(45, base_score + 8)}%',
     ]
 
+
+# Helper functions for _generate_meihua_fallback
+
+def _normalize_chart_data_meihua(chart_data: dict) -> dict:
+    """Normalize and extract inputs from chart_data for mei hua."""
+    if not isinstance(chart_data, dict):
+        chart_data = {}
+    base = chart_data.get('base', {}) or {}
+    hu = chart_data.get('hu', {}) or {}
+    bian = chart_data.get('bian', {}) or {}
+    level = chart_data.get('overall_judgment', '') or bian.get('judgment', '') or '平'
+    return {
+        'base': base,
+        'hu': hu,
+        'bian': bian,
+        'level': level,
+    }
+
+
+def _get_gua_names(base: dict) -> tuple:
+    """Extract gua names and natures from base dict."""
+    ben_name = base.get('name', '本卦')
+    hu_name = base.get('hu', {}).get('name', '') if isinstance(base.get('hu'), dict) else ''
+    bian_name = base.get('bian', {}).get('name', '') if isinstance(base.get('bian'), dict) else ''
+    upper_name = base.get('upper_name', '')
+    lower_name = base.get('lower_name', '')
+    upper_nature = base.get('upper_nature', '')
+    lower_nature = base.get('lower_nature', '')
+    gua_ci = base.get('gua_ci', '') or base.get('description', '')
+    dong_text = base.get('changing_yao_text', '')
+    dong_meaning = base.get('changing_yao_meaning', '')
+    return ben_name, hu_name, bian_name, upper_name, lower_name, upper_nature, lower_nature, gua_ci, dong_text, dong_meaning
+
+
+def _compute_meihua_tiyong(base: dict) -> dict:
+    """Compute ti yong from base."""
+    return _meihua_tiyong(base)
+
+
+def _compute_base_score(level: str, relation: str) -> tuple:
+    """Compute base score, luck word, luck advice based on level and relation."""
+    base_score, luck_word, luck_advice = _MH_RELATION_BASE.get(relation, _MH_RELATION_BASE['未知'])
+    # 整体卦象等级微调
+    if '吉' in str(level):
+        base_score += 4
+    elif '凶' in str(level):
+        base_score -= 4
+    base_score = max(38, min(90, base_score))
+    return base_score, luck_word, luck_advice
+
+
+def _build_final_verdict_meihua(ben_name: str, upper_name: str, upper_nature: str,
+                                lower_name: str, lower_nature: str, ty: dict,
+                                relation: str, luck_word: str, luck_advice: str,
+                                hu_name: str, bian_name: str, gua_ci: str) -> str:
+    """Build final_verdict string."""
+    verdict_lines = [
+        f'这一卦是「{ben_name}」（上{upper_name}{upper_nature}、下{lower_name}{lower_nature}），'
+        f'动爻在第{ty["dong"] or "?"}爻，{ty["ti_pos"]}是体卦（代表你自己，五行属{ty["ti_wx"] or "?"}），'
+        f'{ty["yong_pos"]}是用卦（代表你问的这件事，五行属{ty["yong_wx"] or "?"}）。',
+        f'看吉凶主要看体用生克：{ty["relation_plain"]}，属于「{luck_word}」的基调。'
+        f'说人话就是——{luck_advice}。',
+    ]
+    if hu_name:
+        verdict_lines.append(f'事情的中间过程看互卦「{hu_name}」，代表过程里的暗流和插曲；'
+                             f'最终走向看变卦「{bian_name}」，这是事情收尾时的样子。')
+    if gua_ci:
+        verdict_lines.append(f'古人给这卦留的卦辞说「{gua_ci[:60]}」，意思也是提醒：{luck_advice}。')
+    verdict_lines.append('总体建议：卦象只告诉你眼下的「势」怎么走，事还在人为——'
+                         '顺境时把事办实，逆境时把人做好，比什么都强。')
+    return '\n'.join(verdict_lines)
+
+
+def _build_key_points_meihua(relation: str, ty: dict, bian_name: str, level: str) -> str:
+    """Build key_points string."""
+    key_points = [
+        f'体用关系是「{relation}」（{ty["relation_plain"].split("（")[0]}），这是整卦吉凶的定盘星，遇事拿不准时就按这个基调决策。',
+    ]
+    if ty['dong']:
+        if ty['dong'] >= 4:
+            key_points.append('动爻在上卦：这事儿的变化多半由外部、对方或大环境引起，你自己宜稳住阵脚、静观其变，别抢着拍板。')
+        else:
+            key_points.append('动爻在下卦（内卦）：变化的主动权在你自己手里，事由你起、也由你收，想动可以从自己这边先调整。')
+    if relation in ('用生体', '比和'):
+        key_points.append('眼下是「有人帮、事情顺」的时段，该开口求人、该递方案、该表白表态的，别拖，趁势把事定下来。')
+    elif relation == '体克用':
+        key_points.append('事能成但费劲：别指望天上掉馅饼，把流程拆细、一步步啃，关键环节亲自盯，劳而有功。')
+    elif relation == '体生用':
+        key_points.append('眼下你在「倒贴」——出钱出力出情绪多，回报还没到。先止损式投入，谈不拢的条件别急着答应。')
+    elif relation == '用克体':
+        key_points.append('眼下不宜硬来：重大决定（辞职、投资、摊牌）往后放一放，先保身体、保现金流、保基本盘。')
+    if bian_name:
+        key_points.append(f'变卦是「{bian_name}」，代表事情的收尾走向——'
+                          + ('结局偏稳，眼下再难也有落地的时候，坚持到收尾即可。'
+                             if level in ('吉', '平') else
+                             '结局仍有变数，见好就收、别贪多，落袋为安。'))
+    key_points.append('卦不替你做决定，只提个醒：重大的钱、合同、健康问题，该核实核实、该问专业人士问专业人士。')
+    # 统一动态编号（最多7条）并转换为字符串
+    key_points = [f'{i}. {p}' for i, p in enumerate(key_points[:7], 1)]
+    return '\n'.join(key_points)
+
+
+def _build_analysis_meihua(base: dict, ty: dict, relation: str, level: str) -> str:
+    """Build analysis string."""
+    ben_name = base.get('name', '本卦')
+    upper_name = base.get('upper_name', '')
+    lower_name = base.get('lower_name', '')
+    upper_nature = base.get('upper_nature', '')
+    lower_nature = base.get('lower_nature', '')
+    gua_desc = base.get('description', '') or base.get('gua_ci', '')
+    hu_name = base.get('hu', {}).get('name', '') if isinstance(base.get('hu'), dict) else ''
+    bian_name = base.get('bian', {}).get('name', '') if isinstance(base.get('bian'), dict) else ''
+    return (
+        f'【本卦·{ben_name}】问事时的现状。{upper_nature}在上、{lower_nature}在下，'
+        f'卦象取象于「{upper_nature}{lower_nature}」的组合——{gua_desc}'
+        f'\n【互卦·{hu_name or "—"}】事情发展到中间的隐情与助力，是过程里容易忽略的暗流。'
+        f'\n【变卦·{bian_name or "—"}】动爻一变，事情最终走向这里，代表结局与收尾状态（本卦判为「{level}」）。'
+        f'\n【体用】体卦{ty["ti_pos"]}属{ty["ti_wx"] or "?"}，用卦{ty["yong_pos"]}属{ty["yong_wx"] or "?"}，'
+        f'关系为「{relation}」。{ty["relation_plain"]}。'
+        f'\n梅花易数断卦，体用生克是主骨，本互变是过程，动爻是机括——几样合参，趋势就清楚了。'
+    ).replace('{level}', '平' if not ty else '平')  # level not available, but we can ignore; keep as is
+
+
+def _build_hexagram_interpretations(ty: dict, dong_text: str, dong_meaning: str) -> list:
+    """Build hexagram_interpretations list."""
+    yao_pos_text = {
+        1: '初爻：事刚冒头，像种子刚发芽，这时候别急着下结论，多看少动',
+        2: '二爻：事情渐渐明朗，内部有底了，可以小步试探，但还没到大动的时候',
+        3: '三爻：事到中途、内卦到头，正是进退拉锯的关口，防的是急躁冒进',
+        4: '四爻：刚进入外卦，局势开始转折，外部条件变化大，宜顺势不宜固执',
+        5: '五爻：事到鼎盛、君位之爻，主动权最足，但盛极要防衰，得意别忘形',
+        6: '上爻：事到收尾、过亢之位，该收官了，善始善终比再开新局重要',
+    }
+    yao_items = []
+    for i in range(1, 7):
+        if i == ty['dong']:
+            extra = '｜★本卦动爻——这就是引发变化的那一爻'
+            if dong_text:
+                extra += f'，爻辞说「{dong_text[:40]}」'
+            if dong_meaning:
+                extra += f'（{dong_meaning[:60]}）'
+            yao_items.append(f'第{i}爻（动爻）：{yao_pos_text[i]}{extra}。问事逢动爻，变化就从这里起，重点看它。')
+        else:
+            yao_items.append(f'第{i}爻：{yao_pos_text[i]}。')
+    return yao_items
+
+
+def _build_timing_meihua(ty: dict, relation: str, bian_name: str) -> str:
+    """Build timing string."""
+    dong = ty['dong'] or 0
+    if dong in (1, 2):
+        window = '快，大致几天到两周内就有动静'
+    elif dong in (3, 4):
+        window = '中等，大约三周到一个半月见分晓'
+    elif dong in (5, 6):
+        window = '慢，往往要两三个月甚至更久才应验'
+    else:
+        window = '动爻不明显，应期看不分明，按正常节奏留意即可'
+    if relation in ('用生体', '比和'):
+        window += '；体用相生相比，好消息来得偏快'
+    elif relation == '体生用':
+        window += '；体去生用是泄气，事情磨得偏慢，催也没用'
+    return (
+        f'应期就是「事情什么时候见分晓」。这卦动爻在第{dong or "?"}爻，'
+        f'按梅花易数的经验，爻位越靠下应得越快、越靠上应得越慢——{window}。'
+        f'到了那个时段，多留意消息、回复和偶遇的机缘；'
+        f'没到时间也别天天揪着，该干嘛干嘛。'
+    )
+
+
+def _build_advice_meihua(relation: str, ty: dict, bian_name: str) -> list:
+    """Build advice list."""
+    advice = []
+    if relation in ('用生体', '比和'):
+        advice.append('【高】趁势把关键一步迈出去：该谈的条件这周就谈、该递的申请别压着——顺的时候办事，成本最低。')
+        advice.append('【中】帮忙的贵人多半是长辈、领导或生你这行的人（五行属' + str(ty["ti_wx"]) + '的气），主动请人吃顿饭、把难处说开。')
+        advice.append('【低】顺境也别铺张，赚到的人情和钱先存下三成，留着淡的时候用。')
+    elif relation == '体克用':
+        advice.append('【高】把大目标拆成小动作，每周推进一点；最难的环节自己上、亲自盯，别当甩手掌柜。')
+        advice.append('【中】别同时开两条战线，一件事一件事了，贪多则散气。')
+        advice.append('【低】过程中有人搭把手就接着，但别把成败押在别人身上。')
+    elif relation == '体生用':
+        advice.append('【高】先收着点：钱、精力、感情都别一股脑全投进去，付出七分、留三分看对方反应。')
+        advice.append('【中】把「求别人」转成「养自己」——这段时间学本事、整资源，比追着事跑划算。')
+        advice.append('【低】若事情一直热不起来，放到变卦（' + str(bian_name) + '）当令的时段再议。')
+    else:  # 用克体 / 未知
+        advice.append('【高】大事暂缓：辞职、大额投资、分手摊牌这类决定，往后推至少半个月，先看清楚再说。')
+        advice.append('【中】守好三样东西——身体别熬夜、现金流别断、合同凭证留齐全，凶象最怕有准备的人。')
+        advice.append('【低】等压力松动的信号（消息落实、对方松口、身体回神）再动，不急于一时。')
+    return advice
+
+
+def _build_scenario_advice_meihua(luck_advice: str, relation: str) -> str:
+    """Build scenario_advice string."""
+    scene_lines = [
+        f'【求职工作】{luck_advice}。眼下谈薪、面试、竞聘'
+        + ('可以主动约、大胆提要求' if relation in ('用生体', '比和')
+           else '能成但要多跑几轮、多费口舌' if relation == '体克用'
+           else '宜稳不宜动，先保住现有的' if relation in ('用克体',)
+           else '先打磨简历和作品，时机未到别强推'),
+        f'【钱财生意】{ "进财通道开着，正财偏财都有机会，但合同条款看清再签" if relation in ("用生体", "比和") else "财要费力才来，赚的是辛苦钱，别嫌慢" if relation == "体克用" else "出多进少，控制大额支出，别借钱给别人、别碰高息局" if relation == "体生用" else "破财风险偏高，捂紧钱包，任何「稳赚不赔」的话都别信" }。',
+        f'【感情相处】{ "关系升温的好时候，有误会适合说开，单身者多参加聚会，缘分来得自然" if relation in ("用生体", "比和") else "要靠你主动经营，多替对方着想，光等不来" if relation == "体生用" else "能成但吵吵闹闹，把底线说清、别翻旧账" if relation == "体克用" else "容易闹别扭、冷战，话到嘴边留半句，别在气头上做决定" }。',
+        '【身体心情】卦象偏凶偏泄时，最明显的反应是睡不好、心里烦——这不是病，是气在耗。早睡、散步、少刷手机，比瞎琢磨管用；真有不舒服及时就医。',
+    ]
+    return '\n'.join(scene_lines)
+
+
+def _build_folklore_meihua(ty: dict) -> list:
+    """Build folklore list."""
+    folklore = []
+    if ty['ti_wx'] in WUXING_COLOR:
+        folklore.append(f'问卦这段时间，穿戴、随身物可多用{WUXING_COLOR[ty["ti_wx"]]}一系，出门往{WUXING_DIRECTION.get(ty["ti_wx"], "通风明亮处")}走走，图个扶助人的彩头（民俗说法，图个吉利，不必迷信）。')
+    folklore.append('心浮气躁时把问卦的纸条或手机备忘录删了——卦是提醒不是枷锁，日子该怎么过怎么过（民俗说法，图个吉利，不必迷信）。')
+    return folklore
+
+
+def _build_historical_cases_meihua() -> str:
+    """Return historical cases string (constant)."""
+    return (
+        '【前人占例·观梅占】宋代邵雍（康节）在梅园见两只麻雀争枝坠地，'
+        '以当时年月日时起卦，断第二日有女子折花、园丁追赶、女子摔伤大腿，后果然应验。'
+        '梅花易数的路子就是「不动不占、因事起卦」——你诚心问的这一卦，'
+        '取的也是当下这一机，体用生克的断法跟邵子当年用的是同一套规矩。'
+        '前人案例重在示范断卦思路，具体到每个人的事，还得结合实际情况看。'
+    )
+
+
+def _build_probability_stats_meihua(base_score: int, relation: str) -> list:
+    """Build probability_stats list."""
+    return [
+        f'整体吉凶：{base_score}%',
+        f'事业谋事：{max(35, base_score - 2 + (3 if relation in ("用生体", "比和") else -4))}%',
+        f'财运求财：{max(35, base_score - 6 + (4 if relation in ("用生体", "比和") else -3))}%',
+        f'感情人际：{max(35, base_score - 3)}%',
+        f'健康平安：{max(45, base_score + 8)}%',
+    ]
+
+
+def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
+    """生成梅花易数分析的兜底结果（基于本/互/变卦与体用生克的数据驱动白话版）。"""
+    # Prepare data via helper
+    base, hu, bian, level, ben_name, hu_name, bian_name, upper_name, lower_name, upper_nature, lower_nature, gua_ci, dong_text, dong_meaning = _prepare_meihua_data(chart_data)
+    # Compute ti yong, relation, base score, luck word, luck advice
+    ty, relation, base_score, luck_word, luck_advice = _compute_meihua_tiyong_and_score(base, level)
+    # Build all components
+    final_verdict, key_points, analysis, hexagram_interpretations, timing, advice, scenario_advice, folklore, historical_cases, probability_stats = _build_meihua_components(
+        base, ty, relation, level,
+        ben_name, upper_name, upper_nature, lower_name, lower_nature, gua_ci,
+        hu_name, bian_name, dong_text, dong_meaning, luck_word, luck_advice, base_score
+    )
+    # Assemble and return
     return {
         'final_verdict': final_verdict,
         'key_points': key_points,
         'analysis': analysis,
-        'hexagram_interpretations': yao_items,
+        'hexagram_interpretations': hexagram_interpretations,
         'timing': timing,
         'advice': advice,
         'scenario_advice': scenario_advice,
@@ -1298,8 +1680,6 @@ def _generate_meihua_fallback(chart_data: dict) -> Dict[str, Any]:
         'probability_stats': probability_stats,
         'disclaimer': _generate_disclaimer('梅花易数卦象'),
     }
-
-
 # 门法（九宗门）代号 → 白话名称
 _LR_GATE_NAME = {
     'zeike': '贼克法', 'biyong': '比用法', 'shehai': '涉害法',
@@ -1317,8 +1697,6 @@ _LR_GATE_PLAIN = {
     'bieze': '别责主借外力，自己手里牌不够，要靠外部资源、长辈或他方帮助才能成事',
     'bazhuan': '八专主暧昧不分——权责不清、关系不明的事多，丑话说在前面、权责写清楚最要紧',
 }
-
-
 def _liuren_jiang_of(tian_jiang: list) -> dict:
     """建立「天盘支 → 天将名」映射，用于查三传/四课各乘什么天将。"""
     mapping = {}
@@ -1331,12 +1709,15 @@ def _liuren_jiang_of(tian_jiang: list) -> dict:
     return mapping
 
 
-def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
-    """生成大六壬分析的兜底结果（基于四课三传/天将吉凶/门法的数据驱动白话版）。"""
-    chart_data = chart_data if isinstance(chart_data, dict) else {}
+# Helper functions for _generate_liuren_fallback
+
+def _normalize_chart_data(chart_data: dict) -> dict:
+    """Normalize and extract inputs from chart_data."""
+    if not isinstance(chart_data, dict):
+        chart_data = {}
     si_ke = chart_data.get('si_ke', {}) or {}
-    # san_chuan 可能是 dict（正常）或 list（老旧数据/测试数据），统一适配
     raw_san_chuan = chart_data.get('san_chuan', {})
+    # san_chuan 可能是 dict（正常）或 list（老旧数据/测试数据），统一适配
     if isinstance(raw_san_chuan, list):
         # list 格式：[{chu, zhong, mo}, ...] 或 [初传, 中传, 末传]
         san_chuan = {'chu': '', 'zhong': '', 'mo': '', 'gate': ''}
@@ -1359,20 +1740,51 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
     ri_gan_wx = TIAN_GAN_WX.get(ri_gan, '')
     question = chart_data.get('question', '')
     yue_jiang = chart_data.get('yue_jiang_name', '') or chart_data.get('yue_jiang', '')
+    return {
+        'si_ke': si_ke,
+        'san_chuan': san_chuan,
+        'tian_jiang': tian_jiang,
+        'shen_sha': shen_sha,
+        'ri_gan': ri_gan,
+        'ri_zhi': ri_zhi,
+        'ri_gan_wx': ri_gan_wx,
+        'question': question,
+        'yue_jiang': yue_jiang,
+    }
 
+
+def _process_san_chuan(san_chuan: dict) -> tuple:
+    """Extract chu, zhong, mo, gate from san_chuan dict."""
     chu = san_chuan.get('chu', '') or ''
     zhong = san_chuan.get('zhong', '') or ''
     mo = san_chuan.get('mo', '') or ''
     gate = san_chuan.get('gate', '') or ''
+    return chu, zhong, mo, gate
+
+
+def _get_gate_info(gate: str) -> tuple:
+    """Get gate name and plain description."""
     gate_name = _LR_GATE_NAME.get(gate, gate or '九宗门')
     gate_plain = _LR_GATE_PLAIN.get(gate, '')
+    return gate_name, gate_plain
 
-    jiang_map = _liuren_jiang_of(tian_jiang)
-    # 三传所乘天将（初传权重最大：发端看事之起）
-    chuan_jiang = [(label, zhi, jiang_map.get(zhi, ''))
-                   for label, zhi in (('初传', chu), ('中传', zhong), ('末传', mo)) if zhi]
 
-    # ---------- 吉凶量化：三传天将吉凶 + 传间生克 ----------
+def _compute_jiang_map(tian_jiang: list) -> dict:
+    """Compute jiang map from tian_jiang."""
+    return _liuren_jiang_of(tian_jiang)
+
+
+def _compute_chuan_jiang(chu: str, zhong: str, mo: str, jiang_map: dict) -> list:
+    """Compute chuan_jiang list with labels and jiang."""
+    chuan_jiang = []
+    for label, zhi in (('初传', chu), ('中传', zhong), ('末传', mo)):
+        if zhi:
+            chuan_jiang.append((label, zhi, jiang_map.get(zhi, '')))
+    return chuan_jiang
+
+
+def _compute_liuren_score(chuan_jiang: list, chu: str, zhong: str, mo: str) -> tuple:
+    """Compute score, good_hits, bad_hits, chain_text, luck_tone."""
     good_hits, bad_hits = [], []
     weights = {'初传': 0.5, '中传': 0.3, '末传': 0.2}
     score = 70.0
@@ -1400,24 +1812,34 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
         score += 4
     score = max(40, min(88, round(score)))
     luck_tone = '偏吉' if score >= 72 else ('偏凶' if score <= 58 else '平')
+    return score, good_hits, bad_hits, chain_text, luck_tone
 
-    # 四课摘要（容错：si_ke 值可能是 dict 或字符串）
+
+def _build_si_ke_summary(si_ke: dict) -> str:
+    """Build si_ke summary."""
     def _ke_text(key):
         v = si_ke.get(key)
         if isinstance(v, dict):
             return v.get('tianpan', '') or v.get('dizhi', '') or '—'
         return str(v) if v else '—'
-    ke_summary = (f"干上{_ke_text('gan_shang')}、干阴{_ke_text('gan_yin')}、"
-                  f"支上{_ke_text('zhi_shang')}、支阴{_ke_text('zhi_yin')}")
+    return (f"干上{_ke_text('gan_shang')}、干阴{_ke_text('gan_yin')}、"
+            f"支上{_ke_text('zhi_shang')}、支阴{_ke_text('zhi_yin')}")
 
-    # 神煞摘要
+
+def _build_shen_sha_summary(shen_sha: dict) -> str:
+    """Build shen_sha summary."""
     if isinstance(shen_sha, dict):
         sha_items = [f'{k}{v}' for k, v in list(shen_sha.items())[:6]]
     else:
         sha_items = []
-    sha_text = '、'.join(sha_items) if sha_items else '本课无明显神煞'
+    return '、'.join(sha_items) if sha_items else '本课无明显神煞'
 
-    # ---------- final_verdict ----------
+
+def _build_verdict(ri_gan: str, ri_gan_wx: str, ri_zhi: str, question: str,
+                   yue_jiang: str, gate_name: str, chu: str, zhong: str, mo: str,
+                   chain_text: str, good_hits: list, bad_hits: list, gate_plain: str,
+                   score: int, luck_tone: str) -> str:
+    """Build final_verdict string."""
     verdict = [
         f'这课日干{ri_gan}（属{ri_gan_wx or "?"}）代表问事人，日支{ri_zhi}代表所问之事'
         f'（{("所问：" + question) if question else "未写明具体所问，按通行事体断"}）。'
@@ -1433,9 +1855,12 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
         verdict.append(f'门法「{gate_name}」的白话意思是：{gate_plain}。')
     verdict.append(f'综合看，这课整体基调「{luck_tone}」（成事指数约{score}%）。'
                    '六壬看的是事的机与势，机到了要接、势逆了要让——具体怎么办，看下面分项。')
-    final_verdict = '\n'.join(verdict)
+    return '\n'.join(verdict)
 
-    # ---------- key_points（末尾统一动态编号） ----------
+
+def _build_key_points(gate_name: str, gate_plain: str, good_hits: list, bad_hits: list,
+                      chu: str, zhong: str, mo: str, chuan_jiang: list, sha_text: str) -> str:
+    """Build key_points string."""
     key_points = [f'门法「{gate_name}」定了事情的大节奏：{gate_plain or "按常规推进即可"}。']
     if good_hits:
         key_points.append(f'课里的明助力：{"、".join(good_hits)}，对应的时机和贵人要主动接住，别客气。')
@@ -1447,10 +1872,17 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
                          if mo_good else '末传未见强助，事情别拖，能在前中段定下来的就别留尾巴。'))
     key_points.append(f'神煞参考：{sha_text}（神煞是辅助信息，别被名字吓住，知道哪里留神即可）。')
     key_points.append('六壬主「机」：同一事不必反复占，一课一决；重大钱物、健康问题，课象再吉也要走正规途径核实。')
+    # 统一动态编号（最多7条）并转换为字符串
     key_points = [f'{i}. {p}' for i, p in enumerate(key_points[:7], 1)]
+    return '\n'.join(key_points)
 
-    # ---------- analysis：课体分析 ----------
-    analysis = (
+
+def _build_analysis(ri_gan: str, ri_gan_wx: str, ri_zhi: str, ke_summary: str,
+                    chu: str, zhong: str, mo: str, chain_text: str,
+                    gate_name: str, gate_plain: str, good_hits: list, bad_hits: list,
+                    sha_text: str) -> str:
+    """Build analysis string."""
+    return (
         f'【干支定位】日干{ri_gan}（{ri_gan_wx or "?"}）为我，日支{ri_zhi}为事体；'
         f'干上神讲我这边的状态，支上神讲事情那边的状态。\n'
         f'【四课】{ke_summary}——四课是事情的四个侧面：干上两课看我这边明里暗里的情况，支上两课看对方/事情的表里。\n'
@@ -1463,7 +1895,9 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
         '六壬断课以四课为体、三传为用、天将为气色、神煞为点缀，合参而断，不执一端。'
     )
 
-    # ---------- tianjiang_detail：三传/四课天将逐条白话 ----------
+
+def _build_tianjiang_detail(chuan_jiang: list, jiang_map: dict, si_ke: dict) -> list:
+    """Build tianjiang_detail list."""
     tianjiang_detail = []
     for label, zhi, j in chuan_jiang:
         if j and j in LIUREN_JIANG_MEANING:
@@ -1481,16 +1915,21 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
             tianjiang_detail.append(f'{ke_name}神（{tp}）乘{j}【{kind}】：{meaning}。')
     if not tianjiang_detail:
         tianjiang_detail = ['课中天将排布已生成，但三传天将信息不明显，可对照盘面十二天将宫位参看。']
+    return tianjiang_detail
 
-    # ---------- scene_readings：分类占断 ----------
+
+def _build_scene_readings(score: int, good_hits: list, bad_hits: list) -> list:
+    """Build scene_readings list."""
     scene = [
         f'【谋事求财】{"课传有吉神生扶，这事可成、财可得，开口谈条件的时机不错，但流程手续要走齐" if score >= 72 else "课传吉凶交织，事能磨成但要费周折，利润预期放低些，合同条款逐条抠" if score > 58 else "眼下阻力偏大，新的投入和扩张先按住，已在做的事以止损保本为主，等时运转顺再议"}。',
         f'【行人消息】{"传进有气、吉神引路，等的人或消息近日就有音信，不妨主动联系一次" if score >= 72 else "消息来得迟、可能有反复，多发一次问、多找一个中间人打听，别干等" if score > 58 else "音信受阻、易有拖延或变卦，要紧的事别只靠口头约定，重要文件亲自催办"}。',
         f'【求职合作】{"贵人象明显，面试、谈判有长辈或领导帮衬，拿出诚意就容易成" if good_hits else "合作能谈但要防口舌与承诺落空，凡是口头答应的，回去都补一条文字确认" if bad_hits else "合作运平平，待遇和权责先谈清楚再答应，别急着站队"}。',
     ]
-    scene_readings = '\n'.join(scene)
+    return scene
 
-    # ---------- scenario_advice：综合建议 ----------
+
+def _build_scenario_advice(gate_plain: str, score: int, good_hits: list, bad_hits: list) -> str:
+    """Build scenario_advice string."""
     has_help = any(('贵人' in h or '天后' in h or '太阴' in h) for h in good_hits)
     has_quarrel = any(('朱雀' in h or '螣蛇' in h or '腾蛇' in h or '玄武' in h or '天空' in h) for h in bad_hits)
     scenario_lines = [
@@ -1505,38 +1944,47 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
         + ('身体无大碍，保持作息即可' if not any('白虎' in h for h in bad_hits)
            else '白虎临传，近期压力大、小毛病容易找上门——别熬夜硬扛，不舒服及时去正规医院检查'),
     ]
-    scenario_advice = '\n'.join(scenario_lines)
+    return '\n'.join(scenario_lines)
 
-    # ---------- timing：应期 ----------
+
+def _build_timing(gate: str, chu: str, zhong: str, mo: str) -> str:
+    """Build timing string."""
     if gate == 'fuyin':
         gate_timing = '门法伏吟主静，应期会拖长，逢冲（子午、卯酉之类）的日子或月份才容易动起来。'
     elif gate == 'fanyin':
         gate_timing = '门法返吟主反复，中间容易有回炉、反悔，定下来的事也要留一次变动的余量。'
     else:
         gate_timing = '传上见吉神的时段主动推进，见凶将的时段以守为进。'
-    timing = (
+    return (
         f'六壬应期看三传：初传{chu or "—"}主事之发端，对应眼下几天到两周内的动静；'
         f'中传{zhong or "—"}主过程，大致两三周到一个半月是变数最多的时候；'
         f'末传{mo or "—"}主归结，一个半月到三个月事情见分晓。{gate_timing}'
         '具体日子可对照万年历看传支当令的日期，前后差几天都正常，不必死抠。'
     )
 
-    # ---------- folklore_tips ----------
+
+def _build_folklore(ri_gan_wx: str) -> list:
+    """Build folklore list."""
     folklore = []
     if ri_gan_wx in WUXING_COLOR:
         folklore.append(f'这阵子穿戴可多用{WUXING_COLOR[ri_gan_wx]}一系，办事出门朝{WUXING_DIRECTION.get(ri_gan_wx, "明亮通风处")}方位多走走，图个扶身助人的彩头（民俗说法，图个吉利，不必迷信）。')
     folklore.append('心里不踏实就把待办写在纸上逐条做——六壬讲「静定生慧」，人一慌课象再好也接不住（民俗说法，图个吉利，不必迷信）。')
+    return folklore
 
-    # ---------- historical_cases ----------
-    historical_cases = (
+
+def _build_historical_cases() -> list:
+    """Return historical cases list (constant)."""
+    return [
         '【前人课例】《大六壬指南》《六壬大全》中存有多则课案，多以三传吉凶、天将善恶断事之成败迟速，'
         '思路与本课一致：初传看起因、末传看归宿，贵人青龙临传则事多吉，白虎螣蛇临传则防灾虞。'
         '前人课例重在示范「四课三传—天将—神煞」合参的断法，具体到每个人的事，'
         '还需结合实际处境与行动来看，课象是提醒不是定数。'
-    )
+    ]
 
-    # ---------- probability_stats ----------
-    probability_stats = [
+
+def _build_probability_stats(score: int) -> list:
+    """Build probability_stats list."""
+    return [
         f'整体吉凶：{score}%',
         f'谋事求财：{max(38, score - 4)}%',
         f'行人消息：{max(38, score - 8)}%',
@@ -1544,6 +1992,55 @@ def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
         f'健康平安：{max(45, score + 6)}%',
     ]
 
+
+def _generate_liuren_fallback(chart_data: dict) -> Dict[str, Any]:
+    """生成大六壬分析的兜底结果（基于四课三传/天将吉凶/门法的数据驱动白话版）。"""
+    # Normalize inputs
+    data = _normalize_chart_data(chart_data)
+    si_ke = data['si_ke']
+    san_chuan = data['san_chuan']
+    tian_jiang = data['tian_jiang']
+    shen_sha = data['shen_sha']
+    ri_gan = data['ri_gan']
+    ri_zhi = data['ri_zhi']
+    ri_gan_wx = data['ri_gan_wx']
+    question = data['question']
+    yue_jiang = data['yue_jiang']
+
+    # Process san_chuan
+    chu, zhong, mo, gate = _process_san_chuan(san_chuan)
+    gate_name, gate_plain = _get_gate_info(gate)
+
+    # Compute jiang map and chuan_jiang
+    jiang_map = _compute_jiang_map(tian_jiang)
+    chuan_jiang = _compute_chuan_jiang(chu, zhong, mo, jiang_map)
+
+    # Compute liuren score and related
+    score, good_hits, bad_hits, chain_text, luck_tone = _compute_liuren_score(chuan_jiang, chu, zhong, mo)
+
+    # Build summaries
+    ke_summary = _build_si_ke_summary(si_ke)
+    sha_text = _build_shen_sha_summary(shen_sha)
+
+    # Build components of the result
+    final_verdict = _build_verdict(ri_gan, ri_gan_wx, ri_zhi, question, yue_jiang,
+                                   gate_name, chu, zhong, mo, chain_text,
+                                   good_hits, bad_hits, gate_plain, score, luck_tone)
+    key_points = _build_key_points(gate_name, gate_plain, good_hits, bad_hits,
+                                   chu, zhong, mo, chuan_jiang, sha_text)
+    analysis = _build_analysis(ri_gan, ri_gan_wx, ri_zhi, ke_summary,
+                               chu, zhong, mo, chain_text,
+                               gate_name, gate_plain, good_hits, bad_hits,
+                               sha_text)
+    tianjiang_detail = _build_tianjiang_detail(chuan_jiang, jiang_map, si_ke)
+    scene_readings = _build_scene_readings(score, good_hits, bad_hits)
+    scenario_advice = _build_scenario_advice(gate_plain, score, good_hits, bad_hits)
+    timing = _build_timing(gate, chu, zhong, mo)
+    folklore = _build_folklore(ri_gan_wx)
+    historical_cases = _build_historical_cases()
+    probability_stats = _build_probability_stats(score)
+
+    # Assemble and return
     return {
         'final_verdict': final_verdict,
         'key_points': key_points,

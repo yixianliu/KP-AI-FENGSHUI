@@ -10,8 +10,7 @@ UI 升级方案 M4 / 步骤 4.1：所有"列表项"（大运柱、流年柱、�
 """
 import re
 
-from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel,
-                               QWidget)
+from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor
 
@@ -85,7 +84,7 @@ class ListItem(QFrame):
             导致下面 LIST_ITEM_QSS 的四态背景**全部静默失效**（整份 QSS 等于没写）。
             """
             if 'background' not in ss:
-                ss = ss.rstrip() + f' background: transparent;'
+                ss = ss.rstrip() + ' background: transparent;'
             lbl.setStyleSheet(ss)
             self._child_labels.append((lbl, ss))
             container.addWidget(lbl, stretch) if stretch else container.addWidget(lbl)

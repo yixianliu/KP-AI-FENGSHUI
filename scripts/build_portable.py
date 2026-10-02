@@ -163,7 +163,7 @@ def _prepare_pyside6_packages() -> dict:
             if p.is_file() and not p.name.endswith(('.pyi', '.lib', '.h')):
                 rel = str(p.relative_to(PYSIDE6_PKG)).replace(os.sep, '/')
                 collected[rel] = p
-        print(f"[配置] 已复制 shiboken6 到 pyside6_packages/shiboken6/")
+        print("[配置] 已复制 shiboken6 到 pyside6_packages/shiboken6/")
         # 记录 shiboken6 ABI DLL 供 spec 使用
         _shiboken6_abi_dll = _pyside6_shiboken_dir / "shiboken6.abi3.dll"
         _shiboken6_pyd = _pyside6_shiboken_dir / "Shiboken.pyd"
@@ -277,15 +277,7 @@ def _generate_spec(collected: dict) -> Path:
     shiboken6_abi = {k: v for k, v in collected.items()
                      if k in ('shiboken6/shiboken6.abi3.dll', 'shiboken6/Shiboken.pyd')}
     # 其余 Qt 插件（styles, imageformats 等）→ datas（打入 PySide6/plugins/）
-    other_plugins = {k: v for k, v in collected.items()
-                     if "platforms" not in k.lower()
-                     and not k.endswith('.pyd')
-                     and not k.startswith(_pyside6_prefix)
-                     and not k.endswith('_conda.dll')
-                     and not (k.startswith('Qt5') and k.endswith('.dll'))
-                     and not k.startswith(("msv", "vcr", "concrt", "vccor", "libssl", "libcrypto", "_ssl"))
-                     and k not in ('pyside6.abi3.dll', 'pyside6qml.abi3.dll', 'shiboken6.abi3.dll', 'python3.dll')
-                     and not k.startswith('shiboken6/')}
+    # 注：当前实现的过滤条件已合并入其他 datas 收集分支，不再单独保留 other_plugins 字典。
 
     certifi_cacert = _find_certifi_cacert()
 
@@ -569,10 +561,10 @@ def main() -> int:
         return code
 
     print("=" * 64)
-    print(f"[完成] 便携版构建成功，可发布。")
+    print("[完成] 便携版构建成功，可发布。")
     print(f"       版本: v{ver_str}")
     print(f"       输出目录: {DIST / '风水排盘专业工具'}")
-    print(f"       可独立运行于任何 Windows 10+ 系统，无需 Python 环境。")
+    print("       可独立运行于任何 Windows 10+ 系统，无需 Python 环境。")
     print("=" * 64)
     return 0
 

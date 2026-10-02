@@ -182,7 +182,7 @@ class ThreePartInterpretation:
         found_authoritative = [c for c in citations if c in REQUIRED_CITATIONS]
         if not found_authoritative:
             missing_required = REQUIRED_CITATIONS[:3]  # 提示缺少前3部
-            warnings.append(f'未引用任何权威典籍，建议引用《子平真诠》《滴天髓》等')
+            warnings.append('未引用任何权威典籍，建议引用《子平真诠》《滴天髓》等')
 
         # 检查是否有疑似编造的典籍（不在权威列表中且 rag_context 中未出现）
         rag_sources = {r['source'] for r in self._get_rag_sources()}
@@ -263,7 +263,6 @@ def generate_interpretation(
 
     # 调用 AI（带缓存）
     from core.ai_cache import get_cached_result, save_to_cache
-    cache_key = f'{pan_type}_{hash(json.dumps(chart_data, sort_keys=True))}'
     cached = get_cached_result(pan_type, chart_data, question=None)
     if cached is not None:
         return {

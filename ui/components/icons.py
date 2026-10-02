@@ -9,8 +9,8 @@ UI 升级方案 M5 / 5.2：全部图标统一走 assets/icons/*.svg，
     - 目录：assets/icons/{name}.svg（kebab-case 小写短横线命名）
     - 尺寸：仅 16 / 20 / 24 / 32 / 48 五档
     - 路径：打包后走 core.path_utils.get_resource_path，源码走项目根
-    - 缺失：图标不存在时回退到内置 Unicode 字符 QIcon（不崩溃），
-      并输出告警日志，便于审计漏下图标。
+    - 缺失：图标不存在时回退到 1×1 透明占位 QIcon（不崩溃），
+      并输出告警日志，便于审计漏下图标；调用方需自行用 `setText` 提供文本兜底。
 """
 from typing import Optional
 
@@ -31,17 +31,6 @@ _DEFAULT_ICON_COLOR = '#F5F1E8'
 # QIcon 缓存：(name, size, color) -> QIcon
 _ICON_CACHE: dict = {}
 
-# Unicode 回退字符（图标文件缺失时的降级显示）
-_FALLBACK_GLYPHS = {
-    'bazi': '☯', 'meihua': '❀', 'liuren': '☵', 'xuan-kong': '⛰',
-    'robot': '🤖', 'copy': '⧉', 'export': '⬇', 'export-pdf': '📄',
-    'export-excel': '📊', 'collapse-all': '⊟', 'settings': '⚙',
-    'info': 'ⓘ', 'close': '✕', 'check': '✓', 'success': '✓',
-    'warning': '⚠', 'danger': '✕', 'loading': '☯', 'arrow-down': '↓',
-    'arrow-up': '↑', 'arrow-left': '←', 'arrow-right': '→',
-    'chevron': '›', 'refresh': '⟳', 'search': '⌕',
-}
-
 
 def icon(name: str, size: int = 24, color: Optional[str] = None) -> QIcon:
     """按名称加载 SVG 图标，缓存 QIcon。size 只支持 16/20/24/32/48。
@@ -54,7 +43,8 @@ def icon(name: str, size: int = 24, color: Optional[str] = None) -> QIcon:
                currentColor 文本替换为指定色后用 loadFromData 解析。
 
     Returns:
-        QIcon。文件存在时返回 SVG 图标；缺失时回退到 Unicode 字符 QIcon。
+        QIcon。文件存在时返回 SVG 图标；缺失时回退到 1×1 透明占位 QIcon，
+        调用方需自行用 `setText` 提供文本兜底（图标层不维护 Unicode 字形表）。
     """
     if size not in _VALID_SIZES:
         raise ValueError(f"图标尺寸必须为 16/20/24/32/48，收到 {size}")
@@ -82,11 +72,9 @@ def icon(name: str, size: int = 24, color: Optional[str] = None) -> QIcon:
             _ICON_CACHE[key] = qicon
             return qicon
 
-    # 回退：Unicode 字符 QIcon（不阻断 UI）
-    logger.warning("图标文件缺失，使用 Unicode 回退: %s.svg", name)
-    glyph = _FALLBACK_GLYPHS.get(name, '●')
+    # 回退：1×1 透明占位（不阻断 UI；调用方需用 setText 提供文本兜底）
+    logger.warning("图标文件缺失，返回透明占位: %s.svg", name)
     fallback = QIcon()
-    # 用一个 1x1 透明 pixmap 占位，字符实际由调用方控件 setText 显示
     fallback.addPixmap(QPixmap(1, 1))
     _ICON_CACHE[key] = fallback
     return fallback

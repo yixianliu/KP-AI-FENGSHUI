@@ -13,7 +13,7 @@
 import json
 import hashlib
 import threading
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any
 
 import logging
 
@@ -75,13 +75,16 @@ class DatabaseManager:
         """
         # 关键：在 __init__ 最开始就注册单例，防止初始化期间的递归创建
         # （如 StorageLogHandler.emit 记录日志触发 get_db_manager()）
-        global _db_manager_singleton
+        global _db_manager_singleton, _db_manager_ready
         _db_manager_singleton = self
 
         self.config_path = config_path
         # 首次运行时由 schema_sqlite.sql 建库；随后补建运行期表
         sqlite_db.ensure_initialized()
         self._init_runtime_tables()
+        # 标记「已完成初始化」——peek_db_manager() 只有在此时才对外暴露单例，
+        # 避免初始化中途被别的线程取到半成品实例。
+        _db_manager_ready = True
 
     def _connect(self):
         """获取一个本地 SQLite 连接（row_factory=Row，调用方负责 close）。"""
@@ -1345,6 +1348,20 @@ class DatabaseManager:
 
 _db_manager_singleton = None
 _db_manager_initializing = False  # 防止初始化期间的递归调用
+_db_manager_ready = False  # 单例是否已**完成**初始化
+
+
+def peek_db_manager() -> "DatabaseManager | None":
+    """返回**已完成初始化**的 DatabaseManager 单例；未创建 / 初始化中 → None。
+
+    与 ``get_db_manager()`` 的关键区别：**绝不触发创建、绝不阻塞**。
+
+    供日志处理器等「记录日志不得阻塞主线程、也不得把 DB 初始化提前到调用点」
+    的路径使用：后台线程异步打开 DB 期间返回 None，此时仅跳过落库
+    （日志仍进本地文件 / 控制台）。否则启动期一条 WARNING+ 日志就会在**主线程**
+    同步触发约 1.7s 的 SQLite 初始化，抵消 M7-T5 的异步打开优化。
+    """
+    return _db_manager_singleton if _db_manager_ready else None
 
 
 def get_db_manager(config_path: str = None) -> "DatabaseManager":

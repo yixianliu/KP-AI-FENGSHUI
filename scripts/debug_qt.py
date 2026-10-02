@@ -34,12 +34,12 @@ for p in common_paths:
     if p.exists():
         print(f"Found Qt6Core.dll at: {p}")
         lib = ctypes.CDLL(str(p.resolve()), winmode=8)
-        print(f"  Loaded successfully")
+        print("  Loaded successfully")
         # Check for symbol
         if hasattr(lib, 'UCN_TO_U_CALLBACK_SUBSTITUTE'):
-            print(f"  Has UCN_TO_U_CALLBACK_SUBSTITUTE: True")
+            print("  Has UCN_TO_U_CALLBACK_SUBSTITUTE: True")
         else:
-            print(f"  Has UCN_TO_U_CALLBACK_SUBSTITUTE: False")
+            print("  Has UCN_TO_U_CALLBACK_SUBSTITUTE: False")
         break
 else:
     print("Qt6Core.dll not found in common paths")

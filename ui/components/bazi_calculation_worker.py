@@ -7,10 +7,8 @@ from core.lunar_converter import LunarConverter
 from core.calendar_utils import SolarTimeCalculator
 from core.location_db import LocationDB
 from core.bazi.yunshi import YunShiCalculator
-from core.bazi.bazi_types import get_bazi_types_payload
 from core.bazi.yuncheng import YunChengAnalyzer
 from core.bazi.geju_analyzer import GeJuAnalyzer
-from core.divination.hexagram_analyzer import HexagramAnalyzer  # Not used in bazi, but kept for completeness if needed
 import traceback
 from datetime import datetime
 
@@ -89,7 +87,7 @@ class BaziCalculationWorker(QThread):
                 liunian = yunshi_calc.calculate_annual_fortune(bazi, start_year=datetime.now().year, years_count=10)
                 if self._is_cancelled:
                     return
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
                 dayun = {'periods': [], 'direction': '顺行'}
                 liunian = {'years': []}
@@ -110,7 +108,7 @@ class BaziCalculationWorker(QThread):
                     }
                 if self._is_cancelled:
                     return
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
                 shier_shen = {}
 
@@ -130,7 +128,7 @@ class BaziCalculationWorker(QThread):
                 yuncheng = YunChengAnalyzer().analyze(bazi, wx, ss, bazi_types)
                 if self._is_cancelled:
                     return
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
                 yuncheng = {}
 

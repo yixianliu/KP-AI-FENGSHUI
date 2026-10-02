@@ -14,13 +14,12 @@ core/bazi_batch.py — 八字批量排盘引擎（NumPy 向量化）
 """
 from __future__ import annotations
 
-import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 
 # 延迟导入，避免模块加载时 TIAN_GAN 等常量尚未初始化
-from core.calendar_utils import _lazy_init
+# _lazy_init 在函数体内惰性调用（第 28 行），模块级不预加载。
 
 
 def _get_maps():
@@ -150,7 +149,6 @@ def batch_hour_ganzhi(day_gans: np.ndarray, hour_zhis: np.ndarray) -> np.ndarray
         shape (N,) 的 str ndarray，时柱干支
     """
     TIAN_GAN, DI_ZHI, _, _ = _get_maps()
-    day_gan_idx = np.array([TIAN_GAN.index(g) for g in day_gans])
     hour_zhi_idx = np.array([DI_ZHI.index(z) for z in hour_zhis])
     # 时干起点（根据日干）
     start_gan = np.array([_SHISHU_DUN.get(g, 0) for g in day_gans])
@@ -262,7 +260,6 @@ def benchmark_batch_calculate(n: int = 10000) -> Dict:
 
 if __name__ == '__main__':
     # 快速性能测试
-    import json
     for n in [100, 1000, 10000, 100000]:
         bench = benchmark_batch_calculate(n)
         print(f"n={bench['n']:>6}: {bench['elapsed_seconds']:.4f}s  "

@@ -19,7 +19,6 @@ scripts/build_release.py — 一键发布构建（自动移除密钥 → 打包 
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path

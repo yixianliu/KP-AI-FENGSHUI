@@ -1,16 +1,12 @@
+"""右侧结果面板 v5.0 - 精美国风 · 可折叠卡片 · 清晰排版 · 流畅动画
 """
-右侧结果面板 v5.0 - 精美国风 · 可折叠卡片 · 清晰排版 · 流畅动画
-"""
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QScrollArea, QProgressBar, QGraphicsOpacityEffect,
                              QDialog, QSizePolicy)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from ui.styles import (Stylesheets, Colors, Fonts, Spacing,
-                       apply_density, content_margins, DEFAULT_DENSITY)
+                       apply_density, DEFAULT_DENSITY)
 from ui.components.collapsible_card import (CollapsibleCard,
-                                          probability_stats_widget,
-                                          conclusion_block, suggestion_block,
-                                  risk_aware_label,
                                   register_anchor_scroller,
                                   loading_panel, ResponsiveFlow,
                                   set_all_cards_collapsed,
@@ -37,7 +33,6 @@ DIZHI_WUXING = {
 }
 
 
-
 class ResultPanel(QWidget):
     """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、智能 分析分隔与呈现。
 
@@ -50,7 +45,6 @@ class ResultPanel(QWidget):
         Args:
             parent: 父控件（通常为 MainWindow 的结果栈）
             stacked_widget: 预留的堆叠控件参数，当前未使用，保留以兼容调用
-
         初始化 智能 可用性标记与淡入动画列表，并构建 UI。
         """
         super().__init__(parent)
@@ -63,7 +57,6 @@ class ResultPanel(QWidget):
 
     def init_ui(self):
         """构建面板基础布局：滚动区 + 内容容器 + 顶部标题行 + 空状态。
-
         内容容器 self.content 使用横向 Expanding 策略以填满右侧宽度；
         顶部标题行与空状态由 _header / _empty 生成并加入 clay 垂直布局。
         """
@@ -125,7 +118,7 @@ class ResultPanel(QWidget):
         # 状态标签
         if not hasattr(self, 'status_lbl') or self.status_lbl is None:
             self.status_lbl = QLabel('')
-            self.status_lbl.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT3}; font-family: {Fonts.BODY};")
+            self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};")
         hdr.addWidget(self.status_lbl)
 
         # 取消按钮
@@ -274,8 +267,8 @@ class ResultPanel(QWidget):
         flow = ResponsiveFlow(min_item_width=190, max_cols=4, min_cols=1, spacing=14)
         flow.setContentsMargins(Spacing.S_MARGIN_XS, Spacing.S_PAD_SM, Spacing.S_MARGIN_XS, Spacing.S_PAD_SM)
 
-        for idx, (name, p) in enumerate([('年柱', bazi['year_pillar']), ('月柱', bazi['month_pillar']),
-                                          ('日柱', bazi['day_pillar']), ('时柱', bazi['hour_pillar'])]):
+        for idx, (name, p) in enumerate([('年柱', bazi.get('year_pillar', '')), ('月柱', bazi.get('month_pillar', '')),
+                                          ('日柱', bazi.get('day_pillar', '')), ('时柱', bazi.get('hour_pillar', ''))]):
             # 防御：空/过短 pillar 跳过，避免 p[0]/p[1] 越界
             if not p or len(p) < 2:
                 continue
@@ -861,7 +854,7 @@ class ResultPanel(QWidget):
                 chip = QLabel(f'{icon} {r}')
                 chip.setStyleSheet(
                     f"background:{color}; color:white; border-radius:{Spacing.RADIUS_SM}; "
-                    f"padding:2px 8px; font-size:{Fonts.SZ_MICRO}; font-family:{Fonts.BODY};"
+                    f"padding:2px 8px; font-size:{Fonts.SZ_SMALL}; font-family:{Fonts.BODY};"
                 )
                 lg.addWidget(chip)
             lg.addStretch()
@@ -1097,177 +1090,24 @@ class ResultPanel(QWidget):
 
         return w
 
-    def display_result(self, rd):
+    def display_result(self, rd: dict) -> None:
         """显示排盘结果 - 使用可折叠卡片"""
-        import logging
-        import traceback
-        logger = logging.getLogger(__name__)
-        try:
-            self._current_result = rd
-            self._clear_content()
-
-            # 重建头部
-            self._rebuild_header()
-
-            self.refresh_btn.setVisible(True)
-            self.copy_btn.setVisible(True)
-            self.export_btn.setVisible(True)
-            self.collapse_all_btn.setVisible(True)
-            self.collapse_all_btn.setText('全部收起')
-            self.smart_analyze_btn.setVisible(True)
-            self.smart_analyze_btn.setText('⚡ 智能分析')
-            self.status_lbl.setText('✓ 排盘完成')
-            self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};")
-
-            logger.info("[ResultPanel] display_result 开始渲染")
-        except Exception as e:
-            logger.error(f"[ResultPanel] display_result 初始化失败: {e}\n{traceback.format_exc()}")
-            self.status_lbl.setText('✗ 显示失败')
-            self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};")
-            raise
-
-        # 命盘信息卡片（默认展开）
-        try:
-            bi = rd.get('basic_info', {})
-            if bi:
-                info_card = CollapsibleCard('命盘信息', 'ℹ', accent_color=Colors.QINGHUA, collapsed=False)
-                info_card.set_content(self._info_row([
-                    ('排盘类型', bi.get('pan_type', '-')),
-                    ('公历日期', bi.get('solar_date', '-')),
-                    ('农历日期', bi.get('lunar_date', '-')),
-                    ('出生时辰', bi.get('hour', '-')),
-                    ('出生地点', bi.get('location', '-')),
-                    ('性别', bi.get('gender', '-')),
-                ]))
-                self.clay.addWidget(info_card)
-            logger.debug("[ResultPanel] 命盘信息卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 命盘信息卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 命局类型卡片（默认展开）—— 八字「类型」分类的核心呈现
-        try:
-            bt = rd.get('bazi_types', {})
-            if bt and (bt.get('strength') or bt.get('geju_type') or bt.get('wuxing_summary')):
-                type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=False)
-                type_card.set_content(self._bazi_types(bt))
-                self.clay.addWidget(type_card)
-            logger.debug("[ResultPanel] 命局类型卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 命局类型卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 四柱卡片（默认展开，高亮）
-        # 双路径兜底：Service 结构下 rd['bazi'] 为 None，回退到顶层摊平字段
-        try:
-            bazi = rd.get('bazi') or {}
-            if not bazi:
-                bazi = {
-                    'year_pillar': rd.get('year_pillar', ''),
-                    'month_pillar': rd.get('month_pillar', ''),
-                    'day_pillar': rd.get('day_pillar', ''),
-                    'hour_pillar': rd.get('hour_pillar', ''),
-                    'rizhu': rd.get('rizhu', ''),
-                    'month_zhi': rd.get('month_zhi', ''),
-                    'hour_zhi': rd.get('hour_zhi', ''),
-                }
-            # 验证四柱数据有效性（每柱至少2个字符）
-            if bazi and all(len(str(bazi.get(k, ''))) >= 2 for k in ['year_pillar', 'month_pillar', 'day_pillar', 'hour_pillar']):
-                bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
-                bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
-                self.clay.addWidget(bazi_card)
-            logger.debug("[ResultPanel] 四柱卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 四柱卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 五行分析卡片（默认展开）
-        # 双路径兜底：Service 结构下 rd['wuxing'] 为 None，回退到 wuxing_detail 提取 count
-        try:
-            wx = rd.get('wuxing') or {}
-            if not wx:
-                wx_detail = rd.get('wuxing_detail') or {}
-                if isinstance(wx_detail, dict):
-                    wx = {k: v.get('count', 0) if isinstance(v, dict) else v
-                          for k, v in wx_detail.items() if k in ('木', '火', '土', '金', '水')}
-            if wx:
-                wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=False)
-                wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
-                self.clay.addWidget(wx_card)
-            logger.debug("[ResultPanel] 五行分析卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 五行分析卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 吉凶批注卡片（默认展开）
-        try:
-            an = rd.get('analysis', [])
-            if an:
-                an_card = CollapsibleCard('吉凶批注', '⚖', accent_color=Colors.ZHUSHA, collapsed=False)
-                an_card.set_content(self._annotations(an))
-                self.clay.addWidget(an_card)
-            logger.debug("[ResultPanel] 吉凶批注卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 吉凶批注卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 运程总结卡片（事业 / 财运 / 健康 / 感情）
-        try:
-            yc = rd.get('yuncheng', {})
-            if yc and (yc.get('career') or yc.get('wealth') or yc.get('health') or yc.get('love')):
-                yc_card = CollapsibleCard('运程总结', '☯', accent_color=Colors.LIUJIN, collapsed=False)
-                yc_card.set_content(self._yuncheng(yc))
-                self.clay.addWidget(yc_card)
-            logger.debug("[ResultPanel] 运程总结卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 运程总结卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 十二长生卡片（默认展开）
-        try:
-            ss_raw = rd.get('shier_shen', {})
-            if ss_raw and ss_raw.get('shier_shen'):
-                ss_card = CollapsibleCard('十二长生', '☰', accent_color=Colors.QINGHUA, collapsed=False)
-                ss_card.set_content(self._shier_shen(ss_raw))
-                self.clay.addWidget(ss_card)
-            logger.debug("[ResultPanel] 十二长生卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 十二长生卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 神煞系统卡片（默认展开）
-        try:
-            shensha_data = rd.get('mingli', {}).get('shensha', {}) if isinstance(rd.get('mingli'), dict) else {}
-            if shensha_data and (shensha_data.get('positive') or shensha_data.get('negative') or shensha_data.get('neutral')):
-                ss_card2 = CollapsibleCard('神煞系统', '☆', accent_color=Colors.ZHUSHA, collapsed=False)
-                ss_card2.set_content(self._shensha(shensha_data))
-                self.clay.addWidget(ss_card2)
-            logger.debug("[ResultPanel] 神煞系统卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 神煞系统卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 地支关系卡片（默认展开）
-        try:
-            gz_rel_data = rd.get('mingli', {}).get('ganzhi_relations', {}) if isinstance(rd.get('mingli'), dict) else {}
-            if gz_rel_data and gz_rel_data.get('zhi_relations'):
-                rel_card = CollapsibleCard('地支关系', '⚖', accent_color=Colors.LIUJIN, collapsed=False)
-                rel_card.set_content(self._di_zhi_relations(gz_rel_data))
-                self.clay.addWidget(rel_card)
-            logger.debug("[ResultPanel] 地支关系卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 地支关系卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        # 大运流年卡片（默认展开）
-        try:
-            dayun = rd.get('dayun', {})
-            liunian = rd.get('liunian', {})
-            if dayun.get('periods') or liunian.get('years'):
-                yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=False)
-                yunshi_card.set_content(fortune_timeline_widget(dayun, liunian, Colors.LIUJIN))
-                self.clay.addWidget(yunshi_card)
-            logger.debug("[ResultPanel] 大运流年卡片渲染完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 大运流年卡片渲染失败: {e}\n{traceback.format_exc()}")
-
-        self.clay.addStretch()
-        try:
-            self._fade_in_widgets()
-            logger.info("[ResultPanel] display_result 渲染全部完成")
-        except Exception as e:
-            logger.error(f"[ResultPanel] 淡入动画失败: {e}\n{traceback.format_exc()}")
+        if not isinstance(rd, dict):
+            rd = {}
+        self._current_result = rd
+        self._init_display_result(rd)
+        self._add_basic_info_card(rd)
+        self._add_bazi_types_card(rd)
+        self._add_bazi_card(rd)
+        self._add_wuxing_card(rd)
+        self._add_annotations_card(rd)
+        self._add_yuncheng_card(rd)
+        self._add_shier_shen_card(rd)
+        self._add_shensha_card(rd)
+        self._add_di_zhi_relations_card(rd)
+        self._add_dayun_liunian_card(rd)
+        self.collapse_all_btn.setVisible(True)
+        self._finalize_display_result()
 
     def show_loading(self, message: str = '排盘中…'):
         """展示加载状态（支持排盘和AI分析两种模式）。
@@ -1540,7 +1380,7 @@ class ResultPanel(QWidget):
         except Exception:
             pass
         from ui.components.ai_analysis_renderer import render_analysis as render
-        render('bazi', smart_data, self.clay)
+        render('bazi', smart_data, self.clay, scroll_area=self.scroll)
         QTimer.singleShot(50, self._scroll_to_section)
 
     # ----------------- 辅助方法 -----------------
@@ -1567,6 +1407,9 @@ class ResultPanel(QWidget):
             if w is not None:
                 self._stop_widget_anims(w)
                 w.deleteLater()
+        # M3-2：钉住目录条挂在滚动视口（不在 clay 内），需单独回收
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'scroll', None))
 
     @staticmethod
     def _stop_widget_anims(widget):
@@ -1591,6 +1434,9 @@ class ResultPanel(QWidget):
     def _clear_prev_ai_container(self):
         """移除上一次 AI 解读渲染时插入的容器（ai_analysis_container），
         防止连续排盘/重复完成回调导致两份 AI 解读并存。"""
+        # M3-2：先回收钉住目录条（挂在滚动视口，不在 clay 内）
+        from ui.components.sticky_toc import clear_sticky_toc
+        clear_sticky_toc(getattr(self, 'scroll', None))
         try:
             for i in range(self.clay.count() - 1, -1, -1):
                 item = self.clay.itemAt(i)
@@ -1660,6 +1506,38 @@ class ResultPanel(QWidget):
                 self._scroll_to_section()
         except Exception:
             pass
+
+    def show_error(self, message: str, retry=None):
+        """展示**排盘失败**的错误态（M3-6 统一错误视觉 + 可选重试）。
+
+        Args:
+            message: 错误说明（来自异常）。
+            retry:   重试回调（一般为 MainWindow 的 _on_bazi 槽）；
+                     None 时只展示错误、不提供重试。
+
+        与 AI 失败的 ``_show_error`` 区分：排盘失败时**没有可分析的内容**，
+        故隐藏「智能分析」按钮，只保留 ErrorState 内的重试入口。
+        背景：``_on_bazi`` 会先 ``show_loading()`` 再排盘，排盘抛异常时若只写
+        statusBar，面板会**永远停在 loading**（转圈 + 按钮隐藏）→ 用户卡死。
+        """
+        from ui.components.states import mount_error_state
+
+        self._stop_pulse()
+        self._clear_content()
+        self._rebuild_header()
+        self.status_lbl.setText('⚠ 排盘失败')
+        self.status_lbl.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.DANGER}; font-family:{Fonts.BODY};"
+        )
+        for btn_name in ('refresh_btn', 'copy_btn', 'export_btn',
+                         'collapse_all_btn', 'smart_analyze_btn'):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.setVisible(False)
+        self._clear_error_holder()
+        self._error_holder, _err = mount_error_state(
+            self.clay, message, title='排盘失败', retry=retry)
+        self.clay.addStretch()
 
     def _show_error(self, message: str):
         """展示 大师兄 分析异常提示，委托 ErrorState（M3-6：统一错误视觉 + 重试信号）。
@@ -1806,6 +1684,30 @@ class ResultPanel(QWidget):
             return [str(x) for x in value if x is not None and str(x).strip()]
         return [str(value)]
 
+    def _init_display_result(self, rd: dict) -> None:
+        """初始化显示结果：停止脉冲，清空内容，重建头部。"""
+        self._stop_pulse()
+        self._clear_content()
+        self._rebuild_header()
+
+    def _finalize_display_result(self) -> None:
+        """最终显示结果：添加伸缩项使内容靠顶部显示，并设置成功状态和按钮可见。"""
+        self.clay.addStretch()
+        self.status_lbl.setText('✓ 排盘完成')
+        self.status_lbl.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
+        )
+        # 使导出等按钮可见
+        if hasattr(self, 'export_btn') and self.export_btn:
+            self.export_btn.setVisible(True)
+        if hasattr(self, 'refresh_btn') and self.refresh_btn:
+            self.refresh_btn.setVisible(True)
+        if hasattr(self, 'copy_btn') and self.copy_btn:
+            self.copy_btn.setVisible(True)
+        if hasattr(self, 'smart_analyze_btn') and self.smart_analyze_btn:
+            self.smart_analyze_btn.setVisible(True)
+            self.smart_analyze_btn.setEnabled(True)
+
     def _paragraph(self, text: str, color: str) -> QWidget:
         """段落型内容渲染：单节整体文本，自动换行、行距舒适。"""
         w = QWidget()
@@ -1821,6 +1723,95 @@ class ResultPanel(QWidget):
         )
         l.addWidget(txt)
         return w
+
+    def _add_basic_info_card(self, rd: dict) -> None:
+        """添加基本信息卡片。"""
+        bi = rd.get('basic_info', {}) or {}
+        if bi:
+            orig_card = CollapsibleCard('命盘信息', 'ℹ', accent_color=Colors.QINGHUA, collapsed=False)
+            orig_card.set_content(self._info_row([
+                ('排盘类型', bi.get('pan_type', '-')),
+                ('公历日期', bi.get('solar_date', '-')),
+                ('农历日期', bi.get('lunar_date', '-')),
+                ('出生时辰', bi.get('hour', '-')),
+                ('出生地点', bi.get('location', '-')),
+                ('性别', bi.get('gender', '-')),
+            ]))
+            self.clay.addWidget(orig_card)
+
+    def _add_bazi_types_card(self, rd: dict) -> None:
+        """添加命局类型卡片。"""
+        bt = rd.get('bazi_types', {}) or {}
+        if bt and (bt.get('strength') or bt.get('geju_type') or bt.get('wuxing_summary')):
+            type_card = CollapsibleCard('命局类型', '📿', accent_color=Colors.ZHUSHA, collapsed=False)
+            type_card.set_content(self._bazi_types(bt))
+            self.clay.addWidget(type_card)
+
+    def _add_bazi_card(self, rd: dict) -> None:
+        """添加四柱天干地支卡片。"""
+        bazi = rd.get('bazi', {}) or {}
+        if bazi:
+            bazi_card = CollapsibleCard('四柱天干地支', '★', accent_color=Colors.LIUJIN, collapsed=False)
+            bazi_card.set_content(self._pillars(bazi, rd.get('mingli')))
+            self.clay.addWidget(bazi_card)
+
+    def _add_wuxing_card(self, rd: dict) -> None:
+        """添加五行分析卡片。"""
+        wx = rd.get('wuxing', {}) or {}
+        bt = rd.get('bazi_types', {}) or {}
+        if wx:
+            wx_card = CollapsibleCard('五行分析', '◆', accent_color=Colors.QINGHUA, collapsed=False)
+            wx_card.set_content(self._wuxing(wx, bt.get('rizhu_wx')))
+            self.clay.addWidget(wx_card)
+
+    def _add_annotations_card(self, rd: dict) -> None:
+        """添加吉凶批注卡片。"""
+        an = rd.get('analysis', []) or []
+        if an:
+            an_card = CollapsibleCard('吉凶批注', '⚖', accent_color=Colors.ZHUSHA, collapsed=False)
+            an_card.set_content(self._annotations(an))
+            self.clay.addWidget(an_card)
+
+    def _add_yuncheng_card(self, rd: dict) -> None:
+        """添加运程总结卡片。"""
+        yc = rd.get('yuncheng', {}) or {}
+        if yc and (yc.get('career') or yc.get('wealth') or yc.get('health') or yc.get('love')):
+            yc_card = CollapsibleCard('运程总结', '☯', accent_color=Colors.LIUJIN, collapsed=False)
+            yc_card.set_content(self._yuncheng(yc))
+            self.clay.addWidget(yc_card)
+
+    def _add_shier_shen_card(self, rd: dict) -> None:
+        """添加十二神卡片。"""
+        ss = rd.get('shier_shen', {}) or {}
+        if ss:
+            shier_shen_card = CollapsibleCard('十二神', '♓', accent_color=Colors.QINGHUA, collapsed=False)
+            shier_shen_card.set_content(self._shier_shen(ss))
+            self.clay.addWidget(shier_shen_card)
+
+    def _add_shensha_card(self, rd: dict) -> None:
+        """添加神煞卡片。"""
+        sh = rd.get('shensha', {}) or {}
+        if sh:
+            shensha_card = CollapsibleCard('神煞', '⚡', accent_color=Colors.LIUJIN, collapsed=False)
+            shensha_card.set_content(self._shensha(sh))
+            self.clay.addWidget(shensha_card)
+
+    def _add_di_zhi_relations_card(self, rd: dict) -> None:
+        """添加地支关系卡片。"""
+        dzr = rd.get('di_zhi_relations', {}) or {}
+        if dzr:
+            dzr_card = CollapsibleCard('地支关系', '✕', accent_color=Colors.ZHUSHA, collapsed=False)
+            dzr_card.set_content(self._di_zhi_relations(dzr))
+            self.clay.addWidget(dzr_card)
+
+    def _add_dayun_liunian_card(self, rd: dict) -> None:
+        """添加大运流年卡片。"""
+        dayun = rd.get('dayun', {}) or {}
+        liunian = rd.get('liunian', {}) or {}
+        if dayun.get('periods') or liunian.get('years'):
+            yunshi_card = CollapsibleCard('大运流年', '⏳', accent_color=Colors.LIUJIN, collapsed=False)
+            yunshi_card.set_content(fortune_timeline_widget(dayun, liunian, Colors.LIUJIN))
+            self.clay.addWidget(yunshi_card)
 
     def get_chart_data_for_ai(self) -> dict:
         """获取用于智能分析的完整排盘数据（含五行明细/十神/命理/大运），确保大师兄分析有充分命理依据
@@ -1864,7 +1855,6 @@ class ResultPanel(QWidget):
                 'original_time': rd.get('original_time', ''),
                 'longitude': rd.get('longitude', 120.0),
             }
-        bi = rd.get('basic_info') or {}
 
         # 双路径：wuxing 旧结构（计数）或 wuxing_detail（Service 结构）
         wuxing_for_ui = rd.get('wuxing') or {}
@@ -1918,7 +1908,8 @@ class ResultPanel(QWidget):
         return out
 
     def _adapt_shishen_for_ai(self, ss: dict) -> dict:
-        """将十神 details 列表映射为 DataIntegrator 期望的 pillars 结构。"""
+        """将十神 details 列表映射为 DataIntegrator 期望的 pillars 结构。
+        """
         if not ss or not isinstance(ss, dict):
             return {}
         pillars = {}

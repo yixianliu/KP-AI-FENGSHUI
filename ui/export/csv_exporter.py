@@ -1,4 +1,4 @@
-﻿"""
+"""
 CSV 导出器
 支持按"可选章节"导出：基本信息 / 命局类型 / 四柱八字 / 五行分析 /
 十神分析 / 大运流年（含起运）/ 运程总结（事业/财运/健康/感情）/
@@ -85,225 +85,19 @@ class CsvExporter(BaseExporter):
             with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
 
-                # 基本信息
-                if has_chapter(data, 'basic_info'):
-                    bi = data.get('basic_info', {})
-                    writer.writerow(['基本信息'])
-                    writer.writerow(['排盘类型', _to_str(bi.get('pan_type'))])
-                    writer.writerow(['公历日期', _to_str(bi.get('solar_date'))])
-                    writer.writerow(['农历日期', _to_str(bi.get('lunar_date'))])
-                    writer.writerow(['出生时辰', _to_str(bi.get('hour'))])
-                    writer.writerow(['出生地点', _to_str(bi.get('location'))])
-                    writer.writerow(['性别', _to_str(bi.get('gender'))])
-                    writer.writerow([])
-
-                # 命局类型
-                if has_chapter(data, 'bazi_types'):
-                    bt = data.get('bazi_types', {})
-                    writer.writerow(['命局类型'])
-                    if bt.get('strength'):
-                        writer.writerow(['日主强弱', _to_str(bt.get('strength'))])
-                    if bt.get('geju_type'):
-                        name = bt.get('geju_name', '')
-                        val = bt.get('geju_type') + (f"（{name}）" if name else '')
-                        writer.writerow(['格局类型', val])
-                        if bt.get('geju_desc'):
-                            writer.writerow(['格局说明', _to_str(bt.get('geju_desc'))])
-                    if bt.get('wuxing_summary'):
-                        writer.writerow(['五行旺衰', _to_str(bt.get('wuxing_summary'))])
-                    ys = bt.get('yongshen') or {}
-                    if ys.get('yongshen'):
-                        writer.writerow(['用神', f"{ys.get('yongshen')}（{ys.get('yongshen_name')}）"])
-                        if ys.get('xishen_names'):
-                            writer.writerow(['喜神', '、'.join(ys.get('xishen_names'))])
-                        if ys.get('jishen_names'):
-                            writer.writerow(['忌神', '、'.join(ys.get('jishen_names'))])
-                    writer.writerow([])
-
-                # 四柱八字（Service 路径四柱在顶层，统一走 extract_pillars）
-                if has_chapter(data, 'bazi'):
-                    bz = extract_pillars(data)
-                    writer.writerow(['四柱八字'])
-                    writer.writerow(['年柱', _to_str(bz.get('year_pillar'))])
-                    writer.writerow(['月柱', _to_str(bz.get('month_pillar'))])
-                    writer.writerow(['日柱', _to_str(bz.get('day_pillar'))])
-                    writer.writerow(['时柱', _to_str(bz.get('hour_pillar'))])
-                    writer.writerow([])
-
-                # 五行分析（Service 路径走 wuxing_detail，统一走 extract_wuxing）
-                if has_chapter(data, 'wuxing'):
-                    wx = extract_wuxing(data)
-                    writer.writerow(['五行分析'])
-                    for n in ['木', '火', '土', '金', '水']:
-                        if n in wx:
-                            writer.writerow([f'{n}五行', f'{wx.get(n)}分'])
-                    writer.writerow([])
-
-                # 十神分析
-                if has_chapter(data, 'shishen'):
-                    ss = data.get('shishen', {})
-                    writer.writerow(['十神分析'])
-                    for name in ['正官', '七杀', '正财', '偏财', '正印', '偏印', '食神', '伤官', '比肩', '劫财']:
-                        val = ss.get(name)
-                        if val:
-                            writer.writerow([name, f'{val}分'])
-                    writer.writerow([])
-
-                # 大运流年
-                if has_chapter(data, 'yunshi'):
-                    dayun = data.get('dayun', {}) or {}
-                    liunian = data.get('liunian', {}) or {}
-                    # 大运/流年是同一虚拟章节的两个数据键；上游偶尔会传入
-                    # 列表或字符串形式的旧结构，故先做 isinstance 兜底再取子键
-                    periods = dayun.get('periods', []) if isinstance(dayun, dict) else []
-                    years = liunian.get('years', []) if isinstance(liunian, dict) else []
-                    writer.writerow(['大运流年'])
-                    if periods:
-                        writer.writerow(['大运方向', _to_str(dayun.get('direction'))])
-                        qiyun = dayun.get('qiyun_text')
-                        if qiyun:
-                            writer.writerow(['起运', _to_str(qiyun)])
-                        for p in periods:
-                            label = (f"第{p.get('period')}运 {p.get('ganzhi')} "
-                                     f"（{p.get('start_age')}-{p.get('end_age')}岁，"
-                                     f"{p.get('start_year')}-{p.get('end_year')}年）")
-                            writer.writerow([label, _to_str(p.get('analysis'))])
-                    for y in years:
-                        writer.writerow([f"{y.get('year')}年 {y.get('ganzhi')}", _to_str(y.get('analysis'))])
-                    writer.writerow([])
-
-                # 运程总结
-                if has_chapter(data, 'yuncheng'):
-                    yc = data.get('yuncheng', {}) or {}
-                    writer.writerow(['运程总结'])
-                    if yc.get('overview'):
-                        writer.writerow(['综合', _to_str(yc.get('overview'))])
-                    for key, label in (('career', '事业'), ('wealth', '财运'),
-                                       ('health', '健康'), ('love', '感情')):
-                        if yc.get(key):
-                            writer.writerow([label, _to_str(yc.get(key))])
-                    tags = yc.get('tags') or []
-                    if tags:
-                        writer.writerow(['标签', '、'.join(str(t) for t in tags)])
-                    writer.writerow([])
-
-                # 神煞
-                # 神煞属于 filter_export_data 中始终保留的旧字段，不在 CHAPTERS
-                # 章节清单里，因此这里不走 has_chapter 而是直接判断列表是否为空
-                mingli = data.get('mingli', {}) or {}
-                # 验收修正：mingli['shensha'] 实为 {positive/negative/neutral: [...]}
-                # 的分组字典，直接迭代得到的是字符串键，调 .get() 会
-                # AttributeError 并让整份 CSV 导出失败。统一走归一化再落盘。
-                shensha = normalize_shensha(mingli.get('shensha'))
-                if shensha:
-                    writer.writerow(['神煞'])
-                    for name, desc in shensha:
-                        writer.writerow([name, desc])
-                    writer.writerow([])
-
-                # 吉凶批注
-                analysis = data.get('analysis', []) or []
-                if analysis:
-                    writer.writerow(['吉凶批注'])
-                    for an in analysis:
-                        writer.writerow([_to_str(an.get('type')), _to_str(an.get('text'))])
-                    writer.writerow([])
-
-                # AI 智能分析
-                if has_chapter(data, 'ai_analysis'):
-                    ai = data.get('ai_analysis', {}) or {}
-                    writer.writerow([_AI_SECTION_TITLE])
-                    for key, title in _AI_SECTIONS:
-                        items = ai.get(key, []) or []
-                        if isinstance(items, str):
-                            items = [items] if items.strip() else []
-                        for it in items:
-                            writer.writerow([title, _to_str(it)])
-                    writer.writerow([])
-
-                # 梅花易数卦象
-                if has_chapter(data, 'meihua'):
-                    mh = data.get('meihua_data', {}) or {}
-                    writer.writerow(['梅花易数'])
-                    for key, label in (
-                        ('method', '起卦方法'),
-                        ('base_hex', '本卦'),
-                        ('changed_hex', '变卦'),
-                        ('hu_hex', '互卦'),
-                        ('ti_gong', '体卦'),
-                        ('yong_gong', '用卦'),
-                        ('ti_zhi', '体卦五行'),
-                        ('yong_zhi', '用卦五行'),
-                        ('hu_gong', '互卦五行'),
-                        ('bian_gong', '变卦五行'),
-                        ('hex_relation', '体用关系'),
-                    ):
-                        val = mh.get(key)
-                        if val:
-                            writer.writerow([label, _to_str(val)])
-                    # 嵌入式 AI 解读（独立键）
-                    mh_ai = data.get('meihua_ai') or {}
-                    if mh_ai:
-                        writer.writerow([])
-                        writer.writerow(['— 龙虎山大师兄梅花解读 —'])
-                        for key, title in _AI_SECTIONS:
-                            items = mh_ai.get(key, []) or []
-                            if isinstance(items, str):
-                                items = [items] if items.strip() else []
-                            for it in items:
-                                writer.writerow([title, _to_str(it)])
-                        if mh_ai.get('final_verdict'):
-                            writer.writerow(['结论', _to_str(mh_ai.get('final_verdict'))])
-                    writer.writerow([])
-
-                # 大六壬起课
-                if has_chapter(data, 'liuren'):
-                    lr = data.get('liuren_data', {}) or {}
-                    writer.writerow(['大六壬起课'])
-                    for key, label in (
-                        ('pan_date', '公历日期'),
-                        ('si_ke', '四课'),
-                        ('san_chuan', '三传'),
-                        ('gate', '三传门法'),
-                        ('yue_jiang', '月将'),
-                        ('tian_jiang', '天将'),
-                        ('shen_sha', '神煞'),
-                    ):
-                        val = lr.get(key)
-                        if val:
-                            writer.writerow([label, _to_str(val)])
-                    # 嵌入式 AI 解读
-                    lr_ai = data.get('liuren_ai') or {}
-                    if lr_ai:
-                        writer.writerow([])
-                        writer.writerow(['— 龙虎山大师兄六壬解读 —'])
-                        for key, title in _AI_SECTIONS:
-                            items = lr_ai.get(key, []) or []
-                            if isinstance(items, str):
-                                items = [items] if items.strip() else []
-                            for it in items:
-                                writer.writerow([title, _to_str(it)])
-                        if lr_ai.get('final_verdict'):
-                            writer.writerow(['结论', _to_str(lr_ai.get('final_verdict'))])
-                    writer.writerow([])
-
-                # 综合建议（融合三方结论）
-                if has_chapter(data, 'zonghe'):
-                    z = data.get('zonghe', {}) or {}
-                    writer.writerow(['综合建议（大师兄融合）'])
-                    _ZONGHE_SECTIONS = [
-                        ('tri_method_overview', '三方概览'),
-                        ('consistency_check', '矛盾与印证'),
-                        ('synthesis', '综合定论'),
-                        ('unified_plan', '统一趋吉避凶方案'),
-                        ('key_timing', '关键时机与禁忌'),
-                    ]
-                    for key, title in _ZONGHE_SECTIONS:
-                        for it in (z.get(key) or []):
-                            writer.writerow([title, _to_str(it)])
-                    if z.get('disclaimer'):
-                        writer.writerow(['免责说明', _to_str(z.get('disclaimer'))])
-                    writer.writerow([])
+                self._export_basic_info(writer, data)
+                self._export_bazi_types(writer, data)
+                self._export_bazi(writer, data)
+                self._export_wuxing(writer, data)
+                self._export_shishen(writer, data)
+                self._export_yunshi(writer, data)
+                self._export_yuncheng(writer, data)
+                self._export_mingli(writer, data)
+                self._export_analysis(writer, data)
+                self._export_ai_analysis(writer, data)
+                self._export_meihua(writer, data)
+                self._export_liuren(writer, data)
+                self._export_zonghe(writer, data)
 
             return True
         except Exception as e:
@@ -311,6 +105,238 @@ class CsvExporter(BaseExporter):
             # 统一吞掉异常并以返回值告知调用方
             print(f"CSV 导出失败: {e}")
             return False
+
+    # ---------- 私有导出方法 ----------
+    def _export_basic_info(self, writer, data):
+        if not has_chapter(data, 'basic_info'):
+            return
+        bi = data.get('basic_info', {})
+        writer.writerow(['基本信息'])
+        writer.writerow(['排盘类型', _to_str(bi.get('pan_type'))])
+        writer.writerow(['公历日期', _to_str(bi.get('solar_date'))])
+        writer.writerow(['农历日期', _to_str(bi.get('lunar_date'))])
+        writer.writerow(['出生时辰', _to_str(bi.get('hour'))])
+        writer.writerow(['出生地点', _to_str(bi.get('location'))])
+        writer.writerow(['性别', _to_str(bi.get('gender'))])
+        writer.writerow([])
+
+    def _export_bazi_types(self, writer, data):
+        if not has_chapter(data, 'bazi_types'):
+            return
+        bt = data.get('bazi_types', {})
+        writer.writerow(['命局类型'])
+        if bt.get('strength'):
+            writer.writerow(['日主强弱', _to_str(bt.get('strength'))])
+        if bt.get('geju_type'):
+            name = bt.get('geju_name', '')
+            val = bt.get('geju_type') + (f"（{name}）" if name else '')
+            writer.writerow(['格局类型', val])
+            if bt.get('geju_desc'):
+                writer.writerow(['格局说明', _to_str(bt.get('geju_desc'))])
+        if bt.get('wuxing_summary'):
+            writer.writerow(['五行旺衰', _to_str(bt.get('wuxing_summary'))])
+        ys = bt.get('yongshen') or {}
+        if ys.get('yongshen'):
+            writer.writerow(['用神', f"{ys.get('yongshen')}（{ys.get('yongshen_name')}）"])
+            if ys.get('xishen_names'):
+                writer.writerow(['喜神', '、'.join(ys.get('xishen_names'))])
+            if ys.get('jishen_names'):
+                writer.writerow(['忌神', '、'.join(ys.get('jishen_names'))])
+        writer.writerow([])
+
+    def _export_bazi(self, writer, data):
+        if not has_chapter(data, 'bazi'):
+            return
+        bz = extract_pillars(data)
+        writer.writerow(['四柱八字'])
+        writer.writerow(['年柱', _to_str(bz.get('year_pillar'))])
+        writer.writerow(['月柱', _to_str(bz.get('month_pillar'))])
+        writer.writerow(['日柱', _to_str(bz.get('day_pillar'))])
+        writer.writerow(['时柱', _to_str(bz.get('hour_pillar'))])
+        writer.writerow([])
+
+    def _export_wuxing(self, writer, data):
+        if not has_chapter(data, 'wuxing'):
+            return
+        wx = extract_wuxing(data)
+        writer.writerow(['五行分析'])
+        for n in ['木', '火', '土', '金', '水']:
+            if n in wx:
+                writer.writerow([f'{n}五行', f'{wx.get(n)}分'])
+        writer.writerow([])
+
+    def _export_shishen(self, writer, data):
+        if not has_chapter(data, 'shishen'):
+            return
+        ss = data.get('shishen', {})
+        writer.writerow(['十神分析'])
+        for name in ['正官', '七杀', '正财', '偏财', '正印', '偏印', '食神', '伤官', '比肩', '劫财']:
+            val = ss.get(name)
+            if val:
+                writer.writerow([name, f'{val}分'])
+        writer.writerow([])
+
+    def _export_yunshi(self, writer, data):
+        if not has_chapter(data, 'yunshi'):
+            return
+        dayun = data.get('dayun', {}) or {}
+        liunian = data.get('liunian', {}) or {}
+        # 大运/流年是同一虚拟章节的两个数据键；上游偶尔会传入
+        # 列表或字符串形式的旧结构，故先做 isinstance 兜底再取子键
+        periods = dayun.get('periods', []) if isinstance(dayun, dict) else []
+        years = liunian.get('years', []) if isinstance(liunian, dict) else []
+        writer.writerow(['大运流年'])
+        if periods:
+            writer.writerow(['大运方向', _to_str(dayun.get('direction'))])
+            qiyun = dayun.get('qiyun_text')
+            if qiyun:
+                writer.writerow(['起运', _to_str(qiyun)])
+            for p in periods:
+                label = (f"第{p.get('period')}运 {p.get('ganzhi')} "
+                         f"（{p.get('start_age')}-{p.get('end_age')}岁，"
+                         f"{p.get('start_year')}-{p.get('end_year')}年）")
+                writer.writerow([label, _to_str(p.get('analysis'))])
+        for y in years:
+            writer.writerow([f"{y.get('year')}年 {y.get('ganzhi')}", _to_str(y.get('analysis'))])
+        writer.writerow([])
+
+    def _export_yuncheng(self, writer, data):
+        if not has_chapter(data, 'yuncheng'):
+            return
+        yc = data.get('yuncheng', {}) or {}
+        writer.writerow(['运程总结'])
+        if yc.get('overview'):
+            writer.writerow(['综合', _to_str(yc.get('overview'))])
+        for key, label in (('career', '事业'), ('wealth', '财运'),
+                           ('health', '健康'), ('love', '感情')):
+            if yc.get(key):
+                writer.writerow([label, _to_str(yc.get(key))])
+        tags = yc.get('tags') or []
+        if tags:
+            writer.writerow(['标签', '、'.join(str(t) for t in tags)])
+        writer.writerow([])
+
+    def _export_mingli(self, writer, data):
+        # 神煞属于 filter_export_data 中始终保留的旧字段，不在 CHAPTERS
+        # 章节清单里，因此这里不走 has_chapter 而是直接判断列表是否为空
+        mingli = data.get('mingli', {}) or {}
+        # 验收修正：mingli['shensha'] 实为 {positive/negative/neutral: [...]}
+        # 的分组字典，直接迭代得到的是字符串键，调 .get() 会
+        # AttributeError 并让整份 CSV 导出失败。统一走归一化再落盘。
+        shensha = normalize_shensha(mingli.get('shensha'))
+        if shensha:
+            writer.writerow(['神煞'])
+            for name, desc in shensha:
+                writer.writerow([name, desc])
+            writer.writerow([])
+
+    def _export_analysis(self, writer, data):
+        analysis = data.get('analysis', []) or []
+        if analysis:
+            writer.writerow(['吉凶批注'])
+            for an in analysis:
+                writer.writerow([_to_str(an.get('type')), _to_str(an.get('text'))])
+            writer.writerow([])
+
+    def _export_ai_analysis(self, writer, data):
+        if not has_chapter(data, 'ai_analysis'):
+            return
+        ai = data.get('ai_analysis', {}) or {}
+        writer.writerow([_AI_SECTION_TITLE])
+        for key, title in _AI_SECTIONS:
+            items = ai.get(key, []) or []
+            if isinstance(items, str):
+                items = [items] if items.strip() else []
+            for it in items:
+                writer.writerow([title, _to_str(it)])
+        writer.writerow([])
+
+    def _export_meihua(self, writer, data):
+        if not has_chapter(data, 'meihua'):
+            return
+        mh = data.get('meihua_data', {}) or {}
+        writer.writerow(['梅花易数'])
+        for key, label in (
+            ('method', '起卦方法'),
+            ('base_hex', '本卦'),
+            ('changed_hex', '变卦'),
+            ('hu_hex', '互卦'),
+            ('ti_gong', '体卦'),
+            ('yong_gong', '用卦'),
+            ('ti_zhi', '体卦五行'),
+            ('yong_zhi', '用卦五行'),
+            ('hu_gong', '互卦五行'),
+            ('bian_gong', '变卦五行'),
+            ('hex_relation', '体用关系'),
+        ):
+            val = mh.get(key)
+            if val:
+                writer.writerow([label, _to_str(val)])
+        # 嵌入式 AI 解读（独立键）
+        mh_ai = data.get('meihua_ai') or {}
+        if mh_ai:
+            writer.writerow([])
+            writer.writerow(['— 龙虎山大师兄梅花解读 —'])
+            for key, title in _AI_SECTIONS:
+                items = mh_ai.get(key, []) or []
+                if isinstance(items, str):
+                    items = [items] if items.strip() else []
+                for it in items:
+                    writer.writerow([title, _to_str(it)])
+            if mh_ai.get('final_verdict'):
+                writer.writerow(['结论', _to_str(mh_ai.get('final_verdict'))])
+        writer.writerow([])
+
+    def _export_liuren(self, writer, data):
+        if not has_chapter(data, 'liuren'):
+            return
+        lr = data.get('liuren_data', {}) or {}
+        writer.writerow(['大六壬起课'])
+        for key, label in (
+            ('pan_date', '公历日期'),
+            ('si_ke', '四课'),
+            ('san_chuan', '三传'),
+            ('gate', '三传门法'),
+            ('yue_jiang', '月将'),
+            ('tian_jiang', '天将'),
+            ('shen_sha', '神煞'),
+        ):
+            val = lr.get(key)
+            if val:
+                writer.writerow([label, _to_str(val)])
+        # 嵌入式 AI 解读
+        lr_ai = data.get('liuren_ai') or {}
+        if lr_ai:
+            writer.writerow([])
+            writer.writerow(['— 龙虎山大师兄六壬解读 —'])
+            for key, title in _AI_SECTIONS:
+                items = lr_ai.get(key, []) or []
+                if isinstance(items, str):
+                    items = [items] if items.strip() else []
+                for it in items:
+                    writer.writerow([title, _to_str(it)])
+            if lr_ai.get('final_verdict'):
+                writer.writerow(['结论', _to_str(lr_ai.get('final_verdict'))])
+        writer.writerow([])
+
+    def _export_zonghe(self, writer, data):
+        if not has_chapter(data, 'zonghe'):
+            return
+        z = data.get('zonghe', {}) or {}
+        writer.writerow(['综合建议（大师兄融合）'])
+        _ZONGHE_SECTIONS = [
+            ('tri_method_overview', '三方概览'),
+            ('consistency_check', '矛盾与印证'),
+            ('synthesis', '综合定论'),
+            ('unified_plan', '统一趋吉避凶方案'),
+            ('key_timing', '关键时机与禁忌'),
+        ]
+        for key, title in _ZONGHE_SECTIONS:
+            for it in (z.get(key) or []):
+                writer.writerow([title, _to_str(it)])
+        if z.get('disclaimer'):
+            writer.writerow(['免责说明', _to_str(z.get('disclaimer'))])
+        writer.writerow([])
 
     def get_file_extension(self) -> str:
         """返回本导出器对应的文件扩展名。

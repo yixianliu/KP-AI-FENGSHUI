@@ -8,7 +8,10 @@ scripts/audit_contrast.py — WCAG 对比度审计（M1-T5 / M7-T1）
 
 用法：
     python scripts/audit_contrast.py
-退出码：0 = 全部达标；1 = 存在不达标色对。
+退出码：0 = 全部达标；1 = 存在不达标色对 / 色对表为空（门禁空转）。
+
+空转守卫（2026-09-29 第 7 轮补）：原逻辑「fail == 0 即通过」，若 PAIRS 被误清空
+则循环不执行、fail 恒 0 也判绿。现显式打印「已校验 N 个色对」并在 N == 0 时判红。
 """
 import sys
 
@@ -64,8 +67,15 @@ def main():
             fail += 1
         print(f"{fg:>10} {bg:>10}  {ratio:5.2f}:1  {need:.1f}:1  {mark}")
     print('-' * 52)
+    total = len(PAIRS)
+    passed = total - fail
+    print(f"汇总: {passed}/{total} 项通过（WCAG AA 色对）")
+    # 空转守卫：色对表为空时 fail 必然为 0，若照旧判绿就是「一项没查也算过」。
+    if total == 0:
+        print("audit_contrast: 色对表 PAIRS 为空 —— 门禁空转 ❌")
+        return 1
     if fail == 0:
-        print("audit_contrast: 全部色对达标 WCAG AA ✅")
+        print(f"audit_contrast: 全部 {total} 个色对达标 WCAG AA ✅")
         return 0
     print(f"audit_contrast: {fail} 个色对不达标 ⚠️（见上）")
     return 1

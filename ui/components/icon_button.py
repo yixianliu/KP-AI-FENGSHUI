@@ -6,7 +6,7 @@ UI 升级方案 M5 / 4.2：统一图标按钮，替代侧边栏/工具栏裸 QPu
 图标经 icons.icon() 加载，支持 6 态（默认/悬停/按下/选中/禁用/焦点），
 强制 20×20（或 24×24）图标尺寸与 accessibleName（可访问性）。
 """
-from PySide6.QtWidgets import QPushButton, QWidget
+from PySide6.QtWidgets import QPushButton
 from PySide6.QtCore import Qt, QSize
 
 from ui.styles import Colors, Fonts, Spacing, FOCUS_BORDER
@@ -57,6 +57,13 @@ class IconButton(QPushButton):
         self._apply_style()
 
     def _apply_style(self):
+        # 焦点环说明（必须留在 QSS 字符串**之外**）：
+        #   · 用 border 而非 outline —— Qt QSS 不支持 outline（实测被静默忽略）；
+        #   · 不能写 :focus:not(:disabled) —— Qt QSS 不支持 :not()，整条规则会失效。
+        # ⚠️ QSS 的注释语法是 /* */，`#` 在 QSS 里是「对象名选择器」。
+        #    曾把上面两行以 `#` 写进样式串，导致紧随其后的 QPushButton:focus 规则
+        #    整体失效（实测聚焦时边框仍为默认 Colors.BORDER #33335a 而非 BRAND #c9a227，
+        #    键盘焦点环不可见）。守卫见 scripts/audit_style_tokens.py::scan_qss_hash_comments。
         self.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -88,8 +95,6 @@ class IconButton(QPushButton):
                 color: {Colors.TEXT4};
                 border-color: {Colors.BORDER};
             }}
-            # 用 border 而非 outline：Qt QSS 不支持 outline（实测被静默忽略）
-            # 不能写 :focus:not(:disabled) —— Qt QSS 不支持 :not()，整条规则会失效
             QPushButton:focus {{
                 border: {FOCUS_BORDER};
             }}

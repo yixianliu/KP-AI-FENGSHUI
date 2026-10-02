@@ -7,9 +7,6 @@ ai/rag/knowledge_base.py — RAG 知识库管理类
 """
 from __future__ import annotations
 
-import os
-from typing import Optional
-
 from ai.rag.retriever import HybridRetriever
 from ai.rag.chunker import chunk_text
 

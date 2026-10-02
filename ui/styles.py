@@ -3,6 +3,11 @@
 主色调：深靛蓝 #1a1a2e / 古金 #c9a227 / 朱红 #8b0000
 深底色配金色/朱红点缀 · 水墨纹理背景 · 宋体/楷体标题 · 微软雅黑正文
 """
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - 仅供字符串注解解析，运行期不求值
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect
+
 
 class Colors:
     """全局色彩体系（新中式玄中易深色体系）
