@@ -1,7 +1,7 @@
 """
 AI 分析结果统一渲染器 v2.2
 ========================
-职责：把各面板的「龙虎山大师兄」AI 解读渲染成统一视觉语言，
+职责：把各面板的「文化研究算法」AI 解读渲染成统一视觉语言，
 消灭八字/梅花/六壬三面板之间的字段映射、命名、高亮缺失等漂移。
 
 v2.2 视觉交互与排版升级：
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # AI 分析区文案常量（单一权威源）
 # ---------------------------------------------------------------------------
-AI_SECTION_TITLE = '龙虎山大师兄算命详批'
+AI_SECTION_TITLE = '文化研究算法算命详批'
 KEY_POINTS_LABEL = '【关键信息】'
 FINAL_VERDICT_TITLE = '总体判断'
 DISCLAIMER_TITLE = '免责声明'
@@ -234,7 +234,7 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout,
     # ----- 0. 参数校准与空容许 -----
     if not payload or not isinstance(payload, dict):
         target_layout.addWidget(_build_empty_widget(
-            '龙虎山大师兄未起得有效卦象，请点击「重新测算」再试'
+            '文化研究算法未起得有效卦象，请点击「重新测算」再试'
         ))
         return
 
@@ -489,7 +489,7 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout,
     # ----- 9. 若仍无内容，显示空提示 -----
     if not has_content:
         root.addWidget(_build_empty_widget(
-            '龙虎山大师兄未起得有效条目，请点击「重新测算」再试'
+            '文化研究算法未起得有效条目，请点击「重新测算」再试'
         ))
 
     # ----- 10. 挂载到目标布局 -----

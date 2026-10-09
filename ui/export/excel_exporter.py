@@ -38,7 +38,7 @@ _AI_SECTIONS = [
 ]
 
 # AI 分析区章节标题（与 ai_titles.py 保持一致）
-_AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+_AI_SECTION_TITLE = '文化研究算法分析预测'
 
 
 class ExcelExporter(BaseExporter):
@@ -559,7 +559,7 @@ class ExcelExporter(BaseExporter):
             row += 1
 
     def _add_ai_section(self, ws, start_row, ai: dict):
-        """写入「龙虎山大师兄分析预测」区块：AI 生成的各维度解读。
+        """写入「文化研究算法分析预测」区块：AI 生成的各维度解读。
 
         按 _AI_SECTIONS 固定顺序遍历，使区块次序不受 AI 返回字段顺序影响；
         每个维度先占一行小标题，其下每个条目单独成行并在 A 列打项目符号。
@@ -740,7 +740,7 @@ class ExcelExporter(BaseExporter):
             # 把「卦象事实」与「AI 主观解读」在视觉上分开
             row += 1
             ws.merge_cells(f'A{row}:B{row}')
-            sub = ws.cell(row=row, column=1, value='— 龙虎山大师兄梅花解读 —')
+            sub = ws.cell(row=row, column=1, value='— 文化研究算法梅花解读 —')
             sub.font = self.styles['header']
             sub.alignment = self.styles['center']
             sub.fill = self.styles['fill_gold']
@@ -803,7 +803,7 @@ class ExcelExporter(BaseExporter):
             # 把「课体事实」与「AI 主观解读」在视觉上分开
             row += 1
             ws.merge_cells(f'A{row}:B{row}')
-            sub = ws.cell(row=row, column=1, value='— 龙虎山大师兄六壬解读 —')
+            sub = ws.cell(row=row, column=1, value='— 文化研究算法六壬解读 —')
             sub.font = self.styles['header']
             sub.alignment = self.styles['center']
             sub.fill = self.styles['fill_gold']

@@ -46,17 +46,17 @@ class AiAnalysisWorker(QThread):
         try:
             self.progress_updated.emit('validating', '正在验证输入数据...')
 
-            self.progress_updated.emit('initializing', '正在初始化龙虎山大师兄分析引擎...')
+            self.progress_updated.emit('initializing', '正在初始化文化研究算法分析引擎...')
             AnalysisStorage()  # 确保表就绪
 
             if self.analysis_type == 'bazi':
-                self.progress_updated.emit('analyzing', '龙虎山大师兄正在深入分析八字命理...')
+                self.progress_updated.emit('analyzing', '文化研究算法正在深入分析八字命理...')
                 result = run_bazi_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'meihua':
-                self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读卦象玄机...')
+                self.progress_updated.emit('analyzing', '文化研究算法正在解读卦象玄机...')
                 result = run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
             elif self.analysis_type == 'liuren':
-                self.progress_updated.emit('analyzing', '龙虎山大师兄正在解读六壬玄机...')
+                self.progress_updated.emit('analyzing', '文化研究算法正在解读六壬玄机...')
                 result = run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
             else:
                 self.analysis_failed.emit('unknown_type', f'不支持的分析类型: {self.analysis_type}')

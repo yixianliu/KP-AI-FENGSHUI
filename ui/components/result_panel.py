@@ -37,7 +37,7 @@ class ResultPanel(QWidget):
     """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、智能 分析分隔与呈现。
 
     由 MainWindow 在各板块的结果栈中实例化，接受排盘结果字典并渲染为可折叠卡片；
-    同时通过 display_result / show_loading 衔接龙虎山大师兄分析流程。
+    同时通过 display_result / show_loading 衔接文化研究算法分析流程。
     """
     def __init__(self, parent=None, stacked_widget=None):
         """初始化结果面板。
@@ -1122,10 +1122,10 @@ class ResultPanel(QWidget):
         is_ai_loading = message and message != '排盘中…'
 
         if is_ai_loading:
-            self.status_lbl.setText('龙虎山大师兄算命中…')
+            self.status_lbl.setText('文化研究算法算命中…')
             self.status_lbl.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
             panel = loading_panel(
-                message=message or '龙虎山大师兄正在亲批详断中…',
+                message=message or '文化研究算法正在亲批详断中…',
                 sub='请稍候，大师兄正依四柱五行、大运流年逐项推敲',
                 color=Colors.LIUJIN,
                 hints=['大师兄正凝神审阅命盘…', '正在推敲五行旺衰与喜用…',
@@ -1151,7 +1151,7 @@ class ResultPanel(QWidget):
         self.clay.addWidget(panel)
         self.clay.addStretch()
 
-    def show_ai_loading(self, message: str = '龙虎山大师兄正在亲批详断中…'):
+    def show_ai_loading(self, message: str = '文化研究算法正在亲批详断中…'):
         """显示智能分析加载状态（别名方法，兼容调用方使用 show_ai_loading 的情况）"""
         self.show_loading(message)
 
@@ -1220,7 +1220,7 @@ class ResultPanel(QWidget):
         rd = getattr(self, '_current_result', {}) or {}
 
         if not smart_data or not isinstance(smart_data, dict):
-            self._show_error('龙虎山大师兄未返回有效内容，请重试')
+            self._show_error('文化研究算法未返回有效内容，请重试')
             return
 
         self._clear_content()
@@ -1236,7 +1236,7 @@ class ResultPanel(QWidget):
             self.smart_analyze_btn.setVisible(True)
             self.smart_analyze_btn.setEnabled(True)
             self.smart_analyze_btn.setText('⚡ 智能分析')
-        self.status_lbl.setText('✓ 龙虎山大师兄分析完成')
+        self.status_lbl.setText('✓ 文化研究算法分析完成')
         self.status_lbl.setStyleSheet(
             f"font-size:{Fonts.SZ_SMALL}; color:{Colors.SUCCESS}; font-family:{Fonts.BODY};"
         )
@@ -1372,7 +1372,7 @@ class ResultPanel(QWidget):
     # AI分隔标识
     def _add_section_header(self, smart_data):
         """把 AI 解读渲染委托给公共渲染器，避免三面板字段映射漂移。"""
-        # 若 AI 未配置，则不显示龙虎山大师兄分析预测
+        # 若 AI 未配置，则不显示文化研究算法分析预测
         try:
             from core.ai_config import is_ai_configured
             if not is_ai_configured():

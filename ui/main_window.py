@@ -1,5 +1,5 @@
 """
-风水排盘专业工具 - 精美国风主窗口
+传统文化研究工具 - 精美国风主窗口
 QSplitter左右分栏 · 暖米底色 · 圆角卡片 · 三色点缀 · 微动画
 """
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
     """应用主窗口：承载八字 / 梅花易数 / 大六壬三大板块。
 
     采用三层架构的 UI 层（PySide6）：通过 QSplitter 左右分栏（输入面板 + 结果面板），
-    顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与龙虎山大师兄（AI）分析。
+    顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与文化研究算法（AI）分析。
     负责 worker 线程生命周期、界面配置持久化与操作日志记录。
     """
     # M2-2：密度档变化信号（tuple: (页面边距, 卡片间距, 卡片内距, 行高)），
@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         """初始化主窗口：设置窗口元数据、日志、会话标识，并依次完成字体、core、UI、信号绑定与配置还原。"""
         super().__init__()
         self.module_hint = None
-        self.setWindowTitle('风水排盘专业工具')
+        self.setWindowTitle('传统文化研究工具')
         # M2-2（Q12）：最小尺寸由 1100×700 下调，允许窄窗口。
         # 假设（文档矛盾）：计划写 setMinimumSize(900,640) 且 BP_XS=900（XS 为 <900），
         # 但 QWidget.resize 受 minimumWidth 钳制，min=900 时窗口永远 >=900，XS 单栏档
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
         if self._ai_available:
             msg = ''
         else:
-            msg = '龙虎山大师兄功能当前不可用，请在「设置」中配置 AI 模型'
+            msg = '文化研究算法功能当前不可用，请在「设置」中配置 AI 模型'
 
         for attr in ('bazi_result', 'meihua_result', 'liuren_result'):
             panel = getattr(self, attr, None)
@@ -503,7 +503,7 @@ class MainWindow(QMainWindow):
         # 状态栏
         sb = QStatusBar()
         sb.setStyleSheet(Stylesheets.STATUS)
-        sb.showMessage('八字排盘 · 梅花易数 · 大六壬 · 龙虎山大师兄自动分析')
+        sb.showMessage('八字排盘 · 梅花易数 · 大六壬 · 文化研究算法自动分析')
         self.setStatusBar(sb)
 
         # 常驻版本标签（状态栏右侧，清晰可见）：版本号源自 app_version 单一权威源，
@@ -977,7 +977,7 @@ class MainWindow(QMainWindow):
 
         流程：解析出生地经纬度 → 农历转公历（如需要）→ 计算真太阳时 →
         调用 core 完成四柱/五行/十神/命理/大运流年/命局类型/运程总结 →
-        保存记录 → 展示结果 → 自动触发龙虎山大师兄（AI）分析。
+        保存记录 → 展示结果 → 自动触发文化研究算法（AI）分析。
         """
         try:
             # 优先走 Service 层：业务编排（校验/计算/综合建议/落库/事件）
@@ -1139,7 +1139,7 @@ class MainWindow(QMainWindow):
 
             # ★ 显示排盘结果（关键修复：之前遗漏了此调用导致"无内容显示"）
             self.bazi_result.display_result(result)
-            self.statusBar().showMessage('八字排盘完成 · 准备启动龙虎山大师兄分析…')
+            self.statusBar().showMessage('八字排盘完成 · 准备启动文化研究算法分析…')
 
             # ★ v5.0: 排盘完成后自动触发AI分析
             QTimer.singleShot(300, self._trigger_bazi_auto_ai)
@@ -1164,7 +1164,7 @@ class MainWindow(QMainWindow):
                 return
 
             # 更新状态提示
-            self.statusBar().showMessage('排盘完成 · 正在自动进行龙虎山大师兄深度分析…')
+            self.statusBar().showMessage('排盘完成 · 正在自动进行文化研究算法深度分析…')
 
             task_id = str(uuid.uuid4())
 
@@ -1267,7 +1267,7 @@ class MainWindow(QMainWindow):
             obj = json.loads(cleaned)
             lon = float(obj['longitude'])
             lat = float(obj['latitude'])
-            print(f"出生地「{text}」龙虎山大师兄解析：({lon}, {lat})")
+            print(f"出生地「{text}」文化研究算法解析：({lon}, {lat})")
             return lon, lat
         except Exception as e:
             self._logger.debug(f"AI 地理解析失败（用默认经度）：{e}")
@@ -1348,7 +1348,7 @@ class MainWindow(QMainWindow):
             task_id: 本次起卦任务标识（预留）
 
         按 method 分发到对应起卦算法，生成本/互/变/错/综卦并交由 HexagramAnalyzer 分析，
-        展示结果、保存记录、记录操作，最后自动触发龙虎山大师兄（AI）解读。
+        展示结果、保存记录、记录操作，最后自动触发文化研究算法（AI）解读。
         """
         try:
             method = data.get('method')
@@ -1501,7 +1501,7 @@ class MainWindow(QMainWindow):
                 return
 
             # 更新状态提示
-            self.statusBar().showMessage('起卦完成 · 正在自动进行龙虎山大师兄深度解读…')
+            self.statusBar().showMessage('起卦完成 · 正在自动进行文化研究算法深度解读…')
 
             task_id = str(uuid.uuid4())
 
@@ -1544,7 +1544,7 @@ class MainWindow(QMainWindow):
             task_id: 本次起课任务标识（预留）
 
         调用 LiuRenCalculator 起课，展示结果、保存记录、记录操作，
-        最后自动触发龙虎山大师兄（AI）解读。
+        最后自动触发文化研究算法（AI）解读。
         """
         try:
             method = data['method']
@@ -1594,7 +1594,7 @@ class MainWindow(QMainWindow):
                 self._logger.debug("[AI] 自动AI解读跳过: 起课数据不完整")
                 return
 
-            self.statusBar().showMessage('起课完成 · 正在自动进行龙虎山大师兄深度解读…')
+            self.statusBar().showMessage('起课完成 · 正在自动进行文化研究算法深度解读…')
 
             task_id = str(uuid.uuid4())
 
@@ -1661,11 +1661,11 @@ class MainWindow(QMainWindow):
             liuren_data = self.liuren_result.get_liuren_data_for_ai()
 
             if not liuren_data or not liuren_data.get('san_chuan'):
-                QMessageBox.warning(self, '提示', '请先起课，再使用龙虎山大师兄解读功能')
+                QMessageBox.warning(self, '提示', '请先起课，再使用文化研究算法解读功能')
                 return
 
-            self.liuren_result.show_ai_loading('龙虎山大师兄正在解读六壬玄机…')
-            self.statusBar().showMessage('龙虎山大师兄解读进行中，请稍候…')
+            self.liuren_result.show_ai_loading('文化研究算法正在解读六壬玄机…')
+            self.statusBar().showMessage('文化研究算法解读进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
 
@@ -1676,16 +1676,16 @@ class MainWindow(QMainWindow):
             self._register_worker(self._liuren_ai_worker)
             self._liuren_ai_worker.start()
         except Exception as e:
-            self.statusBar().showMessage(f'龙虎山大师兄解读启动失败: {e}')
+            self.statusBar().showMessage(f'文化研究算法解读启动失败: {e}')
             traceback.print_exc()
-            QMessageBox.critical(self, '错误', f'龙虎山大师兄解读启动失败: {e}')
+            QMessageBox.critical(self, '错误', f'文化研究算法解读启动失败: {e}')
 
     def _on_liuren_ai_progress(self, stage: str, message: str):
         """大六壬AI分析进度更新"""
         status_messages = {
             'validating': '正在验证输入数据…',
-            'initializing': '正在初始化龙虎山大师兄分析引擎…',
-            'analyzing': '龙虎山大师兄正在解读六壬玄机…',
+            'initializing': '正在初始化文化研究算法分析引擎…',
+            'analyzing': '文化研究算法正在解读六壬玄机…',
             'completed': '分析完成！'
         }
         status = status_messages.get(stage, message)
@@ -1723,11 +1723,11 @@ class MainWindow(QMainWindow):
                     self._logger.warning(f"[AI] 更新六壬AI分析结果到数据库失败: {e}")
 
             self.statusBar().showMessage(
-                f'龙虎山大师兄解读完成 · 报告ID: {report_id} · '
+                f'文化研究算法解读完成 · 报告ID: {report_id} · '
                 f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
-            self.statusBar().showMessage(f'显示龙虎山大师兄分析结果失败: {e}')
+            self.statusBar().showMessage(f'显示文化研究算法分析结果失败: {e}')
             traceback.print_exc()
 
     def _on_liuren_ai_failed(self, error_type: str, error_message: str):
@@ -1735,13 +1735,13 @@ class MainWindow(QMainWindow):
         # AI 失败不覆盖已渲染的排盘结果，只恢复按钮可点击状态
         self.liuren_result.smart_analyze_btn.setVisible(True)
         self.liuren_result.smart_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'龙虎山大师兄解读失败: {error_type}')
+        self.statusBar().showMessage(f'文化研究算法解读失败: {error_type}')
 
         error_titles = {
             'validation_error': '数据验证失败',
-            'ai_timeout': '龙虎山大师兄请求超时',
-            'ai_request_error': '龙虎山大师兄请求失败',
-            'ai_response_error': '龙虎山大师兄响应解析失败',
+            'ai_timeout': '文化研究算法请求超时',
+            'ai_request_error': '文化研究算法请求失败',
+            'ai_response_error': '文化研究算法响应解析失败',
             'db_connection_error': '数据库连接异常',
             'db_query_error': '数据库操作异常',
         }
@@ -1762,11 +1762,11 @@ class MainWindow(QMainWindow):
             chart_data = self.bazi_result.get_chart_data_for_ai()
 
             if not chart_data or not chart_data.get('bazi', {}).get('year_pillar'):
-                QMessageBox.warning(self, '提示', '请先进行排盘，再使用龙虎山大师兄分析功能')
+                QMessageBox.warning(self, '提示', '请先进行排盘，再使用文化研究算法分析功能')
                 return
 
-            self.bazi_result.show_ai_loading('龙虎山大师兄正在深入分析八字命理…')
-            self.statusBar().showMessage('龙虎山大师兄分析进行中，请稍候…')
+            self.bazi_result.show_ai_loading('文化研究算法正在深入分析八字命理…')
+            self.statusBar().showMessage('文化研究算法分析进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
 
@@ -1778,16 +1778,16 @@ class MainWindow(QMainWindow):
             self._bazi_ai_worker.start()
 
         except Exception as e:
-            self.statusBar().showMessage(f'龙虎山大师兄分析启动失败: {e}')
+            self.statusBar().showMessage(f'文化研究算法分析启动失败: {e}')
             traceback.print_exc()
-            QMessageBox.critical(self, '错误', f'龙虎山大师兄分析启动失败: {e}')
+            QMessageBox.critical(self, '错误', f'文化研究算法分析启动失败: {e}')
 
     def _on_bazi_ai_progress(self, stage: str, message: str):
         """八字AI分析进度更新"""
         status_messages = {
             'validating': '正在验证输入数据…',
-            'initializing': '正在初始化龙虎山大师兄分析引擎…',
-            'analyzing': '龙虎山大师兄正在深度分析八字命理…',
+            'initializing': '正在初始化文化研究算法分析引擎…',
+            'analyzing': '文化研究算法正在深度分析八字命理…',
             'completed': '分析完成！'
         }
         status = status_messages.get(stage, message)
@@ -1820,11 +1820,11 @@ class MainWindow(QMainWindow):
                     self._logger.warning(f"[AI] 更新八字AI分析结果到数据库失败: {e}")
 
             self.statusBar().showMessage(
-                f'龙虎山大师兄分析完成 · 报告ID: {report_id} · '
+                f'文化研究算法分析完成 · 报告ID: {report_id} · '
                 f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
-            self.statusBar().showMessage(f'显示龙虎山大师兄分析结果失败: {e}')
+            self.statusBar().showMessage(f'显示文化研究算法分析结果失败: {e}')
             traceback.print_exc()
 
     def _on_bazi_ai_failed(self, error_type: str, error_message: str):
@@ -1832,13 +1832,13 @@ class MainWindow(QMainWindow):
         self.bazi_result.display_result(getattr(self.bazi_result, '_current_result', {}))
         self.bazi_result.smart_analyze_btn.setVisible(True)
         self.bazi_result.smart_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'龙虎山大师兄分析失败: {error_type}')
+        self.statusBar().showMessage(f'文化研究算法分析失败: {error_type}')
 
         error_titles = {
             'validation_error': '数据验证失败',
-            'ai_timeout': '龙虎山大师兄请求超时',
-            'ai_request_error': '龙虎山大师兄请求失败',
-            'ai_response_error': '龙虎山大师兄响应解析失败',
+            'ai_timeout': '文化研究算法请求超时',
+            'ai_request_error': '文化研究算法请求失败',
+            'ai_response_error': '文化研究算法响应解析失败',
             'db_connection_error': '数据库连接异常',
             'db_query_error': '数据库操作异常',
         }
@@ -1856,11 +1856,11 @@ class MainWindow(QMainWindow):
             hexagram_data = self.meihua_result.get_hexagram_data_for_ai()
 
             if not hexagram_data or not hexagram_data.get('base', {}).get('name'):
-                QMessageBox.warning(self, '提示', '请先起卦，再使用龙虎山大师兄解读功能')
+                QMessageBox.warning(self, '提示', '请先起卦，再使用文化研究算法解读功能')
                 return
 
-            self.meihua_result.show_ai_loading('龙虎山大师兄正在解读卦象玄机…')
-            self.statusBar().showMessage('龙虎山大师兄解读进行中，请稍候…')
+            self.meihua_result.show_ai_loading('文化研究算法正在解读卦象玄机…')
+            self.statusBar().showMessage('文化研究算法解读进行中，请稍候…')
 
             task_id = str(uuid.uuid4())
 
@@ -1872,16 +1872,16 @@ class MainWindow(QMainWindow):
             self._meihua_ai_worker.start()
 
         except Exception as e:
-            self.statusBar().showMessage(f'龙虎山大师兄解读启动失败: {e}')
+            self.statusBar().showMessage(f'文化研究算法解读启动失败: {e}')
             traceback.print_exc()
-            QMessageBox.critical(self, '错误', f'龙虎山大师兄解读启动失败: {e}')
+            QMessageBox.critical(self, '错误', f'文化研究算法解读启动失败: {e}')
 
     def _on_meihua_ai_progress(self, stage: str, message: str):
         """梅花易数AI分析进度更新"""
         status_messages = {
             'validating': '正在验证输入数据…',
-            'initializing': '正在初始化龙虎山大师兄分析引擎…',
-            'analyzing': '龙虎山大师兄正在解读卦象玄机…',
+            'initializing': '正在初始化文化研究算法分析引擎…',
+            'analyzing': '文化研究算法正在解读卦象玄机…',
             'completed': '解读完成！'
         }
         status = status_messages.get(stage, message)
@@ -1914,11 +1914,11 @@ class MainWindow(QMainWindow):
                     self._logger.warning(f"[AI] 更新梅花AI分析结果到数据库失败: {e}")
 
             self.statusBar().showMessage(
-                f'龙虎山大师兄解读完成 · 报告ID: {report_id} · '
+                f'文化研究算法解读完成 · 报告ID: {report_id} · '
                 f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
             )
         except Exception as e:
-            self.statusBar().showMessage(f'显示龙虎山大师兄解读结果失败: {e}')
+            self.statusBar().showMessage(f'显示文化研究算法解读结果失败: {e}')
             traceback.print_exc()
 
     def _on_meihua_ai_failed(self, error_type: str, error_message: str):
@@ -1926,13 +1926,13 @@ class MainWindow(QMainWindow):
         self.meihua_result.display_result(getattr(self.meihua_result, '_current_result', {}))
         self.meihua_result.smart_analyze_btn.setVisible(True)
         self.meihua_result.smart_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'龙虎山大师兄解读失败: {error_type}')
+        self.statusBar().showMessage(f'文化研究算法解读失败: {error_type}')
 
         error_titles = {
             'validation_error': '数据验证失败',
-            'ai_timeout': '龙虎山大师兄请求超时',
-            'ai_request_error': '龙虎山大师兄请求失败',
-            'ai_response_error': '龙虎山大师兄响应解析失败',
+            'ai_timeout': '文化研究算法请求超时',
+            'ai_request_error': '文化研究算法请求失败',
+            'ai_response_error': '文化研究算法响应解析失败',
             'db_connection_error': '数据库连接异常',
             'db_query_error': '数据库操作异常',
         }

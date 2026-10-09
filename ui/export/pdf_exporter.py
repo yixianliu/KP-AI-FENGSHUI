@@ -239,7 +239,7 @@ class PdfExporter(BaseExporter):
                 buf, pagesize=A4,
                 leftMargin=18 * mm, rightMargin=18 * mm,
                 topMargin=16 * mm, bottomMargin=16 * mm,
-                title='八字排盘分析报告', author='龙虎山大师兄',
+                title='八字排盘分析报告', author='文化研究算法',
             )
             doc1.build(self._build_story(data, with_toc=False))
             pages = doc1.toc_pages
@@ -249,7 +249,7 @@ class PdfExporter(BaseExporter):
                 file_path, pagesize=A4,
                 leftMargin=18 * mm, rightMargin=18 * mm,
                 topMargin=16 * mm, bottomMargin=16 * mm,
-                title='八字排盘分析报告', author='龙虎山大师兄',
+                title='八字排盘分析报告', author='文化研究算法',
             )
             doc2.build(self._build_story(data, with_toc=True, pages=pages))
             return True
@@ -728,7 +728,7 @@ class PdfExporter(BaseExporter):
         story.append(ListFlowable(items, bulletType='bullet', start='•', leftIndent=12))
 
     def _build_ai(self, story, data):
-        """渲染「九、龙虎山大师兄分析预测」章节：AI 生成的各维度解读。
+        """渲染「九、文化研究算法分析预测」章节：AI 生成的各维度解读。
 
         按 _AI_SECTIONS 固定顺序遍历，使报告章节次序不受 AI 返回字段顺序影响。
 
@@ -763,7 +763,7 @@ class PdfExporter(BaseExporter):
             story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
             story.append(Spacer(1, 3 * mm))
         if not any_content:
-            story.append(Paragraph('（龙虎山大师兄未返回有效条目）', self.styles['note']))
+            story.append(Paragraph('（文化研究算法未返回有效条目）', self.styles['note']))
 
     def _build_meihua(self, story, data):
         """渲染梅花易数卦象章节：卦象要素表 + AI 卦理解读。
@@ -801,7 +801,7 @@ class PdfExporter(BaseExporter):
             self._kv_table(story, pairs)
         if mh_ai:
             story.append(Spacer(1, 4 * mm))
-            story.append(Paragraph('<b>龙虎山大师兄梅花解读：</b>', self.styles['body']))
+            story.append(Paragraph('<b>文化研究算法梅花解读：</b>', self.styles['body']))
             for key, title in _AI_SECTIONS:
                 items = mh_ai.get(key, []) or []
                 if not items:
@@ -847,7 +847,7 @@ class PdfExporter(BaseExporter):
             self._kv_table(story, pairs)
         if lr_ai:
             story.append(Spacer(1, 4 * mm))
-            story.append(Paragraph('<b>龙虎山大师兄六壬解读：</b>', self.styles['body']))
+            story.append(Paragraph('<b>文化研究算法六壬解读：</b>', self.styles['body']))
             for key, title in _AI_SECTIONS:
                 items = lr_ai.get(key, []) or []
                 if not items:

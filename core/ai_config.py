@@ -30,7 +30,7 @@ core/ai_config.py — AI 模型配置中央管理器（全局唯一权威源）
   在本机上，任何能运行本程序代码的人都可以还原它。请勿绑定高价值账户。
 
 【发布产物约定】
-  本程序仅接入一个固定的官方后端「龙虎山大师兄 AI（Agnes AI）」，
+  本程序仅接入一个固定的官方后端「文化研究算法 AI（Agnes AI）」，
   其端点与模型名作为公开的、非机密的产品常量写在本模块
   （OFFICIAL_AGNES_ENDPOINT / OFFICIAL_AGNES_MODEL）。
   真正需要保密、且由用户填写的只有 API 密钥：
@@ -79,7 +79,7 @@ OFFICIAL_PROVIDER_KEY = 'agnes'
 
 
 # ================================================================
-# 供应商预设：当前仅保留官方「龙虎山大师兄 AI」一个模型
+# 供应商预设：当前仅保留官方「文化研究算法 AI」一个模型
 # （公开端点 / 模型名已固化为上方产品常量，GUI 不暴露多模型选择）
 # ================================================================
 @dataclass(frozen=True)
@@ -97,7 +97,7 @@ class ProviderPreset:
 PROVIDER_PRESETS: Dict[str, ProviderPreset] = {
     OFFICIAL_PROVIDER_KEY: ProviderPreset(
         key=OFFICIAL_PROVIDER_KEY,
-        label='龙虎山大师兄 AI',
+        label='文化研究算法 AI',
         api_url=OFFICIAL_AGNES_ENDPOINT,
         models=(OFFICIAL_AGNES_MODEL,),
         auth_scheme='bearer',

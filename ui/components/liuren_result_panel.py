@@ -28,7 +28,7 @@ try:  # 兼容独立导入 / API 层独立打包场景
 except Exception:
     FINAL_VERDICT_TITLE = '总体判断'
     DISCLAIMER_TITLE = '免责声明'
-    AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+    AI_SECTION_TITLE = '文化研究算法分析预测'
     def _as_text(v):
         # 兜底简化实现
         if v is None:
@@ -862,7 +862,7 @@ class LiurenResultPanel(QWidget):
 
         Args:
             text: 主提示文案。
-            ai:   True 为龙虎山大师兄解读加载（鎏金主题）；
+            ai:   True 为文化研究算法解读加载（鎏金主题）；
                   False 为起课加载（青花蓝主题）。
         """
         self.status_label.setText('⏳ ' + text)
@@ -880,7 +880,7 @@ class LiurenResultPanel(QWidget):
         self._clear_dynamic_content()
         if ai:
             panel = loading_panel(
-                message=text or '龙虎山大师兄正在解读六壬玄机…',
+                message=text or '文化研究算法正在解读六壬玄机…',
                 sub='请稍候，大师兄正依四课三传、天将神煞逐项推演',
                 color=Colors.LIUJIN,
                 hints=['大师兄正凝神审课…', '正在推敲四课生克…',
@@ -895,7 +895,7 @@ class LiurenResultPanel(QWidget):
         panel.setMinimumHeight(360)
         self.content_layout.addWidget(panel)
 
-    def show_ai_loading(self, text='龙虎山大师兄正在解读六壬玄机…'):
+    def show_ai_loading(self, text='文化研究算法正在解读六壬玄机…'):
         """显示 AI 解读加载状态（鎏金主题，供主窗口统一调用）。
 
         Args:
@@ -1000,7 +1000,7 @@ class LiurenResultPanel(QWidget):
         2. 渲染后恢复状态栏文案与样式，提示「解读完成」，
            避免「解读中…」一直挂着的体验问题。
         """
-        # 若 AI 未配置，则不显示龙虎山大师兄分析预测
+        # 若 AI 未配置，则不显示文化研究算法分析预测
         try:
             from core.ai_config import is_ai_configured
             if not is_ai_configured():
@@ -1021,7 +1021,7 @@ class LiurenResultPanel(QWidget):
 
         # 2) 恢复顶部状态栏：AI 已完成（不再停留在「解读中…」）
         try:
-            self.status_label.setText('✓ 龙虎山大师兄解读完成')
+            self.status_label.setText('✓ 文化研究算法解读完成')
             self.status_label.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY};
                 color: {Colors.SUCCESS};

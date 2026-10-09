@@ -215,7 +215,7 @@ if __name__ == '__main__':
         app.setStyle('Fusion')
 
         try:
-            icon_path = get_resource_path('favicon.ico')
+            icon_path = get_resource_path('assets/favicon.ico')
             if icon_path.exists():
                 app.setWindowIcon(QIcon(str(icon_path)))
         except Exception as icon_exc:

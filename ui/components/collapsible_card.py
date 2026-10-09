@@ -449,7 +449,7 @@ class LoadingPanel(QWidget):
                  parent=None):
         """
         Args:
-            message: 主文案（如「龙虎山大师兄正在解读命盘…」）。
+            message: 主文案（如「文化研究算法正在解读命盘…」）。
             sub:     副标题小字（可空）。
             color:   主题色（排盘=青花蓝 Colors.QINGHUA / AI=鎏金 Colors.LIUJIN）。
             hints:   轮播提示语列表，每 2.6 秒切换一条；None/空则不显示。
@@ -612,14 +612,14 @@ class ResponsiveFlow(QWidget):
         self._reflow(force=True)
 
 
-def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str = '🧙') -> QWidget:
-    """龙虎山大师兄算命区 hero 标题 v2.3：鎏金渐变背景 + 大图标 + 大标题 + 副标题 + 时间戳。
+def ai_section_header(title: str = '文化研究算法算命详批', icon: str = '🧙') -> QWidget:
+    """文化研究算法算命区 hero 标题 v2.3：鎏金渐变背景 + 大图标 + 大标题 + 副标题 + 时间戳。
 
     视觉与文案升级（v2.3）：
     - 顶部 1px 鎏金渐变分隔线，营造仪式感
     - 双层背景：鎏金微透底 + 装饰性金色光晕
     - 左侧 64px 大圆形图标（外圈光晕 + 内圈实心）+ 20px 加粗主标题
-    - 副标题改为「龙虎山大师兄亲批 · 承古法、参五行、酌神煞」，强化算命语境
+    - 副标题改为「文化研究算法亲批 · 承古法、参五行、酌神煞」，强化算命语境
     - 右侧显示算命时间戳 + 「法旨/批语」徽章（取代原「KP v1.0」徽章）
     - 底部装饰文案改为「☯ 大师兄亲批，仅供文化研究参考 ☯」，剔除「AI 自动生成」字样
 
@@ -699,9 +699,9 @@ def ai_section_header(title: str = '龙虎山大师兄算命详批', icon: str =
         f"letter-spacing: 2px;"
     )
 
-    # 副标题：去 AI 化、改为龙虎山大师兄算命描述（TLabel.caption = 12px）
+    # 副标题：去 AI 化、改为文化研究算法算命描述（TLabel.caption = 12px）
     sub_label = TLabel.caption(
-        '· 龙虎山大师兄亲批  ·  承古法、参五行、酌神煞  ·'
+        '· 文化研究算法亲批  ·  承古法、参五行、酌神煞  ·'
     )
     sub_label.setStyleSheet(f"color: {Colors.TEXT2}; letter-spacing: 1px;")
 
@@ -962,7 +962,7 @@ def _scroll_to_anchor(anchor_id: str) -> None:
 def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
     """生成一条「重要内容」高亮提示块：左侧色条 + 鎏金/强调色图标 + 文案。
 
-    用于龙虎山大师兄算命解读中标注关键结论、关键信息或风险提示，
+    用于文化研究算法算命解读中标注关键结论、关键信息或风险提示，
     与排盘卡片视觉一致，强化信息层级。
 
     Args:
@@ -1010,7 +1010,7 @@ def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
 def _strength_verdict(group: str, strength: str) -> tuple:
     """根据「维度分组 + 强度等级」返回一对描述：(趋势, 指引)。
 
-    不返回百分比，避免空洞的数值显示；改用龙虎山大师兄算命语境的文字解读，
+    不返回百分比，避免空洞的数值显示；改用文化研究算法算命语境的文字解读，
     强调「运势强弱」与「行动方向」，与各维度语义贴合。
 
     Args:
@@ -1568,7 +1568,7 @@ def _build_explanation_box(dimension_labels, color=Colors.LIUJIN) -> QWidget:
 
     dims = '、'.join(dimension_labels) if dimension_labels else '各维度'
     lines = [
-        '含义：以上为龙虎山大师兄据命主八字推演所得的趋势强弱判断，每维度以「强 / 中 / 弱」呈现。',
+        '含义：以上为文化研究算法据命主八字推演所得的趋势强弱判断，每维度以「强 / 中 / 弱」呈现。',
         f'涉及维度：{dims}（按命局结构自动给出）。',
         '实际用途：用于直观对比命主各维度走势、辅助整体判断；非统计采样结果，仅供文化研究参考。',
     ]
@@ -2314,7 +2314,7 @@ def disclaimer_card(text: str = '') -> QWidget:
 # =====================================================================
 # 整体结论结构化辅助：分段 / 关键句抽取
 # 仅影响「展示结构」（层次、段落、要点高亮），不增删/改写任何原文语义，
-# 保证龙虎山大师兄结论的准确性不变。
+# 保证文化研究算法结论的准确性不变。
 # =====================================================================
 def _split_conclusion_sentences(text: str) -> List[str]:
     """把结论文本切成句子（保留句末标点，含分句号；；以保证原文一字不丢）。
@@ -2505,7 +2505,7 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     if books:
         sub_text = '· 基于《' + '》《'.join(books[:3]) + '》等古籍参校 ·'
     else:
-        sub_text = '· 龙虎山大师兄核心论断 ·'
+        sub_text = '· 文化研究算法核心论断 ·'
     sub = QLabel(sub_text)
     sub.setStyleSheet(
         f"font-size: 11px; color: {Colors.TEXT3}; "

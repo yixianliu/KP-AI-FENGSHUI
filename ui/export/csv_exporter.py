@@ -30,7 +30,7 @@ _AI_SECTIONS = [
 
 
 # AI 分析区章节标题（与 ai_titles.py 保持一致）
-_AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+_AI_SECTION_TITLE = '文化研究算法分析预测'
 
 
 def _to_str(v: Any) -> str:
@@ -276,7 +276,7 @@ class CsvExporter(BaseExporter):
         mh_ai = data.get('meihua_ai') or {}
         if mh_ai:
             writer.writerow([])
-            writer.writerow(['— 龙虎山大师兄梅花解读 —'])
+            writer.writerow(['— 文化研究算法梅花解读 —'])
             for key, title in _AI_SECTIONS:
                 items = mh_ai.get(key, []) or []
                 if isinstance(items, str):
@@ -308,7 +308,7 @@ class CsvExporter(BaseExporter):
         lr_ai = data.get('liuren_ai') or {}
         if lr_ai:
             writer.writerow([])
-            writer.writerow(['— 龙虎山大师兄六壬解读 —'])
+            writer.writerow(['— 文化研究算法六壬解读 —'])
             for key, title in _AI_SECTIONS:
                 items = lr_ai.get(key, []) or []
                 if isinstance(items, str):

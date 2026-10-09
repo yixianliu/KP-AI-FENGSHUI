@@ -3,7 +3,7 @@
 ui/components/settings_dialog.py — AI 模型配置（GUI，极简版）
 
 【定位】
-程序仅接入一个固定的官方后端「龙虎山大师兄 AI（Agnes AI）」，
+程序仅接入一个固定的官方后端「文化研究算法 AI（Agnes AI）」，
 端点与模型名已固化为产品常量（core.ai_config.OFFICIAL_AGNES_*），
 GUI 不再提供任何模型选择 / 端点 / 参数配置项。
 
@@ -68,7 +68,7 @@ class _ConnectionTestWorker(QThread):
 # 主对话框（极简：仅填写 API 密钥）
 # ================================================================
 class SettingsDialog(QDialog):
-    """龙虎山大师兄配置对话框（极简版）。"""
+    """文化研究算法配置对话框（极简版）。"""
 
     def __init__(self, parent=None):
         """初始化极简配置对话框：固定官方后端，仅向用户索取 API 密钥。
@@ -85,7 +85,7 @@ class SettingsDialog(QDialog):
         # 依赖 objectName（dialog-header/body/footer），本对话框未绑定故不命中，
         # 保持内部控件现有内联样式不变。
         self.setStyleSheet(Stylesheets.DIALOG)
-        self.setWindowTitle('设置 · 龙虎山大师兄配置')
+        self.setWindowTitle('设置 · 文化研究算法配置')
         self.setMinimumSize(520, 430)
 
         self._manager = get_config_manager()
@@ -113,7 +113,7 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         root.setSpacing(Spacing.S4)
 
-        title = QLabel('龙虎山大师兄配置')
+        title = QLabel('文化研究算法配置')
         title.setStyleSheet(f"""
             font-size: {Fonts.SZ_TITLE};
             font-weight: {Fonts.W_BOLD};
@@ -124,7 +124,7 @@ class SettingsDialog(QDialog):
         root.addWidget(title)
 
         desc = QLabel(
-            '本程序使用龙虎山大师兄 AI 服务（Agnes AI）。请填写你的 API 密钥；'
+            '本程序使用文化研究算法 AI 服务（Agnes AI）。请填写你的 API 密钥；'
             '密钥仅保存在本机，并按设备指纹混淆存储。'
         )
         desc.setWordWrap(True)
@@ -152,7 +152,7 @@ class SettingsDialog(QDialog):
         info_layout = QVBoxLayout(info)
         info_layout.setContentsMargins(Spacing.S_PAD_XS, Spacing.S3, Spacing.S_PAD_XS, Spacing.S3)
         info_layout.setSpacing(Spacing.S2)
-        info_layout.addWidget(self._label('服务：龙虎山大师兄 AI（Agnes AI）'))
+        info_layout.addWidget(self._label('服务：文化研究算法 AI（Agnes AI）'))
         info_layout.addWidget(self._label(f'端点：{OFFICIAL_AGNES_ENDPOINT}'))
         info_layout.addWidget(self._label(f'模型：{OFFICIAL_AGNES_MODEL}'))
         # AI 频率/熔断状态展示

@@ -6,7 +6,7 @@ AI 分析区文案常量单一权威源（导出层）
 """
 
 # 与 ui/components/ai_analysis_renderer.py 保持一致
-AI_SECTION_TITLE = '龙虎山大师兄分析预测'
+AI_SECTION_TITLE = '文化研究算法分析预测'
 FINAL_VERDICT_TITLE = '总体判断'
 DISCLAIMER_TITLE = '免责声明'
 KEY_POINTS_LABEL = '【重点提示】'

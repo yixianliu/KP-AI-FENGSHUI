@@ -17,7 +17,7 @@ class IconButton(QPushButton):
     """图标按钮：QIcon + 固定尺寸 + tooltip + accessibleName。
 
     用法：
-        IconButton(icon_name='robot', tooltip='龙虎山大师兄解读',
+        IconButton(icon_name='robot', tooltip='文化研究算法解读',
                    accessible='AI 深度解读', parent=self)
 
     Args:

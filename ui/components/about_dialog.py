@@ -211,7 +211,7 @@ class AboutDialog(QDialog):
         """)
         text_grp.addWidget(title)
 
-        sub = QLabel('龙虎山大师兄 · 中国传统命理学 × 玄学智能解读')
+        sub = QLabel('文化研究算法 · 中国传统命理学 × 玄学智能解读')
         sub.setStyleSheet(f"""
             font-size: {Fonts.FS_CAPTION}px;
             color: rgba(255,255,255,0.80);
@@ -256,9 +256,9 @@ class AboutDialog(QDialog):
 
         # M4-5：正文走 TLabel.paragraph（统一行高 1.7 + 自动换行）
         text = TLabel.paragraph(
-            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与龙虎山大师兄分析预测深度融合的'
+            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与文化研究算法分析预测深度融合的'
             '桌面端专业命理分析工具。\n\n'
-            '通过严谨的命理算法计算，结合龙虎山大师兄的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
+            '通过严谨的命理算法计算，结合文化研究算法的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
         )
         text.setAlignment(Qt.AlignJustify)
         inner.addWidget(text)

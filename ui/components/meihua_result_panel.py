@@ -1035,7 +1035,7 @@ class MeihuaResultPanel(QWidget):
 
         Args:
             message: 传 None（或不传）为起卦加载，青花蓝主题；
-                     传入文案则为龙虎山大师兄解读加载，鎏金主题。
+                     传入文案则为文化研究算法解读加载，鎏金主题。
         """
         is_ai = bool(message)
 
@@ -1065,7 +1065,7 @@ class MeihuaResultPanel(QWidget):
                     padding: 12px 20px;
                 }}
             """)
-            self.status_label.setText('🧙 龙虎山大师兄解读中…')
+            self.status_label.setText('🧙 文化研究算法解读中…')
             self.status_label.setStyleSheet(f"""
                 font-size: {Fonts.SIZE_BODY};
                 color: {Colors.LIUJIN};
@@ -1106,8 +1106,8 @@ class MeihuaResultPanel(QWidget):
         self.content_layout.addWidget(panel)
         self.content_layout.addStretch()
 
-    def show_ai_loading(self, message: str = '龙虎山大师兄正在解读卦象玄机…'):
-        """显示龙虎山大师兄解读加载态（供主窗口调用）。"""
+    def show_ai_loading(self, message: str = '文化研究算法正在解读卦象玄机…'):
+        """显示文化研究算法解读加载态（供主窗口调用）。"""
         self.show_loading(message)
 
     def display_ai_analysis_result(self, smart_data: dict):
@@ -1123,7 +1123,7 @@ class MeihuaResultPanel(QWidget):
         2. 渲染后状态栏文案已由 display_result 重置为起卦完成，
            进一步恢复为「解读完成」与可点击的重新解读按钮。
         """
-        # 若 AI 未配置，则不显示龙虎山大师兄分析预测
+        # 若 AI 未配置，则不显示文化研究算法分析预测
         try:
             from core.ai_config import is_ai_configured
             if not is_ai_configured():
@@ -1134,7 +1134,7 @@ class MeihuaResultPanel(QWidget):
         except Exception:
             pass
         if not smart_data or not isinstance(smart_data, dict):
-            self._show_error("龙虎山大师兄未返回有效内容，请重试")
+            self._show_error("文化研究算法未返回有效内容，请重试")
             return
         self._current_智能 = smart_data
         rd = getattr(self, "_current_result", {}) or {}
@@ -1151,7 +1151,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText("✓ 龙虎山大师兄解读完成")
+        self.status_label.setText("✓ 文化研究算法解读完成")
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.SUCCESS};
@@ -1229,7 +1229,7 @@ class MeihuaResultPanel(QWidget):
                 padding: 12px 20px;
             }}
         """)
-        self.status_label.setText('⚠ 龙虎山大师兄异常')
+        self.status_label.setText('⚠ 文化研究算法异常')
         self.status_label.setStyleSheet(f"""
             font-size: {Fonts.SIZE_BODY};
             color: {Colors.DANGER};
