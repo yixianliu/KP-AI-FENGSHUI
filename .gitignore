@@ -65,3 +65,4 @@ api
 /database/
 database
 docs
+dist_test
