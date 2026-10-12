@@ -56,7 +56,8 @@ config.ini
 device.json
 **/device.json
 api
-/images/
+# images 仅保留旧版图标不入库；product_*（README 配图）与二维码需提交
+/images/ico_old.jpeg
 /Lib/
 /pyside6_packages/
 /tests/
