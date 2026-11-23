@@ -16,12 +16,15 @@ service/bazi_service.py — 八字业务编排层
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
 from core.bazi.bazi_calculator import BaziCalculator
 from core.knowledge.data_validator_v2 import validate_bazi_input
 from core import database_manager as dbm_module
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- 事件总线
 
@@ -90,39 +93,86 @@ class BaziService:
     def calculate(self, year: int, month: int, day: int, hour: int,
                   minute: int = 0, longitude: float = 120.0,
                   gender: str = '男', save: bool = True,
-                  name: str = '') -> Dict[str, Any]:
+                  name: str = '', is_lunar: bool = False,
+                  is_leap: bool = False, latitude: float = 30.0,
+                  location: str = '') -> Dict[str, Any]:
         """执行完整八字排盘（含校验、计算、落库、事件）。
 
         Args:
-            year, month, day, hour: 出生时间
+            year, month, day, hour: 出生时间（is_lunar=True 时为农历）
             minute: 分钟
-            longitude: 经度（真太阳时修正）
+            longitude: 经度（真太阳时修正），有效范围 -180~180
             gender: 性别（男/女）
             save: 是否落库历史记录
             name: 命主姓名（可选，用于历史记录）
+            is_lunar: 是否农历输入；True 时在计算前严格转换为公历
+            is_leap: 农历输入是否为闰月（仅 is_lunar=True 时生效）
+            latitude: 纬度（随记录保存，真太阳时只依赖经度），有效范围 -90~90
+            location: 出生地文本（如「北京市朝阳区」），落库到 city 列，
+                拿不到时写空字符串，绝不写入经纬度数字
 
         Returns:
             dict: 排盘结果（含 basic_info、bazi、wuxing、shishen、
                   dayun、liunian、yuncheng、zonghe、shier_shen 等字段）
+
+        Raises:
+            ValueError: 输入校验失败，经/纬度非法，或农历日期非法/不存在
         """
-        # 1. 校验输入
+        # 0. 经纬度显式校验：非法值必须报错，绝不静默回落到默认 120/30
+        longitude, latitude = self._validate_coordinates(longitude, latitude)
+
+        # 1. 校验输入（农历标志一并交给校验层，便于后续扩展月/日范围规则）
+        #    经纬度与 core 层使用同一套全球口径（-180~180 / -90~90），
+        #    不再把 longitude 从校验入参里剔除（旧实现借此绕过了 73~135°E 限制，
+        #    导致「一个入口放宽、另一个入口收紧」的双标）。
         input_data = {
             'year': year, 'month': month, 'day': day,
             'hour': hour, 'minute': minute,
-            'longitude': longitude, 'gender': gender,
-            'is_lunar': False,
+            'longitude': longitude, 'latitude': latitude, 'gender': gender,
+            'is_lunar': bool(is_lunar),
+            'is_leap': bool(is_leap),
+            'location': location or '',
         }
+        if not (73.0 <= longitude <= 135.0 and 18.0 <= latitude <= 53.0):
+            logger.info('[八字][主路径] 出生地不在中国疆域范围（lon=%.2f, lat=%.2f），'
+                        '按全球口径 -180~180 / -90~90 校验', longitude, latitude)
         v_result = validate_bazi_input(input_data)
         if not v_result.success:
-            raise ValueError(f'输入校验失败：{"; ".join(v_result.errors)}')
+            errors = '; '.join(v_result.errors)
+            # 主路径校验失败不可静默：调用方（ui/main_window._do_bazi）会捕获异常
+            # 并回退到 core 直连路径（该路径可能再做 AI 地理编码），必须留下可诊断日志
+            logger.error(
+                '[八字][主路径] 输入校验失败，将回退 core 流程（回退路径可能触发地理编码，'
+                '结果来源与主路径不同）：%s | year=%s month=%s day=%s hour=%s '
+                'minute=%s longitude=%s latitude=%s',
+                errors, year, month, day, hour, minute, longitude, latitude)
+            raise ValueError(f'输入校验失败：{errors}')
+        for warning in v_result.warnings:
+            logger.info('[八字][主路径] 校验告警：%s', warning)
 
-        # 2. 计算（BaziCalculator.calculate 签名含 is_lunar）
+        # 2. 计算（农历由核心层严格转换为公历；转换失败会抛出，绝不继续算盘）
         t0 = time.time()
         result = self._calculator.calculate(
-            year, month, day, hour, minute, longitude, False)
+            year, month, day, hour, minute, longitude, bool(is_lunar), bool(is_leap),
+            latitude=latitude)
         result['calc_ms'] = int((time.time() - t0) * 1000)
 
-        # 2.1 补充五行/十神/大运/流年/命理/分析，供综合建议使用
+        # 2.1 生成 basic_info：日期一律使用转换后的公历，避免 UI 拿农历数字当公历展示
+        solar_y, solar_m, solar_d = self._parse_solar_date(result, year, month, day)
+        result['basic_info'] = {
+            'year': solar_y, 'month': solar_m, 'day': solar_d,
+            'hour': hour, 'minute': minute,
+            'longitude': longitude, 'latitude': latitude,
+            'gender': gender, 'name': name,
+            'is_lunar': bool(is_lunar), 'is_leap': bool(is_leap),
+            'solar_date': f'{solar_y}年{solar_m}月{solar_d}日',
+        }
+        # 落库/历史展示同样使用公历日期（农历原始输入保留在 input_json 中）
+        input_data['solar_year'] = solar_y
+        input_data['solar_month'] = solar_m
+        input_data['solar_day'] = solar_d
+
+        # 2.2 补充五行/十神/大运/流年/命理/分析，供综合建议使用
         try:
             result['wuxing_detail'] = self._calculator.get_wuxing(result)
             result['shishen'] = self._calculator.get_shishen(result)
@@ -130,7 +180,7 @@ class BaziService:
             result.setdefault('wuxing_detail', {})
             result.setdefault('shishen', {})
         try:
-            result['dayun'] = self._calculator.get_dayun(result, gender, year)
+            result['dayun'] = self._calculator.get_dayun(result, gender, solar_y)
             result['liunian'] = self._calculator.get_liunian(result)
         except Exception:
             result.setdefault('dayun', {})
@@ -168,6 +218,9 @@ class BaziService:
         - name, gender, birth_date, birth_time, city,
           professional_chart_json, ai_analysis_json, input_json
 
+        city 列写出生地名称（input_data['location']），拿不到时写空字符串；
+        绝不写经纬度数字（旧实现写 longitude，导致历史与导出「出生地」显示 120.0）。
+
         Args:
             result: 排盘结果字典
             input_data: 输入参数字典
@@ -178,7 +231,12 @@ class BaziService:
         """
         try:
             manager = dbm_module.get_db_manager()
-            birth_date = f"{input_data.get('year', '')}-{input_data.get('month', 0):02d}-{input_data.get('day', 0):02d}"
+            # 优先使用核心层回填的公历日期，农历输入不再被当作公历落库
+            solar_date = str(result.get('solar_date') or '')
+            if solar_date:
+                birth_date = solar_date
+            else:
+                birth_date = f"{input_data.get('year', '')}-{input_data.get('month', 0):02d}-{input_data.get('day', 0):02d}"
             birth_time = f"{input_data.get('hour', 0):02d}:{input_data.get('minute', 0):02d}"
             input_json = json.dumps(input_data, ensure_ascii=False)
             chart_json = json.dumps(result, ensure_ascii=False, default=str)
@@ -194,13 +252,63 @@ class BaziService:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                 (name, input_data.get('gender', ''),
                  birth_date, birth_time,
-                 str(input_data.get('longitude', '')),
+                 # 出生地名称：拿不到时写空字符串，绝不写入经纬度数字
+                 str(input_data.get('location') or ''),
                  chart_json, ai_json, input_json))
             return record_id
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f'落库失败：{e}')
+            logger.warning(f'落库失败：{e}')
             return None
+
+    @staticmethod
+    def _validate_coordinates(longitude, latitude):
+        """校验经纬度数值与范围，非法值抛出 ValueError（绝不静默回落默认值）。
+
+        Args:
+            longitude: 经度（度），有效范围 -180~180
+            latitude: 纬度（度），有效范围 -90~90
+
+        Returns:
+            tuple[float, float]: 归一化后的 (经度, 纬度)
+
+        Raises:
+            ValueError: 非数值或超出范围
+        """
+        try:
+            lon = float(longitude)
+        except (TypeError, ValueError):
+            logger.error('[八字][主路径] 经度非数值：%r', longitude)
+            raise ValueError(f'经度必须为数值，收到 {longitude!r}')
+        try:
+            lat = float(latitude)
+        except (TypeError, ValueError):
+            logger.error('[八字][主路径] 纬度非数值：%r', latitude)
+            raise ValueError(f'纬度必须为数值，收到 {latitude!r}')
+        if not -180.0 <= lon <= 180.0:
+            logger.error('[八字][主路径] 经度超范围：%s°', lon)
+            raise ValueError(f'经度 {lon}° 超出有效范围 -180~180°')
+        if not -90.0 <= lat <= 90.0:
+            logger.error('[八字][主路径] 纬度超范围：%s°', lat)
+            raise ValueError(f'纬度 {lat}° 超出有效范围 -90~90°')
+        return lon, lat
+
+    @staticmethod
+    def _parse_solar_date(result: Dict[str, Any], fallback_y: int,
+                          fallback_m: int, fallback_d: int):
+        """从核心结果中解析公历日期；解析失败时退回入参（公历路径等价于原逻辑）。
+
+        Args:
+            result: 核心层返回的八字结果（含 solar_date 字段）
+            fallback_y, fallback_m, fallback_d: 解析失败时使用的年月日
+
+        Returns:
+            tuple[int, int, int]: (公历年, 公历月, 公历日)
+        """
+        try:
+            parts = str(result.get('solar_date', '')).split('-')
+            return int(parts[0]), int(parts[1]), int(parts[2])
+        except (IndexError, TypeError, ValueError):
+            return int(fallback_y), int(fallback_m), int(fallback_d)
 
     def _build_analysis(self, ml: Dict, ss: Dict) -> List[Dict]:
         """根据十神汇总与命理神煞生成吉凶批注列表（规则引擎，离线可跑）。

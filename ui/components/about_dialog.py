@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QFrame, QWidget, QMessageBox,
                                QScrollArea,
                                QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
-from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer, QSize
+from PySide6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve, QTimer, QSize, Property, QAbstractAnimation
 from PySide6.QtGui import (QFont, QFontMetrics, QPainter, QColor,
                            QLinearGradient, QPen, QPainterPath, QDesktopServices,
                            QPixmap)
 
 from ui.styles import Colors, Fonts, Spacing
+from ui.components.collapsible_card import _rgba
 from core.path_utils import get_resource_path, get_app_dir
 from ui.components.typography import TLabel  # M4-5：分区标题/正文/提示统一走 TLabel 工厂
 
@@ -38,7 +39,7 @@ class AboutDialog(QDialog):
         from core.app_version import get_version_label
         APP_VERSION = get_version_label()
     except Exception:
-        APP_VERSION = 'v5.0.6'
+        APP_VERSION = 'v5.1.0'
 
     # Header 固定高度（M4-5：原为裸数字 160，提为常量便于统一调整）
     HEADER_H = 160
@@ -87,15 +88,36 @@ class AboutDialog(QDialog):
         self._start_staggered_animations()
 
     def _start_staggered_animations(self):
-        """依次触发行级卡片淡入动画（opacity）。"""
+        """依次触发行级卡片淡入动画（opacity）。
+
+        【P2-10】``windowOpacity`` 只对顶层窗口生效，对子控件（卡片）动画该属性
+        不会产生任何视觉效果，旧实现所谓的「依次淡入」实际不生效。改用
+        ``QGraphicsOpacityEffect`` 驱动子控件透明度，并在动画结束后移除 effect，
+        避免长期保留离屏渲染开销。
+        """
+        # 持有动画对象引用：QPropertyAnimation 若无 parent 会被 GC 回收导致动画中断
+        self._card_anims = []
         for i, (card, base_delay) in enumerate(self._cards):
             delay = base_delay + i * self._STAGGER_DELAY
-            anim = QPropertyAnimation(card, b"windowOpacity")
+            effect = QGraphicsOpacityEffect(card)
+            effect.setOpacity(0.0)
+            card.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity", card)
             anim.setDuration(self._FADE_DURATION)
             anim.setStartValue(0.0)
             anim.setEndValue(1.0)
             anim.setEasingCurve(QEasingCurve.InOutQuad)
+            anim.finished.connect(lambda c=card: self._clear_opacity_effect(c))
+            self._card_anims.append(anim)
             QTimer.singleShot(delay, anim.start)
+
+    @staticmethod
+    def _clear_opacity_effect(card):
+        """动画结束后移除透明度 effect（控件已销毁时静默忽略）。"""
+        try:
+            card.setGraphicsEffect(None)
+        except RuntimeError:
+            pass
 
     # ======================== 主布局 ========================
     def _build_ui(self):
@@ -256,7 +278,7 @@ class AboutDialog(QDialog):
 
         # M4-5：正文走 TLabel.paragraph（统一行高 1.7 + 自动换行）
         text = TLabel.paragraph(
-            '这是一款将中国传统命理学（八字 / 梅花易数 / 大六壬）与文化研究算法分析预测深度融合的'
+            '这是一款将中国传统命理学（八字 / 梅花易数 / 玄空飞星）与文化研究算法分析预测深度融合的'
             '桌面端专业命理分析工具。\n\n'
             '通过严谨的命理算法计算，结合文化研究算法的智能解读，为用户提供全方位、多层次的命理解析与决策参考。'
         )
@@ -618,9 +640,33 @@ class ShadowCard(QFrame):
         """
         self.setStyleSheet(self._normal_style)
 
+    def _ensure_shadow(self):
+        """确保阴影 effect 仍挂在卡片上。
+
+        外部动画（如 AboutDialog 的卡片淡入）会对本卡片调用
+        ``setGraphicsEffect(QGraphicsOpacityEffect)``，Qt 在替换时会**删除**旧
+        ``QGraphicsDropShadowEffect``，导致 ``_shadow_anim`` 失去 target 而报
+        「QPropertyAnimation::updateState (blurRadius): Changing state of an
+        animation without target」。此方法在悬停动画启动前自愈：若阴影 effect
+        已被替换/删除，则重建并重新绑定动画目标。
+        """
+        if self.graphicsEffect() is not self._shadow:
+            # 旧 effect 已被外部替换/删除（Qt 内部已 C++ 侧销毁），重建新实例。
+            self._shadow = QGraphicsDropShadowEffect(self)
+            self._shadow.setBlurRadius(self._shadow_anim.currentValue() if self._shadow_anim.state() != QAbstractAnimation.State.Stopped else 14)
+            self._shadow.setXOffset(0)
+            self._shadow.setYOffset(3)
+            self._shadow.setColor(QColor(0, 0, 0, 28))
+            self.setGraphicsEffect(self._shadow)
+            # 重建动画对象（原动画的 target 已失效，不能复用）
+            self._shadow_anim = QPropertyAnimation(self._shadow, b"blurRadius")
+            self._shadow_anim.setDuration(200)
+            self._shadow_anim.setEasingCurve(QEasingCurve.OutQuad)
+
     def enterEvent(self, event):
         """悬停时加深阴影并变背景。"""
         self._hovered = True
+        self._ensure_shadow()
         self.setStyleSheet(self._hover_style)
         # 动画 blurRadius 14 -> 22
         self._shadow_anim.setStartValue(14)
@@ -631,6 +677,7 @@ class ShadowCard(QFrame):
     def leaveEvent(self, event):
         """离开时恢复阴影和背景。"""
         self._hovered = False
+        self._ensure_shadow()
         self.setStyleSheet(self._normal_style)
         # 动画 blurRadius 22 -> 14
         self._shadow_anim.setStartValue(22)
@@ -655,12 +702,12 @@ class HaloAvatarWidget(QFrame):
         self.setFixedSize(size, size)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # 呼吸光环动画（opacity 循环）
-        self._opacity_effect = QGraphicsOpacityEffect(self)
-        self._opacity_effect.setOpacity(1.0)
-        self.setGraphicsEffect(self._opacity_effect)
-
-        self._breathe_anim = QPropertyAnimation(self._opacity_effect, b"opacity")
+        # 呼吸光环动画：用 pyqtProperty 驱动呼吸因子，paintEvent 内 painter.setOpacity 实现。
+        # 不再挂 QGraphicsOpacityEffect —— 该 Effect 会让 Qt 将控件渲染到离屏 pixmap，
+        # 与 paintEvent 内 QPainter(self) 冲突，触发 "paint device can only be painted by
+        # one painter at a time" 刷屏警告（见 Terminal 输出）。
+        self._breathe_factor = 1.0
+        self._breathe_anim = QPropertyAnimation(self, b"breatheFactor")
         self._breathe_anim.setDuration(2000)  # 2秒一个周期
         self._breathe_anim.setStartValue(0.5)
         self._breathe_anim.setEndValue(1.0)
@@ -670,6 +717,20 @@ class HaloAvatarWidget(QFrame):
 
         # 悬停状态
         self._hovered = False
+
+    def _get_breathe_factor(self) -> float:
+        """获取当前呼吸因子（0.5~1.0，用于光环透明度）。"""
+        return self._breathe_factor
+
+    def _set_breathe_factor(self, value: float):
+        """更新呼吸因子并触发重绘（由 QPropertyAnimation 驱动）。"""
+        self._breathe_factor = value
+        self.update()
+
+    breatheFactor = Property(
+        float, _get_breathe_factor, _set_breathe_factor,
+        doc="呼吸光环透明度因子（0.5~1.0），由 QPropertyAnimation 逐帧驱动",
+    )
 
     def setText(self, text: str):
         """设置头像文字，仅保留首字符作为徽标（空文本回退为 '?'）。"""
@@ -689,6 +750,9 @@ class HaloAvatarWidget(QFrame):
         """重绘事件：绘制带光环的渐变圆底、白色细内环与居中文字。"""
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+
+        # 呼吸效果：由 breatheFactor 驱动整体透明度（替代原 QGraphicsOpacityEffect）
+        painter.setOpacity(self._breathe_factor)
 
         rect = self.rect()
         cx, cy = rect.center().x(), rect.center().y()
@@ -724,6 +788,9 @@ class HaloAvatarWidget(QFrame):
         tx = rect.x() + (rect.width() - tw) // 2
         ty = rect.y() + (rect.height() - th) // 2 + fm.ascent()
         painter.drawText(tx, ty, self._text)
+
+        # 恢复默认不透明度，避免影响后续绘制
+        painter.setOpacity(1.0)
         painter.end()
 
 
@@ -810,7 +877,7 @@ class ContactButton(QWidget):
             QLabel {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {accent_color},
-                    stop:1 {accent_color}BB);
+                    stop:1 {_rgba(accent_color, 0.73)});
                 border-radius: {Spacing.RADIUS_LG_INT}px;
                 font-size: {Fonts.FS_H1}px;
             }}
@@ -871,14 +938,14 @@ class ContactButton(QWidget):
         if solid:
             base_style = (
                 f"background:{accent};"
-                f"border-radius:8px;font-size:11px;padding:0 14px;"
+                f"border-radius:{Spacing.RADIUS_SM};font-size:11px;padding:0 14px;"
                 f"font-family:{Fonts.BODY}, 'Microsoft YaHei', sans-serif;"
             )
-            hover_style = f"background:{accent}DD;"
+            hover_style = f"background:{_rgba(accent, 0.87)};"
         else:
             base_style = (
                 f"background:transparent;color:{Colors.TEXT2};"
-                f"border:none;border-radius:8px;font-size:11px;padding:0 14px;"
+                f"border:none;border-radius:{Spacing.RADIUS_SM};font-size:11px;padding:0 14px;"
                 f"font-family:{Fonts.BODY}, 'Microsoft YaHei', sans-serif;"
             )
             hover_style = (
@@ -1045,7 +1112,7 @@ class QPixmapLabel(QLabel):
             QLabel {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {Colors.CARD}, stop:1 {Colors.BG_DARK});
-                border: 2px dashed {self._accent}88;
+                border: 2px dashed {_rgba(self._accent, 0.53)};
                 border-radius: {Spacing.RADIUS_SM};
                 font-size: {Fonts.FS_MICRO}px;
                 color: {Colors.TEXT3};

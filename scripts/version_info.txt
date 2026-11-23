@@ -3,8 +3,8 @@
 # http://msdn.microsoft.com/en-us/library/ms646997.aspx
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(5, 0, 6, 0),
-    prodvers=(5, 0, 6, 0),
+    filevers=(5, 1, 0, 0),
+    prodvers=(5, 1, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -20,12 +20,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'KP工作室'),
             StringStruct(u'FileDescription', u'风水排盘专业工具'),
-            StringStruct(u'FileVersion', u'5.0.6.0'),
+            StringStruct(u'FileVersion', u'5.1.0.0'),
             StringStruct(u'InternalName', u'风水排盘专业工具'),
             StringStruct(u'LegalCopyright', u'Copyright © 2024-2026 KP工作室'),
             StringStruct(u'OriginalFilename', u'风水排盘专业工具.exe'),
             StringStruct(u'ProductName', u'风水排盘专业工具'),
-            StringStruct(u'ProductVersion', u'5.0.6.0')
+            StringStruct(u'ProductVersion', u'5.1.0.0')
           ]
         )
       ]

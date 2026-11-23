@@ -7,22 +7,21 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QStackedWidget, QSplitter,
                                QMessageBox, QGraphicsOpacityEffect)
 from PySide6.QtCore import (Qt, QTimer, QPropertyAnimation, Signal,
-                            QAbstractAnimation)
+                            QAbstractAnimation, QDate)
 from PySide6.QtGui import QFont, QIcon
 from ui.styles import Stylesheets, Colors, Fonts, Spacing, FOCUS_BORDER
 from core.path_utils import get_resource_path
 from core.app_version import get_version_label, APP_NAME
 from ui.components.input_panel import InputPanel
 from ui.components.result_panel import ResultPanel
-from ui.components.meihua_input import MeihuaInputPanel
+from ui.components.meihua_input import MeihuaInputPanel, METHODS as MEIHUA_METHODS
 from ui.components.meihua_result_panel import MeihuaResultPanel
-from ui.components.liuren_input import LiurenInputPanel
-from ui.components.liuren_result_panel import LiurenResultPanel
 from ui.components.xuan_kong_input import XuanKongInputPanel
 from ui.components.xuan_kong_result_panel import XuanKongResultPanel
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.about_dialog import AboutDialog
 from ui.components.ai_analysis_worker import AiAnalysisWorker
+from ui.components.history_panel import HistoryPanel
 # 注：core.bazi.bazi_calculator 与 core.lunar_converter 改为**惰性导入**
 # （见下方 bazi_calc / lunar_conv property）。二者 import 时会经
 # core.bazi._baazi_compat._ensure() **同步加载日历数据库**（实测 ~1.5s），
@@ -31,32 +30,81 @@ from core.calendar_utils import SolarTimeCalculator
 from core.location_db import LocationDB
 from core.divination.meihua import MeiHuaCalculator
 from core.divination.hexagram_analyzer import HexagramAnalyzer
-from core.divination.liuren import LiuRenCalculator
 from core.fengshui.xuan_kong import XuanKongCalculator
 from core.log_handler import setup_app_logging
+from ui.thread_shutdown import shutdown_threads
 from datetime import datetime
 import traceback
 import logging
+import queue
+import threading
 import uuid
 
 NAV = [
     {'id': 'bazi', 'name': '八字排盘', 'icon': '☯'},
     {'id': 'meihua', 'name': '梅花易数', 'icon': '⚊'},
-    {'id': 'liuren', 'name': '大六壬', 'icon': '☵'},
     {'id': 'xuan_kong', 'name': '玄空飞星', 'icon': '⛰'},
+    # 历史记录放在末位：不打乱既有一~三页的 NAV_INDEX 语义
+    {'id': 'history', 'name': '历史记录', 'icon': '☲'},
 ]
 
 # M2-1：路由单一真相源（修 Q13）。由 NAV 顺序派生，消除 _switch / _restore_ui_settings
 # 两处硬编码索引；新增板块只需在 NAV 追加一项，索引自动同步。
 NAV_INDEX = {item['id']: i for i, item in enumerate(NAV)}
-VALID_MODULES = tuple(NAV_INDEX.keys())  # ('bazi', 'meihua', 'liuren', 'xuan_kong')
+VALID_MODULES = tuple(NAV_INDEX.keys())  # ('bazi', 'meihua', 'xuan_kong', 'history')
 
 # 注：原 `SIDEBAR_WIDTH = 168`（Q15 死常量）已删除——真实导航是顶部栏，
 # 该常量仅被 e2e 脚本断言引用，无任何布局依赖。
 
+# ===== 操作日志异步投递 =====
+# _log_op 曾直接在 GUI 线程执行「新开连接 + PRAGMA + INSERT + commit」，
+# 写锁冲突时切换板块可卡 30s。现改为 GUI 线程只入队，由单个后台线程串行写库；
+# 与 system_logs 的 AsyncStorageLogHandler 分开（两者目标表不同）。
+_OP_LOG_QUEUE = queue.Queue(maxsize=500)
+_OP_LOG_WORKER = None
+_OP_LOG_LOCK = threading.Lock()
+
+
+def _op_log_worker_loop():
+    """后台消费操作日志队列：逐条写入 operation_logs，失败仅记录不重试。"""
+    logger = logging.getLogger(__name__)
+    while True:
+        item = _OP_LOG_QUEUE.get()
+        if item is None:
+            break
+        manager, kwargs = item
+        try:
+            manager.save_operation_log(**kwargs)
+        except Exception as e:  # noqa: BLE001 - 后台写入失败不得影响 UI
+            logger.warning('[操作记录] 后台写入失败：%s', e)
+
+
+def _ensure_op_log_worker():
+    """惰性启动操作日志消费线程（daemon，不阻塞解释器退出）。"""
+    global _OP_LOG_WORKER
+    if _OP_LOG_WORKER is not None and _OP_LOG_WORKER.is_alive():
+        return
+    with _OP_LOG_LOCK:
+        if _OP_LOG_WORKER is not None and _OP_LOG_WORKER.is_alive():
+            return
+        _OP_LOG_WORKER = threading.Thread(
+            target=_op_log_worker_loop, daemon=True, name='kp-op-log')
+        _OP_LOG_WORKER.start()
+
+
+def _enqueue_op_log(manager, kwargs) -> bool:
+    """把一次操作日志投递到后台队列；队列满时丢弃并返回 False。"""
+    try:
+        _ensure_op_log_worker()
+        _OP_LOG_QUEUE.put_nowait((manager, kwargs))
+        return True
+    except queue.Full:
+        logging.getLogger(__name__).warning('[操作记录] 队列已满，丢弃一条日志')
+        return False
+
 
 class MainWindow(QMainWindow):
-    """应用主窗口：承载八字 / 梅花易数 / 大六壬三大板块。
+    """应用主窗口：承载八字 / 梅花易数 / 玄空飞星三大板块。
 
     采用三层架构的 UI 层（PySide6）：通过 QSplitter 左右分栏（输入面板 + 结果面板），
     顶部胶囊式导航切换板块，并调度 core 业务层完成排盘与文化研究算法（AI）分析。
@@ -65,8 +113,15 @@ class MainWindow(QMainWindow):
     # M2-2：密度档变化信号（tuple: (页面边距, 卡片间距, 卡片内距, 行高)），
     # 四结果面板订阅 on_density_changed 槽统一刷新边距（M3-1 连接）。
     density_changed = Signal(tuple)
-    # M2-2：左栏占比常量（标准双栏约 34%），纵向模式按 0.4 分配高度。
-    SPLIT_LEFT_RATIO = 0.34
+    # 数据库后台初始化完成信号：True=就绪，False=初始化失败（进入降级模式）
+    db_ready_changed = Signal(bool)
+    # M2-2 / M7：左栏占比常量（标准双栏 35%），纵向模式按 0.4 分配高度。
+    # 原 0.34 + left_stack.setMaximumWidth(460) 在 1440 宽下把左栏压到 31.97%，
+    # 故比例改 0.35，并解除 460 硬上限，让 35/65 真正生效（1440 下 504/936）。
+    SPLIT_LEFT_RATIO = 0.35
+    # 关窗收尾参数：先协作取消并等待 3s；仍未结束则隐藏窗口等待，30s 后兜底退出
+    AI_SHUTDOWN_TIMEOUT_MS = 3000
+    AI_SHUTDOWN_GRACE_MS = 30000
 
     def __init__(self):
         """初始化主窗口：设置窗口元数据、日志、会话标识，并依次完成字体、core、UI、信号绑定与配置还原。"""
@@ -123,7 +178,7 @@ class MainWindow(QMainWindow):
     def _init_core(self):
         """初始化 core 业务层与数据库，并准备 AI 状态管理。
 
-        排盘计算器（八字/农历/真太阳时/地点/梅花/六壬）与 BaziService 改为惰性
+        排盘计算器（八字/农历/真太阳时/地点/梅花）与 BaziService 改为惰性
         构造（见下方 @property，首次 _do_* 用户操作时才实例化），避免冷启动一次性
         阻塞约 600+ ms。DatabaseManager 由后台线程异步打开（见 _init_db_async），
         避免约 1s 的冷 SQLite 读阻塞首帧；_restore_ui_settings 就绪前按默认布局，
@@ -134,6 +189,16 @@ class MainWindow(QMainWindow):
         # 持有所有正在运行的 AI worker 引用，避免被 GC 销毁
         # （QThread: Destroyed while thread is still running）
         self._active_workers = []
+        # 排盘/起卦后台线程（八字、梅花）：键为板块名，值为 PanTaskWorker/BaziCalculationWorker
+        # 未放到 _active_workers 是因为它们的生命周期信号是「业务完成」而非「线程结束」，
+        # 需单独成表才能既防止 GC、又在关窗时统一 requestInterruption + wait
+        self._pan_workers = {}
+        # 计算期间被禁用的主按钮原始文案（完成后复原，避免「计算中…」残留）
+        self._calc_btn_texts = {}
+        # 超时仍未结束、已从父对象摘除的历史查询/导出/连通测试线程
+        self._deferred_threads = []
+        # 当前打开的设置对话框（模态期间主窗口无法关闭，仅作为统一收尾入口）
+        self._settings_dialog = None
         # 计算器与 Service 改为惰性构造（见下方 @property），避免冷启动阻塞
         self._bazi_calc = None
         self._lunar_conv = None
@@ -141,20 +206,30 @@ class MainWindow(QMainWindow):
         self._location_db = None
         self._meihua_calc = None
         self._hexagram_analyzer = None
-        self._liuren_calc = None
         self._bazi_service = None
         # DatabaseManager 由后台线程异步打开（见 _init_db_async）
         self._db_manager = None
         self._db_manager_ready = False
+        # 关窗收尾状态：一旦进入延迟关闭流程，重复 closeEvent 一律忽略
+        self._shutdown_requested = False
+        self._shutdown_force_allowed = False
+        self._shutdown_grace_timer = None
+        # 先连接就绪信号，再启动后台线程；显式排队连接，确保回调在 UI 线程执行
+        self.db_ready_changed.connect(self._on_db_ready, Qt.QueuedConnection)
         self._init_db_async()
-        # 最近一次排盘记录 ID（供 AI 回调更新 ai_json）
+        # 最近一次排盘记录 ID 及其所在表（供 AI 回调写回正确的表）
+        # 八字 Service 路径写 analysis_records；梅花及八字回退路径写 pan_records
         self._last_bazi_record_id = None
         self._last_meihua_record_id = None
-        self._last_liuren_record_id = None
+        self._last_xuan_kong_record_id = None
+        self._last_bazi_record_table = None
+        self._last_meihua_record_table = None
+        self._last_xuan_kong_record_table = None
         # 最近一次八字输入（含出生日期/地点）
         self._last_bazi_input = None
-        # 最近一次大六壬完整排盘结果（供 AI 解读使用）
-        self._last_liuren_hr = None
+        # 「重新分析」按钮引用与在途状态（跳过缓存重算的 UI 侧控制）
+        self._reanalyze_btns = {}
+        self._reanalyze_busy = set()
         # ===== R4: AI 降级检测 + 配置热更新订阅 =====
         self._ai_available = self._check_ai_availability()
         self._update_ai_buttons_state()
@@ -203,12 +278,6 @@ class MainWindow(QMainWindow):
         return self._hexagram_analyzer
 
     @property
-    def liuren_calc(self):
-        if self._liuren_calc is None:
-            self._liuren_calc = LiuRenCalculator()
-        return self._liuren_calc
-
-    @property
     def bazi_service(self):
         if self._bazi_service is None:
             try:
@@ -221,22 +290,19 @@ class MainWindow(QMainWindow):
     # ===== DatabaseManager 惰性 + 后台线程异步打开（避免约 1s 冷读阻塞首帧） =====
     @property
     def db_manager(self):
-        """DatabaseManager 惰性 + 异步就绪。
+        """返回已就绪的 DatabaseManager；后台初始化未完成时返回 None。
 
-        后台线程打开 SQLite（冷读约 1s）期间，同步访问仅做有界等待——
-        用户操作通常远晚于后台线程完成，几乎零阻塞；等待失败（初始化失败）则返回 None。
+        绝不阻塞主线程：冷启动时 getter 立即返回 None，调用方按未就绪处理
+        （写记录/日志失败走既有降级分支），就绪后由 db_ready_changed 信号
+        触发界面恢复动作。调用方必须容忍 None。
         """
-        if self._db_manager is None and not self._db_manager_ready:
-            import time as _t
-            _deadline = _t.time() + 5.0
-            while not self._db_manager_ready and _t.time() < _deadline:
-                _t.sleep(0.01)
         return self._db_manager
 
     def _init_db_async(self):
-        """后台线程打开 SQLite，避免冷启动阻塞；完成后置 _db_manager。
+        """后台线程打开 SQLite，避免冷启动阻塞；完成后置 _db_manager 并发出就绪信号。
 
         SQLite 连接本身线程安全；DatabaseManager 单例在构造期注册，重复访问幂等。
+        就绪/失败均发 db_ready_changed(bool)，UI 线程据此恢复配置或提示降级。
         """
         import threading
 
@@ -252,8 +318,33 @@ class MainWindow(QMainWindow):
                     pass
             self._db_manager = dm
             self._db_manager_ready = True
+            try:
+                # 跨线程信号：Qt 自动排队到 UI 线程执行 _on_db_ready
+                self.db_ready_changed.emit(dm is not None)
+            except Exception:
+                pass
 
-        threading.Thread(target=_open, daemon=True).start()
+        # 持有线程引用：关闭窗口时需 join 收尾，避免解释器退出阶段该线程仍执行
+        # SQLite 初始化，与 finalize 竞争触发 0xC0000005 / 0xC0000374
+        self._db_thread = threading.Thread(target=_open, daemon=True, name='kp-db-init')
+        self._db_thread.start()
+
+    def _on_db_ready(self, ok: bool):
+        """数据库后台初始化完成回调：就绪则补做界面配置还原，失败则提示降级。"""
+        try:
+            if ok:
+                sb = self.statusBar()
+                if sb is not None:
+                    sb.showMessage('本地数据库已就绪', 3000)
+                # 启动时未就绪跳过的配置还原，此刻补做一次
+                self._restore_ui_settings()
+            else:
+                sb = self.statusBar()
+                if sb is not None:
+                    sb.showMessage('本地数据库初始化失败：历史记录与 AI 回写不可用')
+                self._logger.warning('[DB] 后台初始化失败，已进入降级模式')
+        except Exception as e:
+            self._logger.warning(f'[DB] 就绪回调处理异常：{e}')
 
     def _check_ai_availability(self) -> bool:
         """探测 AI 模型配置是否完整可用（唯一来源：core.ai_config）。"""
@@ -288,7 +379,7 @@ class MainWindow(QMainWindow):
         else:
             msg = '文化研究算法功能当前不可用，请在「设置」中配置 AI 模型'
 
-        for attr in ('bazi_result', 'meihua_result', 'liuren_result'):
+        for attr in ('bazi_result', 'meihua_result'):
             panel = getattr(self, attr, None)
             if panel is None:
                 continue
@@ -303,6 +394,104 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+        # 「重新分析」入口同样受 AI 可用性约束：不可用时一律隐藏
+        if not self._ai_available:
+            for btn in getattr(self, '_reanalyze_btns', {}).values():
+                btn.setVisible(False)
+                btn.setEnabled(False)
+
+    # ===== AI「重新分析」入口（跳过缓存） =====
+
+    def _build_reanalyze_buttons(self):
+        """在八字/梅花结果面板标题栏挂「重新分析」小按钮。
+
+        两个面板的类各不相同（ResultPanel / MeihuaResultPanel），
+        但都把「智能分析」按钮暴露为 smart_analyze_btn，故统一以它为锚点插入左侧，
+        不抢占主按钮位置；样式复用 Stylesheets.BTN_SECONDARY（浅灰、6px 圆角），
+        不新增颜色或改动分栏比例。
+        """
+        for kind, panel in (('bazi', self.bazi_result),
+                            ('meihua', self.meihua_result)):
+            btn = QPushButton('重新分析')
+            btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip('跳过本地缓存，重新请求 AI 解读（会覆盖已有解读）')
+            btn.setVisible(False)
+            btn.setEnabled(False)
+            btn.clicked.connect(
+                lambda _checked=False, k=kind: self._start_reanalyze(k))
+            hdr = self._panel_header_layout(panel)
+            anchor = getattr(panel, 'smart_analyze_btn', None)
+            if hdr is None:
+                # 兜底：找不到标题栏时把按钮挂在面板本身（不可见，不影响布局）
+                btn.setParent(panel)
+            else:
+                idx = hdr.indexOf(anchor) if anchor is not None else -1
+                if idx >= 0:
+                    hdr.insertWidget(idx, btn)
+                else:
+                    hdr.addWidget(btn)
+            self._reanalyze_btns[kind] = btn
+
+    @staticmethod
+    def _panel_header_layout(panel):
+        """取结果面板的标题栏布局：ResultPanel 走 _header_layout，
+        其余面板标题栏是根布局的第 0 项子布局。"""
+        hdr = getattr(panel, '_header_layout', None)
+        if hdr is not None:
+            return hdr
+        root = panel.layout()
+        if root is not None and root.count():
+            item = root.itemAt(0)
+            if item is not None:
+                return item.layout()
+        return None
+
+    def _start_reanalyze(self, kind: str):
+        """「重新分析」按钮槽：跳过缓存重跑对应板块的 AI 解读。"""
+        if kind in getattr(self, '_reanalyze_busy', set()):
+            return
+        starters = {
+            'bazi': self._on_bazi_ai_analyze,
+            'meihua': self._on_meihua_ai_analyze,
+        }
+        starter = starters.get(kind)
+        if starter is None:
+            return
+        starter(force_refresh=True)
+
+    def _begin_ai_busy(self, kind: str):
+        """AI 解读启动：禁用「重新分析」按钮，防止重复点击并发请求。"""
+        busy = getattr(self, '_reanalyze_busy', None)
+        if busy is None:
+            return
+        busy.add(kind)
+        btn = self._reanalyze_btns.get(kind)
+        if btn is not None:
+            btn.setEnabled(False)
+
+    def _end_ai_busy(self, kind: str, has_result: bool = True):
+        """AI 解读结束：恢复按钮；有可复用结果且 AI 可用时才显示。"""
+        busy = getattr(self, '_reanalyze_busy', None)
+        if busy is None:
+            return
+        busy.discard(kind)
+        btn = self._reanalyze_btns.get(kind)
+        if btn is None:
+            return
+        btn.setVisible(bool(has_result) and bool(getattr(self, '_ai_available', False)))
+        btn.setEnabled(True)
+
+    def _hide_reanalyze(self, kind: str):
+        """排盘开始/重置/记录被删：隐藏「重新分析」，避免对着失效结果重算。"""
+        busy = getattr(self, '_reanalyze_busy', None)
+        if busy is not None:
+            busy.discard(kind)
+        btn = self._reanalyze_btns.get(kind)
+        if btn is not None:
+            btn.setVisible(False)
+            btn.setEnabled(False)
+
     # ===== AI worker 线程生命周期管理 =====
 
     def _register_worker(self, worker):
@@ -310,7 +499,7 @@ class MainWindow(QMainWindow):
 
         防止两类崩溃：
         1. 局部/被覆盖的 QThread 在运行中被 Python GC 销毁；
-        2. 同一属性（如 _liuren_ai_worker）被自动触发与手动按钮先后覆盖。
+        2. 同一属性（如 _meihua_ai_worker）被自动触发与手动按钮先后覆盖。
         worker 自身的 finished 信号触发后从登记表移除并 deleteLater。
         """
         if worker is None:
@@ -327,32 +516,186 @@ class MainWindow(QMainWindow):
         except (RuntimeError, ValueError):
             pass
 
-    def _shutdown_workers(self, timeout_ms: int = 3000):
-        """停止并等待所有仍在运行的 AI worker，用于关窗时安全退出。"""
+    def _shutdown_workers(self, timeout_ms: int = AI_SHUTDOWN_TIMEOUT_MS):
+        """请求所有 AI worker 协作取消并等待收尾（绝不 terminate 强杀线程）。
+
+        Returns:
+            list: 超过 timeout_ms 仍未结束的 worker；空列表表示全部已安全收尾。
+        """
         workers = list(getattr(self, '_active_workers', []))
         self._active_workers.clear()
+        still_running = []
         for worker in workers:
             try:
                 if worker is None:
                     continue
                 if worker.isRunning():
-                    if hasattr(worker, 'stop'):
-                        worker.stop()
+                    # 协作式取消：只置标志，线程会自行走完当前原子操作（写库/写缓存）
+                    canceller = getattr(worker, 'cancel', None) or getattr(worker, 'stop', None)
+                    if callable(canceller):
+                        canceller()
                     if not worker.wait(timeout_ms):
-                        # AI 请求为阻塞调用无法中断，超时后强制终止以避免关窗卡死
-                        worker.terminate()
-                        worker.wait(1000)
+                        # 底层请求仍阻塞：继续持有引用，交给 closeEvent 的分层收尾处理
+                        still_running.append(worker)
+                        self._active_workers.append(worker)
                 else:
                     worker.deleteLater()
             except RuntimeError:
                 # 底层 C++ 对象已销毁，忽略
                 pass
+        if still_running:
+            self._logger.warning(
+                f"[退出] {len(still_running)} 个 AI 线程未在 {timeout_ms}ms 内结束，"
+                f"进入「隐藏窗口等待收尾」层级（不使用 terminate）")
+        return still_running
+
+    def _shutdown_managed_threads(self, timeout_ms: int = None) -> list:
+        """统一收尾历史查询 / 导出 / 设置连通测试三类线程（复用同一套机制）。
+
+        这些线程此前不在 closeEvent 的收尾名单里，窗口销毁时仍在 run() 中，
+        Qt 会打印 "QThread: Destroyed while thread is still running" 并崩溃。
+
+        Args:
+            timeout_ms: 单线程等待上限；None 用 AI_SHUTDOWN_TIMEOUT_MS。
+
+        Returns:
+            list: 超时仍未结束、已从父对象摘除并托管的线程。
+        """
+        if timeout_ms is None:
+            timeout_ms = self.AI_SHUTDOWN_TIMEOUT_MS
+        still_running = []
+        panel = getattr(self, 'history_panel', None)
+        fn = getattr(panel, 'shutdown_query', None)
+        if callable(fn):
+            still_running.extend(fn(timeout_ms))
+        for attr in ('bazi_result', 'meihua_result', 'xuan_kong_result'):
+            panel = getattr(self, attr, None)
+            fn = getattr(panel, 'shutdown_exports', None)
+            if callable(fn):
+                still_running.extend(fn(timeout_ms))
+        dialog = getattr(self, '_settings_dialog', None)
+        fn = getattr(dialog, 'shutdown_test_worker', None)
+        if callable(fn):
+            still_running.extend(fn(timeout_ms))
+        # 排盘/起卦后台线程：复用 ui/thread_shutdown.py 的统一收尾（协作取消 + wait）
+        pan_workers = list(getattr(self, '_pan_workers', {}).values())
+        getattr(self, '_pan_workers', {}).clear()
+        if pan_workers:
+            still_running.extend(shutdown_threads(pan_workers, timeout_ms))
+        return still_running
+
+    def _wait_db_init(self, timeout: float = 3.0):
+        """等待后台 DB 初始化/种子校验线程收尾（绝不 terminate）。
+
+        daemon 线程若在解释器退出阶段仍执行 SQLite 初始化，会与 finalize 竞争
+        并触发 0xC0000005 / 0xC0000374。关窗前先 join；超时仅记 warning 后继续
+        关窗，不阻塞用户。
+
+        校验线程改为模块级统一收尾：DatabaseManager 已是进程内单例，
+        不再存在「另一个实例的校验线程没人 join」的缺口。
+        """
+        th = getattr(self, '_db_thread', None)
+        if th is not None and th.is_alive():
+            th.join(timeout)
+            if th.is_alive():
+                try:
+                    self._logger.warning(
+                        f"[DB] 初始化线程未在 {timeout}s 内结束，继续关窗（不 terminate）")
+                except Exception:
+                    pass
+        try:
+            from core.database_manager import shutdown_db_background_tasks
+            if not shutdown_db_background_tasks(timeout):
+                self._logger.warning(
+                    f"[DB] 种子校验线程未在 {timeout}s 内结束，继续关窗（不 terminate）")
+        except Exception:
+            pass
 
     def closeEvent(self, event):
-        # 安全退出：停止所有 AI worker 并保存界面设置
-        self._shutdown_workers()
+        """关窗分层收尾：
+
+        1) 协作取消 + wait(3s)，全部结束则正常关闭；
+        2) 仍有线程阻塞（如已发出的 HTTP 请求）则隐藏窗口、忽略本次关闭，
+           等 finished 信号后自动再关（用户无感知卡死）；
+        3) 宽限期（30s）仍未结束则兜底放行关闭并留日志，全程不 terminate 线程。
+        """
+        # 先收尾后台 DB 初始化/校验线程，防止其存活到解释器退出阶段
+        self._wait_db_init()
+        if self._shutdown_force_allowed:
+            self._save_ui_settings()
+            super().closeEvent(event)
+            return
+        if self._shutdown_requested:
+            # 延迟收尾期间重复触发的关闭请求（如再次 Alt+F4）直接忽略
+            event.ignore()
+            return
+
+        still_running = self._shutdown_workers()
+        # 历史查询 / 导出 / 设置连通测试线程：此前完全不在收尾名单里
+        managed_running = self._shutdown_managed_threads()
         self._save_ui_settings()
-        super().closeEvent(event)
+        if not still_running and not managed_running:
+            super().closeEvent(event)
+            return
+
+        # 层级 2：隐藏窗口，等待线程自然结束；不阻塞 GUI 事件循环
+        self._shutdown_requested = True
+        event.ignore()
+        self.hide()
+        self._deferred_threads = list(managed_running)
+        for worker in still_running:
+            try:
+                worker.finished.connect(self._on_deferred_worker_finished)
+            except Exception:
+                pass
+        for thread in managed_running:
+            try:
+                thread.finished.connect(self._on_deferred_worker_finished)
+            except Exception:
+                pass
+        if self._shutdown_grace_timer is None:
+            self._shutdown_grace_timer = QTimer(self)
+            self._shutdown_grace_timer.setSingleShot(True)
+            self._shutdown_grace_timer.timeout.connect(self._on_shutdown_grace_timeout)
+        self._shutdown_grace_timer.start(self.AI_SHUTDOWN_GRACE_MS)
+
+    def _on_deferred_worker_finished(self):
+        """有 worker 结束：若全部收尾完成则真正关闭窗口。"""
+        try:
+            running = [w for w in list(self._active_workers) if w.isRunning()]
+        except RuntimeError:
+            running = []
+        for thread in list(getattr(self, '_deferred_threads', [])):
+            try:
+                if thread.isRunning():
+                    running.append(thread)
+            except RuntimeError:
+                continue
+        if running:
+            return
+        self._finalize_deferred_close(forced=False)
+
+    def _on_shutdown_grace_timeout(self):
+        """层级 3 兜底：宽限期已到仍有线程未结束，放行关闭并留痕（不 terminate）。"""
+        try:
+            remaining = [w for w in list(self._active_workers) if w.isRunning()]
+        except RuntimeError:
+            remaining = []
+        self._logger.warning(
+            f"[退出] 宽限期 {self.AI_SHUTDOWN_GRACE_MS}ms 已到，仍有 "
+            f"{len(remaining)} 个 AI 线程未结束，执行兜底退出（不 terminate 线程）")
+        self._finalize_deferred_close(forced=True)
+
+    def _finalize_deferred_close(self, forced: bool = False):
+        """延迟关闭收尾：停表、保存设置，并以「允许强制关闭」状态再次 close()。"""
+        if self._shutdown_grace_timer is not None:
+            self._shutdown_grace_timer.stop()
+        self._shutdown_requested = True
+        self._shutdown_force_allowed = True
+        if not forced:
+            self._logger.info('[退出] AI 线程已全部收尾，完成延迟关闭')
+        self._save_ui_settings()
+        self.close()
 
     # ===== 界面配置持久化（窗口几何 / 分栏 / 最近板块） =====
     def _current_module(self) -> str:
@@ -402,9 +745,9 @@ class MainWindow(QMainWindow):
         还原失败（初始化失败）静默忽略。
         """
         try:
-            # DB 可能仍在后台冷读（约 1s），此时按默认布局，稍后重试一次
+            # DB 可能仍在后台冷读（约 1s），此时按默认布局并直接返回；
+            # 就绪后由 db_ready_changed 信号回调 _on_db_ready 再触发本方法（不再轮询）
             if not self._db_manager_ready:
-                QTimer.singleShot(150, self._restore_ui_settings)
                 return
             mgr = self._db_manager
             if mgr is None:
@@ -423,7 +766,12 @@ class MainWindow(QMainWindow):
             left = int(s.get('splitter_left') or 0)
             right = int(s.get('splitter_right') or 0)
             if left > 0 and right > 0 and hasattr(self, 'splitter'):
-                QTimer.singleShot(0, lambda: self.splitter.setSizes([left, right]))
+                total = left + right
+                # M7：旧版本受 460 硬上限影响，存档比例约 32%；若历史配置偏离
+                # 目标 35% 超过 2 个百分点，视为陈旧值，交由 _apply_responsive
+                # 按 35/65 重算，避免旧配置把分栏缺陷带回来。
+                if abs(left / total - self.SPLIT_LEFT_RATIO) <= 0.02:
+                    QTimer.singleShot(0, lambda: self.splitter.setSizes([left, right]))
             mod = s.get('current_module')
             # M2-1（Q13）：白名单改为 VALID_MODULES，修复玄空飞星不被记忆
             if mod in VALID_MODULES:
@@ -435,21 +783,24 @@ class MainWindow(QMainWindow):
             self._logger.warning(f"[界面配置] 还原异常：{e}")
 
     def _log_op(self, op_type: str, op_object: str = '', detail: str = None) -> bool:
-        """记录一条操作记录到当前激活后端（失败静默降级，不阻断 UI）。"""
+        """记录一条操作记录（异步投递到后台队列，失败静默降级，不阻断 UI）。
+
+        返回 True 表示已成功入队，False 表示当前无可用数据库或队列已满。
+        真正的 SQLite 写入由后台 daemon 线程串行执行，GUI 线程不再触碰数据库。
+        """
         try:
             mgr = self.db_manager
             if mgr is None:
                 return False
-            ok = mgr.save_operation_log(
-                op_type=op_type,
-                op_object=op_object,
-                user_id=0,
-                session=self._session_id,
-                detail=detail,
-            )
-            return bool(ok)
+            return _enqueue_op_log(mgr, {
+                'op_type': op_type,
+                'op_object': op_object,
+                'user_id': 0,
+                'session': self._session_id,
+                'detail': detail,
+            })
         except Exception as e:
-            self._logger.warning(f"[操作记录] 写入失败：{e}")
+            self._logger.warning(f"[操作记录] 投递失败：{e}")
             return False
 
     def _init_ui(self):
@@ -475,18 +826,18 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.splitter.setHandleWidth(1)
-        # 拉伸因子决定窗口缩放时的自适应比例（左 34 : 右 66，约 34% / 66%）
-        self.splitter.setStretchFactor(0, 34)
-        self.splitter.setStretchFactor(1, 66)
+        # 拉伸因子决定窗口缩放时的自适应比例（左 35 : 右 65）
+        self.splitter.setStretchFactor(0, 35)
+        self.splitter.setStretchFactor(1, 65)
         # 延迟到窗口几何可用时，按断点初始化 splitter + 发密度信号（M2-2）
         QTimer.singleShot(0, self._apply_responsive)
 
         # 左侧
         self.left_stack = QStackedWidget()
         self.left_stack.setStyleSheet("background: transparent;")
-        # 左侧输入面板：稳定宽度区间，避免被压窄或在大屏上留白过大
+        # 左侧输入面板：只设下限，宽度由 SPLIT_LEFT_RATIO（35%）决定；
+        # 不再设 460 硬上限，否则 1440 宽下比例失效（实测被压到 31.97%）
         self.left_stack.setMinimumWidth(360)
-        self.left_stack.setMaximumWidth(460)
         self._build_left()
         self.splitter.addWidget(self.left_stack)
 
@@ -497,13 +848,18 @@ class MainWindow(QMainWindow):
         self.right_stack.setMinimumWidth(460)
         self._build_right()
         self.splitter.addWidget(self.right_stack)
+        # AI 解读「重新分析（跳过缓存）」入口：挂在三个结果面板标题栏
+        self._build_reanalyze_buttons()
+        # 历史面板与主窗口接线：载入/删除交给主窗口处理；refresh_requested 不回接，
+        # 否则面板刷新会再次触发自身刷新（自激）。
+        self._wire_history_panel()
 
         root.addWidget(self.splitter, 1)
 
         # 状态栏
         sb = QStatusBar()
         sb.setStyleSheet(Stylesheets.STATUS)
-        sb.showMessage('八字排盘 · 梅花易数 · 大六壬 · 文化研究算法自动分析')
+        sb.showMessage('八字排盘 · 梅花易数 · 玄空飞星 · 文化研究算法自动分析')
         self.setStatusBar(sb)
 
         # 常驻版本标签（状态栏右侧，清晰可见）：版本号源自 app_version 单一权威源，
@@ -676,26 +1032,56 @@ class MainWindow(QMainWindow):
         parent.addWidget(bar)
 
     def _build_left(self):
-        """构建左侧输入面板栈：依次加入八字/梅花/六壬/玄空飞星四个输入面板。"""
+        """构建左侧输入面板栈：依次加入八字/梅花/玄空飞星三个输入面板 + 历史记录。"""
         self.bazi_input = InputPanel()
         self.left_stack.addWidget(self.bazi_input)
         self.meihua_input = MeihuaInputPanel()
         self.left_stack.addWidget(self.meihua_input)
-        self.liuren_input = LiurenInputPanel()
-        self.left_stack.addWidget(self.liuren_input)
         self.xuan_kong_input = XuanKongInputPanel()
         self.left_stack.addWidget(self.xuan_kong_input)
+        # 历史记录页：面板自带列表 + 详情预览，右侧不再重复渲染
+        self.history_panel = HistoryPanel()
+        self.left_stack.addWidget(self.history_panel)
 
     def _build_right(self):
-        """构建右侧结果面板栈：依次加入八字/梅花/六壬/玄空飞星四个结果面板。"""
+        """构建右侧结果面板栈：依次加入八字/梅花/玄空飞星三个结果面板 + 历史提示页。"""
         self.bazi_result = ResultPanel()
         self.right_stack.addWidget(self.bazi_result)
         self.meihua_result = MeihuaResultPanel()
         self.right_stack.addWidget(self.meihua_result)
-        self.liuren_result = LiurenResultPanel()
-        self.right_stack.addWidget(self.liuren_result)
         self.xuan_kong_result = XuanKongResultPanel()
         self.right_stack.addWidget(self.xuan_kong_result)
+        # 历史记录页的右侧说明页：详情已在左栏面板内展示，这里只给轻量提示
+        self.right_stack.addWidget(self._build_history_hint_page())
+
+    def _build_history_hint_page(self) -> QWidget:
+        """构建历史记录模块的右侧说明页（轻量占位，不重复渲染详情）。"""
+        page = QWidget()
+        page.setStyleSheet(f"background-color: {Colors.BG};")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(Spacing.S8, Spacing.S8, Spacing.S8, Spacing.S8)
+        lay.setSpacing(Spacing.S3)
+
+        title = QLabel('历史记录')
+        title.setStyleSheet(f"""
+            font-size: {Fonts.SZ_SECTION}; font-weight: {Fonts.W_BOLD};
+            color: {Colors.TEXT}; font-family: {Fonts.TITLE};
+        """)
+        lay.addWidget(title)
+
+        hint = QLabel(
+            '左侧可按板块、日期与关键字筛选历史记录，选中单条即可预览参数与结论。\n'
+            '「载入」只会把原始输入回填到对应板块（不会自动排盘），确认参数后请手动点提交。\n'
+            '「删除」为二次确认后的硬删除，命中当前排盘记录时会同时清空右侧结果与 AI 面板。'
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"""
+            font-size: {Fonts.SZ_BODY}; color: {Colors.TEXT2};
+            font-family: {Fonts.BODY}; line-height: 1.6;
+        """)
+        lay.addWidget(hint)
+        lay.addStretch()
+        return page
 
     def _current_density(self) -> tuple:
         """返回当前密度档 (页面边距, 卡片间距, 卡片内距, 行高)（M2-2）。
@@ -717,8 +1103,8 @@ class MainWindow(QMainWindow):
         """按 §4.4 四档断点设置 splitter 方向/尺寸与左栏宽度，并发密度信号（M2-2）。
 
         - XS (<900)：单栏纵向，左栏 min 320、解除上限，右栏 min 320。
-        - S  (900–1099)：紧凑双栏，左栏 320~460。
-        - M/L(≥1100)：标准/宽屏双栏，左栏 360~460（宽屏保持上限 460）。
+        - S  (900–1099)：紧凑双栏，左栏 min 320，按 35% 分配。
+        - M/L(≥1100)：标准/宽屏双栏，左栏 min 360，按 35% 分配（不再封顶 460）。
         每次调用均 emit density_changed，供结果面板同步边距。
         """
         w = self.width()
@@ -734,14 +1120,14 @@ class MainWindow(QMainWindow):
         elif w < Spacing.BP_S:                       # S：紧凑双栏
             self.splitter.setOrientation(Qt.Horizontal)
             self.left_stack.setMinimumWidth(320)
-            self.left_stack.setMaximumWidth(460)
+            self.left_stack.setMaximumWidth(16777215)   # 解除 460 硬上限
             self.right_stack.setMinimumWidth(320)
             left = int(w * self.SPLIT_LEFT_RATIO)
             self.splitter.setSizes([left, w - left])
         else:                                        # M/L：标准 / 宽屏双栏
             self.splitter.setOrientation(Qt.Horizontal)
             self.left_stack.setMinimumWidth(360)
-            self.left_stack.setMaximumWidth(460)
+            self.left_stack.setMaximumWidth(16777215)   # 解除 460 硬上限，让 35% 生效
             self.right_stack.setMinimumWidth(460)
             left = int(w * self.SPLIT_LEFT_RATIO)
             self.splitter.setSizes([left, w - left])
@@ -751,7 +1137,7 @@ class MainWindow(QMainWindow):
         """历史兼容别名：委托 _apply_responsive（M2-2 重命名）。
 
         窗口缩放时由 QSplitter 依据 stretch 因子自适应维持比例；
-        左侧触及上限（大屏）后右侧继续填满剩余空间，实现自适应。
+        左栏不再封顶，始终按 35% 分配，避免大屏上比例漂移。
         """
         self._apply_responsive()
 
@@ -775,7 +1161,7 @@ class MainWindow(QMainWindow):
         """切换当前激活板块。
 
         Args:
-            pid: 板块 id，取值 'bazi'/'meihua'/'liuren'/'xuan_kong'
+            pid: 板块 id，取值 'bazi'/'meihua'/'xuan_kong'/'history'
 
         同步高亮导航按钮，切换左右堆叠控件的当前页，并记录切换操作。
         """
@@ -813,17 +1199,17 @@ class MainWindow(QMainWindow):
                 except RuntimeError:
                     pass
             eff = widget.graphicsEffect()
-            if eff is None:
-                op = QGraphicsOpacityEffect(widget)
-                # 【必须真正安装】只创建 QGraphicsOpacityEffect 而不 setGraphicsEffect，
-                # 动画会作用于一个游离对象 → 板块切换淡入完全无效（本缺陷实测存在）。
-                widget.setGraphicsEffect(op)
-                installed_by_us = True
-            else:
-                # 已有 effect（可能是 apply_shadow 挂的投影）：复用其 opacity 属性，
-                # 绝不能拆掉——拆除会让阴影永久丢失。
+            # P2-11：只有 QGraphicsOpacityEffect 才有 setOpacity()。若复用
+            # QGraphicsDropShadowEffect（投影）去调 setOpacity() 会抛 AttributeError，
+            # 被外层 except 吞掉后淡入静默失效。因此这里必须判类型：非 opacity effect
+            # 时新建一个透明度 effect，绝不把阴影对象当透明度对象用。
+            if isinstance(eff, QGraphicsOpacityEffect):
                 op = eff
                 installed_by_us = False
+            else:
+                op = QGraphicsOpacityEffect(widget)
+                widget.setGraphicsEffect(op)
+                installed_by_us = True
             op.setOpacity(0.0)
             anim = QPropertyAnimation(op, b'opacity', self)
             anim.setDuration(DURATION_NORMAL)
@@ -872,18 +1258,292 @@ class MainWindow(QMainWindow):
         self.meihua_input.submit_btn.clicked.connect(self._on_meihua)
         self.meihua_input.reset_btn.clicked.connect(self._on_meihua_reset)
         self.meihua_result.smart_analyze_btn.clicked.connect(self._on_meihua_ai_analyze)
-        self.liuren_input.submit_btn.clicked.connect(self._on_liuren)
-        self.liuren_input.reset_btn.clicked.connect(self._on_liuren_reset)
-        self.liuren_result.smart_analyze_btn.clicked.connect(self._on_liuren_ai_analyze)
         self.xuan_kong_input.submit_btn.clicked.connect(self._on_xuan_kong)
         self.xuan_kong_input.reset_btn.clicked.connect(self._on_xuan_kong_reset)
         self.xuan_kong_result.refresh_btn.clicked.connect(self._on_xuan_kong)
+
+    # ===== 历史记录面板接线 =====
+    def _wire_history_panel(self):
+        """接线历史面板：只接「载入 / 删除」意图。
+
+        `refresh_requested` 刻意不连接：面板刷新本身就是由它发起，
+        回接会形成「刷新→信号→刷新」的自激循环。
+        """
+        self.history_panel.load_requested.connect(self._on_history_load_requested)
+        self.history_panel.delete_requested.connect(self._on_history_delete_requested)
+
+    @staticmethod
+    def _as_int(value, default=0):
+        """安全转 int：缺值/非数字回落默认值（历史 payload 可能来自旧库）。"""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _parse_hhmm(text):
+        """从含 `HH:MM` 的文本中取 (时, 分)；解析失败返回 None。"""
+        import re
+        m = re.search(r'(\d{1,2}):(\d{2})', str(text or ''))
+        if not m:
+            return None
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh, mm
+        return None
+
+    @staticmethod
+    def _payload_date_text(payload):
+        """把 payload 的年月日拼成可读日期；不完整时回落到 time_str。"""
+        try:
+            return (f"{int(payload.get('year')):04d}-"
+                    f"{int(payload.get('month')):02d}-"
+                    f"{int(payload.get('day')):02d}")
+        except (TypeError, ValueError):
+            return str(payload.get('time_str') or '').strip()
+
+    def _on_history_load_requested(self, pan_kind, record_id, payload):
+        """历史面板「载入」槽：切板块 → 重置 → 回填原始输入，**不自动排盘**。
+
+        Args:
+            pan_kind: 'bazi' / 'meihua' / 'xuan_kong'
+            record_id: 记录 ID（仅用于日志/提示，回填以 payload 为准）
+            payload: 原始输入 dict（优先来自 input_json，旧库为反推结果）
+        """
+        loaders = {
+            'bazi': (self._load_bazi_payload, '八字', '开始排盘'),
+            'meihua': (self._load_meihua_payload, '梅花', '起卦'),
+            'xuan_kong': (self._load_xuan_kong_payload, '玄空', '起盘'),
+        }
+        entry = loaders.get(pan_kind)
+        if entry is None:
+            self.statusBar().showMessage('未知的板块类型，无法载入该记录')
+            return
+        if not isinstance(payload, dict) or not payload:
+            self.statusBar().showMessage('该记录缺少原始输入，无法一键载入')
+            return
+        loader, label, submit_hint = entry
+        # 1) 先切到对应板块，让用户直接看到回填结果
+        self._switch(pan_kind)
+        # 2) 复用板块自身的重置逻辑，清掉上次输入、结果与 AI 面板
+        self._reset_panel_for_kind(pan_kind)
+        # 3) 仅回填控件；不触发提交，用户确认参数后自行点提交
+        try:
+            desc = loader(payload)
+        except Exception as exc:  # noqa: BLE001 - 单条记录脏数据不应打断主流程
+            self._logger.warning(f'[历史] {label}记录回填失败: {exc}')
+            self.statusBar().showMessage(f'{label}记录回填失败：{exc}')
+            return
+        desc = (desc or '').strip()
+        prefix = f'已载入 {desc} 的{label}记录' if desc else f'已载入该条{label}记录'
+        self.statusBar().showMessage(f'{prefix}，确认参数后点「{submit_hint}」')
+
+    def _reset_panel_for_kind(self, pan_kind):
+        """按板块调用既有重置槽（同时清空结果面板与 AI 区域）。"""
+        resets = {
+            'bazi': self._on_bazi_reset,
+            'meihua': self._on_meihua_reset,
+            'xuan_kong': self._on_xuan_kong_reset,
+        }
+        resets[pan_kind]()
+
+    def _load_bazi_payload(self, payload):
+        """回填八字输入面板；返回用于状态提示的时间描述。"""
+        p = self.bazi_input
+        p.name_edit.setText(str(payload.get('name') or ''))
+        is_lunar = bool(payload.get('is_lunar'))
+        # 先切历法按钮与日期页，再写入具体日期
+        p._cal(not is_lunar)
+        y, m, d = (self._as_int(payload.get('year'), 0),
+                   self._as_int(payload.get('month'), 1),
+                   self._as_int(payload.get('day'), 1))
+        if is_lunar:
+            if y:
+                p.lunar_picker.set_lunar(y, m, d, bool(payload.get('is_leap')))
+                # 农历日期变化后同步真太阳时展示（_cal 早于本次赋值执行过一次）
+                p._refresh_true_solar()
+        elif y and 1 <= m <= 12 and 1 <= d <= 31:
+            p.date_edit.setDate(QDate(y, m, d))
+        # 性别
+        p._gen(str(payload.get('gender') or '男') == '男')
+        # 时分：优先取 hour/minute，缺失时按 hour_index 反算
+        hour = self._as_int(payload.get('hour'), -1)
+        if 0 <= hour <= 23:
+            p.hour_spin.setValue(hour)
+            p.minute_spin.setValue(max(0, min(59, self._as_int(
+                payload.get('minute'), 0))))
+        else:
+            idx = self._as_int(payload.get('hour_index'), -1)
+            if 0 <= idx <= 11:
+                p.hour_combo.setCurrentIndex(idx)
+        p.location_edit.setText(str(payload.get('location') or ''))
+        # 经纬度回填：历史记录（input_json）中保存的坐标写回面板；
+        # 旧记录无该字段时保留面板当前值，非法值抛 ValueError 由上层提示，绝不静默回落
+        p.set_coordinates(payload.get('longitude'), payload.get('latitude'))
+        p.notes_edit.setPlainText(str(payload.get('notes') or ''))
+        p._sync_time_label()
+        p._validate()
+        return self._payload_date_text(payload)
+
+    def _load_meihua_payload(self, payload):
+        """回填梅花易数输入面板（含数字起卦取数、六爻、笔画等）。"""
+        p = self.meihua_input
+        method = str(payload.get('method') or 'time')
+        idx = next((i for i, (key, _) in enumerate(MEIHUA_METHODS) if key == method), 0)
+        p.method_btns[idx].setChecked(True)
+        p._on_method(idx)
+        p.question.setText(str(payload.get('question') or ''))
+        cat = payload.get('question_category')
+        if cat:
+            i = p.question_category.findText(str(cat))
+            if i >= 0:
+                p.question_category.setCurrentIndex(i)
+
+        if method == 'number':
+            # 数字起卦：优先单个字段，缺失时回落到 numbers 数组
+            nums = payload.get('numbers') or []
+            n1 = payload.get('num1', payload.get('upper_num'))
+            n2 = payload.get('num2', payload.get('lower_num'))
+            if n1 is None and len(nums) > 0:
+                n1 = nums[0]
+            if n2 is None and len(nums) > 1:
+                n2 = nums[1]
+            if n1 is not None:
+                p.num1.setValue(self._as_int(n1, 3))
+            if n2 is not None:
+                p.num2.setValue(self._as_int(n2, 5))
+            if hasattr(p, 'num3'):
+                n3 = payload.get('num3')
+                if n3 is None and len(nums) > 2:
+                    n3 = nums[2]
+                if n3 is not None:
+                    p.num3.setValue(self._as_int(n3, 7))
+        elif method == 'direction':
+            i = p.dir_combo.findText(str(payload.get('direction') or ''))
+            if i >= 0:
+                p.dir_combo.setCurrentIndex(i)
+        elif method == 'text':
+            p.text_edit.setText(str(payload.get('text') or ''))
+            mode = str(payload.get('character_mode') or 'single')
+            p.char_mode_combo.setCurrentIndex(1 if mode == 'multi' else 0)
+        elif method == 'copper_coin':
+            lines = payload.get('six_lines') or []
+            for i, val in enumerate(lines[:6]):
+                btns = (p.coin_radio_buttons[i]
+                        if i < len(p.coin_radio_buttons) else [])
+                for rb in btns:
+                    if rb.text() == val:
+                        rb.setChecked(True)
+                        break
+        elif method == 'stroke':
+            p.stroke_char_edit.setText(str(payload.get('char') or ''))
+            if payload.get('stroke_count') is not None:
+                p.stroke_spin.setValue(
+                    self._as_int(payload.get('stroke_count'), 12))
+
+        # 时间起卦：还原历法、年月日与时分
+        if method == 'time':
+            if str(payload.get('calendar_type') or '公历') == '农历':
+                y = self._as_int(payload.get('year'), 0)
+                m = self._as_int(payload.get('month'), 1)
+                d = self._as_int(payload.get('day'), 1)
+                hh = self._as_int(payload.get('hour'), 0)
+                parsed = self._parse_hhmm(payload.get('time_str'))
+                mm = parsed[1] if parsed else 0
+                # 先标记已初始化，避免切农历时被当前时间覆盖
+                p._lunar_initialized = True
+                p.cal_lunar.setChecked(True)
+                p.time_stack.setCurrentIndex(1)
+                if y:
+                    p.lunar_picker.set_lunar(
+                        y, m, d, bool(payload.get('is_leap')))
+                p.lunar_hour_spin.setValue(hh)
+                p.lunar_minute_spin.setValue(mm)
+            else:
+                p.cal_solar.setChecked(True)
+                p.time_stack.setCurrentIndex(0)
+                p.time_edit.setText(str(payload.get('time_str') or ''))
+
+        return self._payload_date_text(payload)
+
+    def _load_xuan_kong_payload(self, payload):
+        """回填玄空飞星输入面板（坐向 + 建造年份 + 当前年份）。"""
+        p = self.xuan_kong_input
+        build = payload.get('build_year')
+        current = payload.get('current_year')
+        p.sui_xiang_edit.setText(str(payload.get('sui_xiang') or '子山午向'))
+        p.build_year_edit.setText('' if build is None else str(build))
+        p.current_year_edit.setText(
+            str(current) if current is not None else
+            ('' if build is None else str(build)))
+        xiang = p.sui_xiang_edit.text().strip()
+        year = p.build_year_edit.text().strip()
+        return f'{xiang} · {year}年' if xiang and year else xiang
+
+    def _on_history_delete_requested(self, entries):
+        """历史面板「删除」槽：命中当前记录时清空记录态与 AI 面板。
+
+        Args:
+            entries: [{'source_table': 'pan_records'|'analysis_records', 'id': int}]
+        """
+        deleted = set()
+        for item in entries or []:
+            if isinstance(item, dict):
+                table, rid = item.get('source_table'), item.get('id')
+            elif isinstance(item, (tuple, list)) and len(item) == 2:
+                table, rid = item
+            else:
+                continue
+            try:
+                deleted.add((str(table), int(rid)))
+            except (TypeError, ValueError):
+                continue
+        if not deleted:
+            self.statusBar().showMessage('历史记录已删除')
+            return
+
+        cleared = []
+        for kind, label in (('bazi', '八字'), ('meihua', '梅花'),
+                            ('xuan_kong', '玄空')):
+            rid = getattr(self, f'_last_{kind}_record_id', None)
+            table = getattr(self, f'_last_{kind}_record_table', None) or 'pan_records'
+            if rid is None:
+                continue
+            try:
+                hit = (table, int(rid)) in deleted
+            except (TypeError, ValueError):
+                hit = False
+            if not hit:
+                continue
+            setattr(self, f'_last_{kind}_record_id', None)
+            setattr(self, f'_last_{kind}_record_table', None)
+            self._hide_reanalyze(kind)
+            cleared.append(label)
+
+        if not cleared:
+            self.statusBar().showMessage('历史记录已删除')
+            return
+        # 记录已删而界面仍挂着上次结果会误导用户，故同步清空结果与 AI 区域
+        if '八字' in cleared:
+            self.bazi_result.clear()
+            self._last_bazi_input = None
+        if '梅花' in cleared:
+            self.meihua_result.clear()
+        if '玄空' in cleared:
+            self.xuan_kong_result.clear()
+        self.statusBar().showMessage(
+            f'历史记录已删除 · 已清空当前{"/".join(cleared)}结果')
 
     def _show_settings_dialog(self):
         """打开 AI 模型配置对话框（保存后热生效，无需重启）。"""
         try:
             dlg = SettingsDialog(self)
-            dlg.exec()
+            # 登记在途对话框：关窗统一收尾时能拿到它的连通测试线程
+            self._settings_dialog = dlg
+            try:
+                dlg.exec()
+            finally:
+                self._settings_dialog = None
             # 兜底刷新：即便订阅回调因异常未触发，关闭对话框后也同步一次状态
             self._ai_available = self._check_ai_availability()
             self._update_ai_buttons_state()
@@ -902,8 +1562,15 @@ class MainWindow(QMainWindow):
             self._logger.error(f"[关于] 打开关于对话框失败：{e}")
             traceback.print_exc()
 
-    def _save_pan_record(self, data: dict, result: dict, pan_type: str, ai_result: dict = None):
-        """保存排盘记录到数据库。返回值: record_id 或 None"""
+    def _save_pan_record(self, data: dict, result: dict, pan_type: str, ai_result: dict = None,
+                         notify: bool = True):
+        """保存排盘记录到数据库。返回值: record_id 或 None
+
+        Args:
+            notify: 是否在 GUI 线程侧更新状态栏 / AI 按钮状态。后台线程调用时必须
+                传 False —— 状态栏属 UI 对象，只能在 GUI 线程操作；记录 ID 与所在表
+                由调用方在回到 GUI 线程后再写入实例属性。
+        """
         if not self.db_manager:
             return None
 
@@ -918,7 +1585,7 @@ class MainWindow(QMainWindow):
             y, mo, d = (_to_int(data.get('year')),
                         _to_int(data.get('month')),
                         _to_int(data.get('day')))
-            # 无真实生辰信息（如梅花/六壬）时留空，避免写入 "0000-00-00" 垃圾值
+            # 无真实生辰信息（如梅花）时留空，避免写入 "0000-00-00" 垃圾值
             birth_date = f"{y:04d}-{mo:02d}-{d:02d}" if (y or mo or d) else ''
             birth_time = f"{_to_int(data.get('hour')):02d}:{_to_int(data.get('minute', 0)):02d}"
 
@@ -931,57 +1598,200 @@ class MainWindow(QMainWindow):
                 city=data.get('location') or data.get('city', ''),
                 pan_type=pan_type,
                 result=result,
-                ai_analysis=ai_result
+                ai_analysis=ai_result,
+                # 完整原始输入随记录落库，历史面板「一键载入」优先使用它
+                input_json=dict(data)
             )
 
             if record_id:
-                # 记录当前模块的最后一条 record_id，供 AI 回调更新 ai_json
+                # notify=False 时运行在后台线程：不得触碰控件/状态栏，只回传记录信息
+                if not notify:
+                    return record_id
+                # 记录当前模块的最后一条 record_id 及其所在表（pan_records），供 AI 回调写回
                 if pan_type == '八字排盘':
                     self._last_bazi_record_id = record_id
+                    self._last_bazi_record_table = 'pan_records'
                 elif pan_type == '梅花易数':
                     self._last_meihua_record_id = record_id
-                elif pan_type == '大六壬':
-                    self._last_liuren_record_id = record_id
+                    self._last_meihua_record_table = 'pan_records'
+                elif pan_type == '玄空飞星':
+                    # 玄空无 AI 链路，但需记住记录态，供历史删除联动清空右侧结果
+                    self._last_xuan_kong_record_id = record_id
+                    self._last_xuan_kong_record_table = 'pan_records'
+                # 新一轮排盘结果已落库：允许「重新分析」（AI 不可用时保持隐藏）
+                _kind = {'八字排盘': 'bazi', '梅花易数': 'meihua'}.get(pan_type)
+                if _kind:
+                    self._end_ai_busy(_kind, has_result=bool(getattr(self, '_ai_available', False)))
                 self.statusBar().showMessage(f'排盘完成 · 已保存到数据库 · 记录ID: {record_id}')
             else:
-                self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
                 self._logger.warning(f"[排盘] 保存记录失败，record_id={record_id}")
+                if notify:
+                    self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
         except Exception as e:
             self._logger.error(f"[排盘] 保存排盘记录失败: {e}", exc_info=True)
-            self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
+            if notify:
+                self.statusBar().showMessage('排盘完成 · 保存到数据库失败')
             return None
 
         return record_id
 
+    def _persist_ai_analysis(self, pan_kind: str, ai_analysis: dict) -> bool:
+        """把 AI 解读写回对应板块的历史记录，失败时状态栏给出可见提示。
+
+        两个板块（八字/梅花）统一走本方法：按落库时记录的「记录所在表」
+        选择 analysis_records 或 pan_records，避免拿 A 表的 id 去更新 B 表
+        （那会 rowcount=0 静默失败，甚至误伤同 id 的无关记录）。
+
+        Args:
+            pan_kind: 'bazi' / 'meihua'
+            ai_analysis: AI 解读结果字典
+
+        Returns:
+            bool: True 表示已写入；False 表示未写入（无记录/记录不存在/异常）
+        """
+        label = {'bazi': '八字', 'meihua': '梅花'}.get(pan_kind, pan_kind)
+        record_id = getattr(self, f'_last_{pan_kind}_record_id', None)
+        table = getattr(self, f'_last_{pan_kind}_record_table', None)
+
+        if not self.db_manager or not record_id or not table:
+            self.statusBar().showMessage(
+                f'{label}AI解读完成，但未找到对应历史记录，未写回数据库')
+            self._logger.warning(
+                f'[AI] {label}解读未写回：record_id={record_id}, table={table}')
+            return False
+
+        try:
+            if table == 'analysis_records':
+                ok = self.db_manager.update_analysis_ai(record_id, ai_analysis)
+            else:
+                ok = self.db_manager.update_pan_ai_result(record_id, ai_analysis)
+        except Exception as e:
+            ok = False
+            self._logger.error(f'[AI] {label}解读写回异常: {e}', exc_info=True)
+
+        if not ok:
+            # 不能静默吞掉：状态栏明确告知用户「解读成功但没存进历史」
+            self.statusBar().showMessage(
+                f'{label}AI解读完成，但写回历史记录失败（记录ID {record_id}，表 {table}）')
+            self._logger.warning(
+                f'[AI] {label}解读写回失败：record_id={record_id}, table={table}')
+        return ok
+
     # ===== 八字 =====
     def _on_bazi(self):
-        """八字『开始排盘』按钮槽：先弹出关于对话框，再执行排盘。"""
-        self._show_about_dialog()
+        """八字『开始排盘』按钮槽：GUI 线程只做轻量准备 + 启动后台线程。
+
+        P1-01：原实现经 ``QTimer.singleShot(80)`` 后仍在 **GUI 线程**同步跑完整条
+        计算链（首次加载 core 日历库 ~1.5s + 四柱/大运/落库 + 旧回退路径里的同步
+        地理编码请求），点击后界面会出现数秒到数十秒的「未响应」。现在计算链整体
+        下沉到 ``BaziCalculationWorker``，GUI 线程只保留：
+            1) 读输入面板；
+            2) 内置城市表解析出生地（纯内存查表，微秒级）；
+            3) 置 loading / 禁用按钮 / 起线程。
+        """
         try:
             data = self.bazi_input.get_data()
             task_id = str(uuid.uuid4())
+            self._reap_pan_workers()
+            existing = self._pan_workers.get('bazi')
+            if existing is not None and existing.isRunning():
+                # 防抖：按钮虽已禁用，仍拦住快捷键/脚本重复触发，避免双线程并发写库
+                self.statusBar().showMessage('八字排盘正在进行中，请稍候…')
+                return
+            self._hide_reanalyze('bazi')
             self.bazi_result.show_loading()
-            QTimer.singleShot(80, lambda: self._do_bazi(data, task_id))
+            # 出生地文本解析：仅内置城市表，不联网、不调 AI，绝不阻塞事件循环
+            data, location_note = self._prepare_bazi_location(data, apply_to_ui=True)
+            self._begin_calc_busy('bazi', location_note or '正在后台排盘…')
+
+            # 惰性导入：模块级导入会触发 core 日历库同步加载（~1.5s），冷启动会被拖慢
+            from ui.components.bazi_calculation_worker import BaziCalculationWorker
+            worker = BaziCalculationWorker(
+                data, task=lambda w: self._compute_bazi_payload(data, w))
+            worker.progress.connect(self._on_calc_progress)
+            worker.finished.connect(self._on_bazi_task_finished)
+            worker.failed.connect(self._on_bazi_task_failed)
+            # 不在业务信号里立即 deleteLater：信号可能在 run() 返回前发出，
+            # 此时销毁 QThread 会触发进程级崩溃。统一由 _reap_pan_workers()
+            # 在确认 isRunning()==False 之后销毁。
+            # 持有引用，避免局部变量被 GC（QThread: Destroyed while thread is running）
+            self._pan_workers['bazi'] = worker
+            worker.start()
         except Exception as e:
+            self._end_calc_busy('bazi')
             self.statusBar().showMessage(f'参数错误: {e}')
             traceback.print_exc()
             # 排盘失败必须落到错误态：否则面板会永远停在 loading（转圈 + 按钮隐藏）
             self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
 
+    def _on_bazi_task_finished(self, payload):
+        """后台八字计算成功回调（GUI 线程）：展示结果、恢复按钮、触发 AI。"""
+        self._end_calc_busy('bazi')
+        try:
+            self._present_bazi_result(payload)
+        except Exception as e:
+            self._on_bazi_task_failed('present_error', str(e))
+        self._reap_pan_workers('bazi')
+
+    def _on_bazi_task_failed(self, error_type: str, message: str):
+        """后台八字计算失败回调（GUI 线程）：给出可读错误，绝不静默。"""
+        self._end_calc_busy('bazi')
+        title = '输入错误' if error_type == 'validation_error' else '排盘失败'
+        self._logger.warning(f'[八字] 后台计算失败({error_type}): {message}')
+        self.statusBar().showMessage(f'{title}：{message}')
+        self.bazi_result.show_error(f'{title}：{message}', retry=self._on_bazi)
+        self._reap_pan_workers('bazi')
+
     def _do_bazi(self, data, task_id=None):
-        """执行八字排盘核心流程（由 _on_bazi 经定时器延迟调用）。
+        """同步执行八字排盘（保留给直接调用/兼容旧行为）。
+
+        GUI 按钮路径已改为 ``_on_bazi`` → 后台线程；本方法仍在当前线程同步执行
+        整条链，仅供测试与不支持线程的调用方使用。
 
         Args:
             data: 输入面板数据（年/月/日/时/经纬度/农历标志/性别等）
             task_id: 本次排盘任务标识（预留，用于日志与并发追踪）
-
-        流程：解析出生地经纬度 → 农历转公历（如需要）→ 计算真太阳时 →
-        调用 core 完成四柱/五行/十神/命理/大运流年/命局类型/运程总结 →
-        保存记录 → 展示结果 → 自动触发文化研究算法（AI）分析。
         """
         try:
-            # 优先走 Service 层：业务编排（校验/计算/综合建议/落库/事件）
+            payload = self._compute_bazi_payload(data)
+        except ValueError as e:
+            # 农历由 core 层统一严格转换；转换失败直接报错，禁止按农历数字继续排盘
+            self.statusBar().showMessage(f'农历转换失败：{e}')
+            QMessageBox.warning(self, '输入错误', f'农历日期无效：{e}')
+            self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
+            return
+        except Exception as e:
+            self.statusBar().showMessage(f'计算错误: {e}')
+            traceback.print_exc()
+            # 计算阶段异常同样要落错误态，避免面板卡在 loading
+            self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
+            return
+        self._present_bazi_result(payload)
+
+    def _compute_bazi_payload(self, data, worker=None):
+        """八字排盘纯计算（可在后台线程执行，不触碰任何 Qt 控件/状态栏）。
+
+        Args:
+            data: 输入面板数据（出生地解析会就地补全经纬度与 coords_source）
+            worker: 可选后台线程对象，用于 emit 进度（同步调用时为 None）
+
+        Returns:
+            dict: ``{'result', 'record_id', 'record_table', 'source', 'location_note'}``
+
+        Raises:
+            ValueError: 农历日期非法，由调用方在 GUI 线程转成可读提示
+        """
+        def _progress(stage: str, message: str):
+            if worker is not None:
+                worker.progress.emit(stage, message)
+
+        # 幂等：_on_bazi 已在 GUI 线程解析过时（coords_source='manual'）直接跳过
+        data, location_note = self._prepare_bazi_location(data)
+
+        try:
+            # Service 主路径：业务编排（校验/计算/综合建议/落库/事件）
             if getattr(self, 'bazi_service', None):
+                _progress('service', '正在调用 Service 层排盘…')
                 try:
                     service_result = self.bazi_service.calculate(
                         year=int(data.get('year', 0)),
@@ -990,11 +1800,18 @@ class MainWindow(QMainWindow):
                         hour=int(data.get('hour', 0)),
                         minute=int(data.get('minute', 0)),
                         longitude=float(data.get('longitude', 120.0)),
+                        latitude=float(data.get('latitude', 30.0)),
                         gender=data.get('gender', '男'),
                         save=True,
-                        name=data.get('name', '')
+                        name=data.get('name', ''),
+                        is_lunar=bool(data.get('is_lunar', False)),
+                        is_leap=bool(data.get('is_leap', False)),
+                        # 出生地文本必须透传：否则 analysis_records.city 落空串
+                        location=data.get('location', ''),
                     )
-                    self._last_bazi_record_id = service_result.get('record_id')
+                    record_id = service_result.get('record_id')
+                    # Service 层落库到 analysis_records，AI 回写必须指向同一张表
+                    record_table = 'analysis_records' if record_id else None
                     # 补充 UI 专属字段：basic_info、lunar_date、hour、location 等
                     y = service_result.get('basic_info', {}).get('year', int(data.get('year', 0)))
                     m = service_result.get('basic_info', {}).get('month', int(data.get('month', 1)))
@@ -1016,40 +1833,49 @@ class MainWindow(QMainWindow):
                         'latitude': float(data.get('latitude', 30.0)),
                     })
                     service_result['basic_info'] = basic
-                    self.bazi_result.display_result(service_result)
-                    self.statusBar().showMessage('八字排盘完成 · Service层综合建议生成')
-                    QTimer.singleShot(300, self._trigger_bazi_auto_ai)
-                    return
+                    return {
+                        'result': service_result,
+                        'record_id': record_id,
+                        'record_table': record_table,
+                        'source': 'service',
+                        'location_note': location_note,
+                        'name': data.get('name', '未命名'),
+                    }
                 except Exception as e:
                     self._logger.warning(f"[Service] BaziService 计算失败，回退 core 流程: {e}")
 
             # 回退：原始 core 流程（兼容）
+            _progress('core', '正在计算四柱与真太阳时…')
             y, m, d, hh, mm = data['year'], data['month'], data['day'], data['hour'], data['minute']
             longitude = data['longitude']
             latitude = data.get('latitude', 30.0)
-            is_lunar = data['is_lunar']
+            is_lunar = bool(data.get('is_lunar', False))
+            is_leap = bool(data.get('is_leap', False))
             gender = data.get('gender', '男')
 
             # 出生地解析：手动文本 -> 经纬度（本地库优先，其次 AI，兜底默认）
+            # 仅当坐标来源为 auto（沿用默认值或历史回填）时才允许文本覆盖；
+            # 用户显式设定的经纬度永远优先，避免被静默替换成别的城市坐标
             loc_text = (data.get('location') or '').strip()
-            if loc_text:
+            if loc_text and data.get('coords_source', 'auto') == 'auto':
                 longitude, latitude = self._resolve_location(loc_text, longitude, latitude)
                 data['longitude'] = longitude
                 data['latitude'] = latitude
                 data['location'] = loc_text
 
-            if is_lunar:
-                sol = self.lunar_conv.lunar_to_solar(y, m, d)
-                if not sol:
-                    self.statusBar().showMessage('农历转换失败：日期无效')
-                    QMessageBox.warning(self, '输入错误', '农历日期无效，请检查年月日是否正确。')
-                    return
-                y, m, d = sol
+            # 农历由 core 层统一严格转换；转换失败抛 ValueError，由 GUI 线程提示
+            bazi = self.bazi_calc.calculate(
+                y, m, d, hh, mm, longitude, is_lunar, is_leap, latitude)
+
+            # 后续日期一律使用公历；公历输入时与原有逻辑完全一致
+            try:
+                sy, sm, sd = (int(x) for x in str(bazi.get('solar_date', '')).split('-')[:3])
+            except Exception:
+                sy, sm, sd = y, m, d
+            y, m, d = sy, sm, sd
 
             dt = datetime(y, m, d, hh, mm)
             sdt = self.solar_calc.get_true_solar_time(dt, longitude)
-
-            bazi = self.bazi_calc.calculate(y, m, d, hh, mm, longitude, is_lunar=False)
             li = self.lunar_conv.solar_to_lunar(y, m, d)
 
             wx = self.bazi_calc.get_wuxing(bazi)
@@ -1062,6 +1888,9 @@ class MainWindow(QMainWindow):
                 yunshi_calc = YunShiCalculator()
                 dayun = yunshi_calc.calculate_major_fortune(bazi, gender, y, birth_dt=sdt)
                 liunian = yunshi_calc.calculate_annual_fortune(bazi, start_year=datetime.now().year, years_count=10)
+                # 确保流年数据始终包含 years 字段，防止前端因空列表而不展示卡片
+                if not liunian or not isinstance(liunian, dict):
+                    liunian = {'years': []}
             except Exception as e:
                 self._logger.warning(f"[八字] 大运流年计算失败: {e}")
                 dayun = {'periods': [], 'direction': '顺行'}
@@ -1081,6 +1910,7 @@ class MainWindow(QMainWindow):
                 shier_shen = {}
 
             # ★ 类型字段：计算日主强弱 / 格局类型 / 五行旺衰类别（命局类型）
+            _progress('types', '正在分析命局类型与运程…')
             bazi_types = self._compute_bazi_types(bazi, wx)
 
             # ★ 运程总结：事业 / 财运 / 健康 / 感情（规则引擎，离线可跑）
@@ -1131,23 +1961,173 @@ class MainWindow(QMainWindow):
                 'bazi_types': bazi_types,
                 'yuncheng': yuncheng,
             }
-            self._save_pan_record(data, result, '八字排盘')
+            _progress('save', '正在保存排盘记录…')
+            # notify=False：本函数可能运行在后台线程，禁止触碰状态栏
+            record_id = self._save_pan_record(data, result, '八字排盘', notify=False)
+            return {
+                'result': result,
+                'record_id': record_id,
+                'record_table': 'pan_records' if record_id else None,
+                'source': 'core',
+                'location_note': location_note,
+                'name': data.get('name', '未命名'),
+            }
+        except ValueError:
+            # 农历非法：原样抛出，交给 GUI 线程提示（不许静默按农历数字排盘）
+            raise
+        except Exception:
+            # 其它异常原样抛出：worker 转 failed 信号，同步调用方兜底展示
+            raise
 
-            # 操作记录（写入当前激活存储后端，算命内容本身不进统一层）
-            self._log_op('bazi_divination', data.get('name', '未命名'),
-                         f"{data.get('year','')}-{data.get('month','')}-{data.get('day','')} {data.get('hour','')}:{data.get('minute','')} {data.get('location') or ''}".strip())
+    def _present_bazi_result(self, payload):
+        """在 GUI 线程展示八字排盘结果（后台线程只回传纯数据）。
 
-            # ★ 显示排盘结果（关键修复：之前遗漏了此调用导致"无内容显示"）
-            self.bazi_result.display_result(result)
-            self.statusBar().showMessage('八字排盘完成 · 准备启动文化研究算法分析…')
+        Args:
+            payload: ``_compute_bazi_payload`` 的返回值
+        """
+        result = payload['result']
+        record_id = payload.get('record_id')
+        # 记录态必须在 GUI 线程写入：AI 回写与历史删除联动都依赖它
+        self._last_bazi_record_id = record_id
+        self._last_bazi_record_table = payload.get('record_table') if record_id else None
 
-            # ★ v5.0: 排盘完成后自动触发AI分析
-            QTimer.singleShot(300, self._trigger_bazi_auto_ai)
-        except Exception as e:
-            self.statusBar().showMessage(f'计算错误: {e}')
-            traceback.print_exc()
-            # 计算阶段异常同样要落错误态，避免面板卡在 loading
-            self.bazi_result.show_error(f'排盘失败：{e}', retry=self._on_bazi)
+        self.bazi_result.display_result(result)
+        note = payload.get('location_note')
+        if note:
+            # 出生地解析结果必须让用户看得见，不能只写日志
+            self.bazi_result.status_lbl.setText(f'✓ 排盘完成 · {note}')
+        if record_id:
+            self.statusBar().showMessage(f'八字排盘完成 · 记录ID: {record_id}')
+        else:
+            self.statusBar().showMessage('八字排盘完成 · 保存到数据库失败')
+
+        # 操作记录（写入当前激活存储后端，算命内容本身不进统一层）
+        info = result.get('basic_info', {})
+        self._log_op(
+            'bazi_divination',
+            payload.get('name') or '未命名',
+            f"{info.get('solar_date', '')} {info.get('hour', '')} {info.get('location', '')}".strip())
+
+        # 新一轮结果可用：允许「重新分析」
+        self._end_ai_busy('bazi', has_result=True)
+        # ★ v5.0: 排盘完成后自动触发AI分析
+        QTimer.singleShot(300, self._trigger_bazi_auto_ai)
+
+    # ===== 出生地解析 / 计算中状态（两条缺陷共用） =====
+
+    def _prepare_bazi_location(self, data: dict, apply_to_ui: bool = False):
+        """在进入计算前统一解析出生地文本（P1-04），返回 ``(data, 提示文案)``。
+
+        优先级规则（用户手填坐标永远最高）：
+            1. ``coords_source`` 为 ``explicit``（用户改过经纬度）→ **不解析、不覆盖**；
+            2. ``coords_source`` 为 ``manual``（本轮已按文本解析过）→ 跳过，保持幂等；
+            3. 其余（``auto``，含历史回填与默认 120/30）→ 查内置城市表：
+               - 命中：回填经纬度并置 ``coords_source='manual'``，提示「已按出生地…回填」；
+               - 未命中：**不静默沿用默认值**，返回显式提示「无法解析出生地，将使用当前经纬度」。
+
+        本方法只做内存查表（service/location_resolver），不联网、不调 AI，可在 GUI 线程调用。
+
+        Args:
+            data: 输入面板数据（就地补全 longitude/latitude/coords_source）
+            apply_to_ui: 是否把解析结果回填到输入面板控件（仅 GUI 线程可置 True）
+
+        Returns:
+            tuple: ``(data, 提示文案或 None)``
+        """
+        from service.location_resolver import resolve_local
+
+        source = data.get('coords_source', 'auto')
+        text = (data.get('location') or '').strip()
+        if source in ('explicit', 'manual') or not text:
+            return data, None
+
+        hit = resolve_local(text)
+        if hit:
+            name, lon, lat = hit
+            data['longitude'] = lon
+            data['latitude'] = lat
+            if apply_to_ui:
+                # GUI 主路径标记 manual：程序已按出生地文本回填，后续不再覆盖；
+                # 非 GUI 调用（同步 _do_bazi/后台 calc）保留原 coords_source，
+                # 由回退分支用同一个内置表幂等复算，结果完全一致。
+                data['coords_source'] = 'manual'
+                try:
+                    self.bazi_input.set_coordinates(lon, lat)
+                except Exception as e:
+                    self._logger.debug(f'[出生地] 回填输入面板失败（不影响计算）: {e}')
+            note = f'已按出生地「{name}」回填经度 {lon:.2f}°、纬度 {lat:.2f}°'
+            self._logger.info(f'[出生地] 「{text}」→「{name}」({lon}, {lat})')
+            return data, note
+
+        lon = float(data.get('longitude', 120.0))
+        lat = float(data.get('latitude', 30.0))
+        note = f'无法解析出生地「{text}」，将使用当前经纬度 {lon:.2f}° / {lat:.2f}°'
+        self._logger.warning(f'[出生地] {note}')
+        return data, note
+
+    def _begin_calc_busy(self, kind: str, message: str = ''):
+        """排盘/起卦开始：禁用主按钮并提示进度，避免重复提交与「无反馈」体验。"""
+        panel = {'bazi': getattr(self, 'bazi_input', None),
+                 'meihua': getattr(self, 'meihua_input', None)}.get(kind)
+        btn = getattr(panel, 'submit_btn', None)
+        if btn is not None:
+            self._calc_btn_texts.setdefault(kind, btn.text())
+            btn.setEnabled(False)
+            btn.setText('计算中…')
+        if message:
+            self.statusBar().showMessage(message)
+
+    def _end_calc_busy(self, kind: str):
+        """排盘/起卦结束：恢复主按钮文案与可用状态（失败路径也必须调用）。"""
+        panel = {'bazi': getattr(self, 'bazi_input', None),
+                 'meihua': getattr(self, 'meihua_input', None)}.get(kind)
+        btn = getattr(panel, 'submit_btn', None)
+        if btn is not None:
+            btn.setText(self._calc_btn_texts.pop(kind, btn.text()))
+            # 输入面板自带校验（姓名等必填项）：能校验就按校验结果恢复，否则直接放行
+            validate = getattr(panel, '_validate', None)
+            if callable(validate):
+                validate()
+            else:
+                btn.setEnabled(True)
+
+    def _on_calc_progress(self, stage: str, message: str):
+        """后台排盘/起卦进度回调（GUI 线程）：状态栏可见进度。"""
+        if message:
+            self.statusBar().showMessage(f'{message}（{stage}）')
+
+    def _reap_pan_workers(self, kind: str = None, attempt: int = 0):
+        """回收已结束的排盘/起卦线程。
+
+        必须等 ``isRunning()`` 为 False 才能 ``deleteLater()``：业务信号
+        （finished/succeeded/failed）是在 run() 内部发出的，此时线程尚未退出，
+        直接销毁 QThread 会触发进程级崩溃（0xC0000409）。``QThread::finished``
+        也在 run() 返回后立即发出，但跨线程排队到 GUI 线程执行时，底层线程
+        可能仍在收尾，因此这里对指定板块做短周期重试（最多 4s），确保「已停才删」。
+
+        Args:
+            kind: 指定板块；None 表示全量巡检一次且不重试（新任务开始前调用）。
+            attempt: 内部重试计数，调用方无需传。
+        """
+        kinds = [kind] if kind else list(self._pan_workers)
+        retry_needed = False
+        for k in kinds:
+            worker = self._pan_workers.get(k)
+            if worker is None:
+                continue
+            try:
+                running = worker.isRunning()
+            except RuntimeError:
+                # 底层对象已释放（已被 Qt 销毁），直接从表中移除
+                self._pan_workers.pop(k, None)
+                continue
+            if not running:
+                worker.deleteLater()
+                self._pan_workers.pop(k, None)
+            elif kind is not None and attempt < 40:
+                retry_needed = True
+        if retry_needed:
+            QTimer.singleShot(100, lambda: self._reap_pan_workers(kind, attempt + 1))
 
     def _trigger_bazi_auto_ai(self):
         """排盘完成后自动触发AI深度分析"""
@@ -1165,6 +2145,7 @@ class MainWindow(QMainWindow):
 
             # 更新状态提示
             self.statusBar().showMessage('排盘完成 · 正在自动进行文化研究算法深度分析…')
+            self._begin_ai_busy('bazi')
 
             task_id = str(uuid.uuid4())
 
@@ -1221,14 +2202,26 @@ class MainWindow(QMainWindow):
         return a
 
     def _resolve_location(self, text, fallback_lon=120.0, fallback_lat=30.0):
-        """将出生地文本解析为（经度, 纬度）。
+        """将出生地文本解析为（经度, 纬度），仅本地数据，绝不发起网络请求。
 
-        解析优先级：
-        1) 本地城市库（core.location_db）子串匹配，离线、即时；
-        2) 否则交给 AGNES AI 解析经纬度/时区；
-        3) 均失败则回退默认（120.0, 30.0）。
+        P1-01：原实现本地库未命中时会同步调用 AI 地理编码（同步 HTTP + 重试
+        sleep），在 GUI 线程执行会让界面「未响应」数十秒。现在只做本地解析：
+            1) service/location_resolver 内置城市表（与输入面板下拉同一来源）；
+            2) core.location_db 本地城市库；
+            3) 均未命中返回回退坐标，由调用方显式提示用户（不静默）。
         """
-        # 1) 本地城市库优先
+        # 1) 内置城市表（唯一来源，纯内存查表）
+        try:
+            from service.location_resolver import resolve_local
+            hit = resolve_local(text)
+            if hit:
+                name, lon, lat = hit
+                self._logger.info(f"出生地「{text}」命中内置城市表：{name} ({lon}, {lat})")
+                return float(lon), float(lat)
+        except Exception as e:
+            self._logger.debug(f"内置城市表解析失败（转本地库）: {e}")
+
+        # 2) 本地城市库
         try:
             from core.location_db import LocationDB
             db = LocationDB()
@@ -1246,33 +2239,11 @@ class MainWindow(QMainWindow):
                 self._logger.info(f"出生地「{text}」命中本地库：{hits[0]} ({lon}, {lat})")
                 return float(lon), float(lat)
         except Exception as e:
-            self._logger.debug(f"本地城市库解析失败（转 AI）：{e}")
+            self._logger.debug(f"本地城市库解析失败: {e}")
 
-        # 2) AI 地理解析（加超时保护）
-        try:
-            from api.agnes_client import get_agnes_client, AgnesClient
-            client = get_agnes_client()
-            prompt = (
-                f"请解析出生地「{text}」的地理坐标，"
-                f"仅返回一个 JSON 对象，不要任何解释："
-                f'{{"longitude": 数值, "latitude": 数值, "timezone": "Asia/Shanghai"}}'
-            )
-            resp = client.chat_completion(
-                [{'role': 'user', 'content': prompt}],
-                temperature=0.0, max_tokens=256,
-            )
-            content = (resp or {}).get('content', '')
-            cleaned = AgnesClient._clean_json_response(content)
-            import json
-            obj = json.loads(cleaned)
-            lon = float(obj['longitude'])
-            lat = float(obj['latitude'])
-            print(f"出生地「{text}」文化研究算法解析：({lon}, {lat})")
-            return lon, lat
-        except Exception as e:
-            self._logger.debug(f"AI 地理解析失败（用默认经度）：{e}")
-
-        # 3) 兜底
+        # 3) 兜底：不联网，交给调用方提示「无法解析出生地」
+        self._logger.warning(
+            f"出生地「{text}」无法解析，使用回退经纬度 ({fallback_lon}, {fallback_lat})")
         return float(fallback_lon), float(fallback_lat)
 
     def _compute_bazi_types(self, bazi, wx):
@@ -1321,19 +2292,29 @@ class MainWindow(QMainWindow):
 
     def _on_bazi_reset(self):
         """八字『重置』按钮槽：清空输入面板与结果面板。"""
+        self._hide_reanalyze('bazi')
         self.bazi_input.clear()
         self.bazi_result.clear()
 
     # ===== 梅花 =====
     def _on_meihua(self):
-        """梅花易数『起卦』按钮槽：先弹出关于对话框，再执行起卦。"""
-        self._show_about_dialog()
+        """梅花易数『起卦』按钮槽：校验输入后执行起卦（不再先弹关于对话框）。"""
         try:
             data = self.meihua_input.get_data()
             task_id = str(uuid.uuid4())
+            self._reap_pan_workers()
+            existing = self._pan_workers.get('meihua')
+            if existing is not None and existing.isRunning():
+                self.statusBar().showMessage('梅花起卦正在进行中，请稍候…')
+                return
+            self._hide_reanalyze('meihua')
             self.meihua_result.show_loading()
+            # 起卦本身是毫秒级计算，但「落库写盘」与「AI 解读」必须离开 GUI 线程，
+            # 见 _do_meihua 末尾的 PanTaskWorker；这里先给用户明确的计算中反馈
+            self._begin_calc_busy('meihua', '正在起卦…')
             QTimer.singleShot(80, lambda: self._do_meihua(data, task_id))
         except Exception as e:
+            self._end_calc_busy('meihua')
             self.statusBar().showMessage(f'参数错误: {e}')
             self._logger.warning(f"[梅花] 起卦参数校验失败: {e}")
             # 起卦失败必须落错误态：否则面板会永远停在 loading
@@ -1399,11 +2380,25 @@ class MainWindow(QMainWindow):
                 # 检查是否为 None（0 时是有效值，不能用 all() 判断）
                 if any(v is None for v in (year, month, day, hour)):
                     raise ValueError("时间起卦需要完整的年月日时")
+                # 农历输入先真实转换为公历，避免农历数字被直接当作公历参与起卦
+                if data.get('calendar_type') == '农历':
+                    solar = self.lunar_conv.lunar_to_solar(
+                        year, month, day, bool(data.get('is_leap', False)))
+                    if not solar:
+                        raise ValueError("农历日期无效，请检查年月日是否正确")
+                    original_date = f'{year}-{month}-{day}'
+                    year, month, day = solar
+                    data.update({'year': year, 'month': month, 'day': day,
+                                 'calendar_type': '公历',
+                                 'original_date': original_date,
+                                 'original_calendar_type': '农历'})
                 hr = self.meihua_calc.time_divination(year, month, day, hour, q)
             else:
                 raise ValueError(f"未知起卦方式: {method}")
 
             if not hr:
+                # 算法未返回卦象：必须恢复按钮，否则「计算中…」永久残留
+                self._end_calc_busy('meihua')
                 return
 
             all_hex = self.meihua_calc.generate_all_hexagrams(hr)
@@ -1467,24 +2462,53 @@ class MainWindow(QMainWindow):
                 'divination_extra': hr,
             }
             self.meihua_result.display_result(result)
-            self.statusBar().showMessage('梅花易数起卦完成')
-
-            # 保存到数据库（梅花易数也支持保存）
-            record_id = self._save_pan_record(data, result, '梅花易数')
-            if record_id:
-                self.statusBar().showMessage(f'梅花易数起卦完成 · 记录ID: {record_id}')
 
             # 操作记录
             self._log_op('meihua_divination', method,
                          f"question={q}" if q else f"method={method}")
 
-            # ★ v5.0: 起卦完成后自动触发AI解读
-            QTimer.singleShot(300, self._trigger_meihua_auto_ai)
+            # 保存到数据库（梅花易数也支持保存）：写库可能遇上 SQLite 写锁最长 30s，
+            # 必须放到后台线程，完成后回 GUI 线程更新记录态并触发 AI 解读（P1-01）
+            from ui.components.pan_task_worker import PanTaskWorker
+            worker = PanTaskWorker(
+                lambda w: self._save_pan_record(data, result, '梅花易数', notify=False),
+                label='meihua_save')
+            worker.succeeded.connect(self._on_meihua_save_finished)
+            worker.failed.connect(self._on_meihua_save_failed)
+            # 销毁交给 _reap_pan_workers（确认 isRunning()==False 后才 deleteLater）
+            self._pan_workers['meihua'] = worker
+            self._begin_calc_busy('meihua', '起卦完成 · 正在保存记录…')
+            worker.start()
         except Exception as e:
+            self._end_calc_busy('meihua')
             self.statusBar().showMessage(f'起卦错误: {e}')
             traceback.print_exc()
             # 起卦阶段异常同样要落错误态，避免面板卡在 loading
             self.meihua_result.show_error(f'起卦失败：{e}', retry=self._on_meihua)
+
+    def _on_meihua_save_finished(self, record_id):
+        """梅花落库成功回调（GUI 线程）：更新记录态、恢复按钮、触发 AI 解读。"""
+        self._end_calc_busy('meihua')
+        self._last_meihua_record_id = record_id
+        self._last_meihua_record_table = 'pan_records' if record_id else None
+        if record_id:
+            self.statusBar().showMessage(f'梅花易数起卦完成 · 记录ID: {record_id}')
+        else:
+            self.statusBar().showMessage('梅花易数起卦完成 · 保存到数据库失败')
+        self._end_ai_busy('meihua', has_result=True)
+        # ★ v5.0: 起卦完成后自动触发AI解读（须等 record_id 落定，否则 AI 回写无目标）
+        QTimer.singleShot(300, self._trigger_meihua_auto_ai)
+        self._reap_pan_workers('meihua')
+
+    def _on_meihua_save_failed(self, error_type: str, message: str):
+        """梅花落库失败回调（GUI 线程）：显式提示，不静默。"""
+        self._end_calc_busy('meihua')
+        self._last_meihua_record_table = None
+        self._logger.warning(f'[梅花] 后台落库失败({error_type}): {message}')
+        self.statusBar().showMessage(f'梅花易数起卦完成 · 保存到数据库失败：{message}')
+        self._end_ai_busy('meihua', has_result=True)
+        QTimer.singleShot(300, self._trigger_meihua_auto_ai)
+        self._reap_pan_workers('meihua')
 
     def _trigger_meihua_auto_ai(self):
         """起卦完成后自动触发AI深度解读"""
@@ -1502,6 +2526,7 @@ class MainWindow(QMainWindow):
 
             # 更新状态提示
             self.statusBar().showMessage('起卦完成 · 正在自动进行文化研究算法深度解读…')
+            self._begin_ai_busy('meihua')
 
             task_id = str(uuid.uuid4())
 
@@ -1516,101 +2541,9 @@ class MainWindow(QMainWindow):
 
     def _on_meihua_reset(self):
         """梅花易数『重置』按钮槽：清空输入面板与结果面板。"""
+        self._hide_reanalyze('meihua')
         self.meihua_input.clear()
         self.meihua_result.clear()
-
-    # ===== 大六壬 =====
-    def _on_liuren(self):
-        """大六壬『起课』按钮槽：先弹出关于对话框，再执行起课。"""
-        self._show_about_dialog()
-        try:
-            data = self.liuren_input.get_data()
-            task_id = str(uuid.uuid4())
-            # 若已有有效排盘结果则直接复用，避免 show_loading 清空已渲染内容导致白屏
-            if not getattr(self.liuren_result, '_current_result', None):
-                self.liuren_result.show_loading()
-            QTimer.singleShot(80, lambda: self._do_liuren(data, task_id))
-        except Exception as e:
-            self.statusBar().showMessage(f'参数错误: {e}')
-            traceback.print_exc()
-            self.liuren_result.show_error(f'起课失败：{e}', retry=self._on_liuren)
-
-
-    def _do_liuren(self, data, task_id=None):
-        """执行大六壬起课流程（由 _on_liuren 经定时器延迟调用）。
-
-        Args:
-            data: 输入面板数据（起课方式 method、年月日时、问题、占事等）
-            task_id: 本次起课任务标识（预留）
-
-        调用 LiuRenCalculator 起课，展示结果、保存记录、记录操作，
-        最后自动触发文化研究算法（AI）解读。
-        """
-        try:
-            method = data['method']
-            q = data.get('question', '')
-            hr = self.liuren_calc.calc(
-                method=method,
-                year=data.get('year'),
-                month=data.get('month'),
-                day=data.get('day'),
-                hour=data.get('hour'),
-                question=q,
-                zhan_shi=data.get('zhan_shi'),
-            )
-            if not hr:
-                self.liuren_result.clear()
-                return
-            self.liuren_result.display_result(hr)
-            self.statusBar().showMessage('大六壬起课完成')
-            record_id = self._save_pan_record(data, hr, '大六壬')
-            if record_id:
-                self.statusBar().showMessage(f'大六壬起课完成 · 记录ID: {record_id}')
-            self._log_op('liuren_divination', method, f"question={q}" if q else f"method={method}")
-            # 保存完整排盘结果供 AI 解读使用
-            self._last_liuren_hr = hr
-            QTimer.singleShot(300, self._trigger_liuren_auto_ai)
-        except Exception as e:
-            # 异常时展示统一错误态（含重试），避免面板卡在 loading / 白屏
-            self.liuren_result.show_error(f'起课失败：{e}', retry=self._on_liuren)
-            self.statusBar().showMessage(f'起课错误: {e}')
-            traceback.print_exc()
-
-    def _trigger_liuren_auto_ai(self):
-        """起课后自动触发AI深度解读"""
-        try:
-            # 修复：AI 未配置时跳过自动解读，避免发起注定失败的网络请求造成白屏
-            if not getattr(self, '_ai_available', False):
-                self._logger.debug("[AI] 自动AI解读跳过: AI 未配置")
-                return
-            input_data = self.liuren_input.get_data()
-            # 优先使用完整排盘结果（含天地盘/四课/三传/天将/神煞），避免 AI 因数据不全返回空结果导致白屏
-            chart_data = getattr(self, '_last_liuren_hr', None) or self.liuren_result._current_result
-            if not chart_data:
-                self._logger.warning("[AI] 自动AI解读跳过: 无可用排盘数据")
-                return
-
-            if not chart_data.get('san_chuan'):
-                self._logger.debug("[AI] 自动AI解读跳过: 起课数据不完整")
-                return
-
-            self.statusBar().showMessage('起课完成 · 正在自动进行文化研究算法深度解读…')
-
-            task_id = str(uuid.uuid4())
-
-            self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, chart_data, task_id)
-            self._liuren_ai_worker.progress_updated.connect(self._on_liuren_ai_progress)
-            self._liuren_ai_worker.analysis_finished.connect(self._on_liuren_ai_finished)
-            self._liuren_ai_worker.analysis_failed.connect(self._on_liuren_ai_failed)
-            self._register_worker(self._liuren_ai_worker)
-            self._liuren_ai_worker.start()
-        except Exception as e:
-            self._logger.error("[六壬] 自动AI解读启动失败: %s", e, exc_info=True)
-
-    def _on_liuren_reset(self):
-        """大六壬『重置』按钮槽：清空输入面板与结果面板。"""
-        self.liuren_input.clear()
-        self.liuren_result.clear()
 
     # ===== 玄空飞星 =====
 
@@ -1654,108 +2587,14 @@ class MainWindow(QMainWindow):
         self.xuan_kong_input.clear()
         self.xuan_kong_result.clear()
 
-    def _on_liuren_ai_analyze(self):
-        """大六壬AI分析按钮点击处理"""
-        try:
-            input_data = self.liuren_input.get_data()
-            liuren_data = self.liuren_result.get_liuren_data_for_ai()
-
-            if not liuren_data or not liuren_data.get('san_chuan'):
-                QMessageBox.warning(self, '提示', '请先起课，再使用文化研究算法解读功能')
-                return
-
-            self.liuren_result.show_ai_loading('文化研究算法正在解读六壬玄机…')
-            self.statusBar().showMessage('文化研究算法解读进行中，请稍候…')
-
-            task_id = str(uuid.uuid4())
-
-            self._liuren_ai_worker = AiAnalysisWorker('liuren', input_data, liuren_data, task_id)
-            self._liuren_ai_worker.progress_updated.connect(self._on_liuren_ai_progress)
-            self._liuren_ai_worker.analysis_finished.connect(self._on_liuren_ai_finished)
-            self._liuren_ai_worker.analysis_failed.connect(self._on_liuren_ai_failed)
-            self._register_worker(self._liuren_ai_worker)
-            self._liuren_ai_worker.start()
-        except Exception as e:
-            self.statusBar().showMessage(f'文化研究算法解读启动失败: {e}')
-            traceback.print_exc()
-            QMessageBox.critical(self, '错误', f'文化研究算法解读启动失败: {e}')
-
-    def _on_liuren_ai_progress(self, stage: str, message: str):
-        """大六壬AI分析进度更新"""
-        status_messages = {
-            'validating': '正在验证输入数据…',
-            'initializing': '正在初始化文化研究算法分析引擎…',
-            'analyzing': '文化研究算法正在解读六壬玄机…',
-            'completed': '分析完成！'
-        }
-        status = status_messages.get(stage, message)
-        self.statusBar().showMessage(status)
-
-    def _on_liuren_ai_finished(self, result: dict):
-        """大六壬AI分析完成"""
-        try:
-            # 检查分析是否成功
-            if not result.get('success', False):
-                error_type = result.get('error_type', 'unknown')
-                error_msg = result.get('error_message', '未知错误')
-                self._on_liuren_ai_failed(error_type, error_msg)
-                return
-
-            ai_analysis = result.get('ai_analysis', {})
-            self.liuren_result.display_ai_analysis_result(ai_analysis)
-            # 缓存 AI 结论供大六壬面板导出复用（键名与面板内部 _current_智能 保持一致）
-            try:
-                self.liuren_result._current_智能 = dict(ai_analysis or {})
-            except Exception:
-                pass
-
-            token_usage = result.get('token_usage', 0)
-            report_id = result.get('report_id', 0)
-            elapsed = result.get('elapsed_seconds', 0)
-
-            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and hasattr(self, '_last_liuren_record_id'):
-                try:
-                    last_id = self._last_liuren_record_id
-                    if last_id:
-                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
-                except Exception as e:
-                    self._logger.warning(f"[AI] 更新六壬AI分析结果到数据库失败: {e}")
-
-            self.statusBar().showMessage(
-                f'文化研究算法解读完成 · 报告ID: {report_id} · '
-                f'消耗Token: {token_usage} · 耗时: {elapsed:.1f}秒'
-            )
-        except Exception as e:
-            self.statusBar().showMessage(f'显示文化研究算法分析结果失败: {e}')
-            traceback.print_exc()
-
-    def _on_liuren_ai_failed(self, error_type: str, error_message: str):
-        """大六壬AI分析失败"""
-        # AI 失败不覆盖已渲染的排盘结果，只恢复按钮可点击状态
-        self.liuren_result.smart_analyze_btn.setVisible(True)
-        self.liuren_result.smart_analyze_btn.setEnabled(True)
-        self.statusBar().showMessage(f'文化研究算法解读失败: {error_type}')
-
-        error_titles = {
-            'validation_error': '数据验证失败',
-            'ai_timeout': '文化研究算法请求超时',
-            'ai_request_error': '文化研究算法请求失败',
-            'ai_response_error': '文化研究算法响应解析失败',
-            'db_connection_error': '数据库连接异常',
-            'db_query_error': '数据库操作异常',
-        }
-        title = error_titles.get(error_type, '分析失败')
-
-        msg_lines = error_message.split('\n')
-        short_msg = msg_lines[0] if msg_lines else error_message
-
-        QMessageBox.warning(self, title, short_msg)
-
     # ===== AI分析 =====
 
-    def _on_bazi_ai_analyze(self):
-        """八字AI分析按钮点击处理"""
+    def _on_bazi_ai_analyze(self, force_refresh: bool = False):
+        """八字AI分析按钮点击处理。
+
+        Args:
+            force_refresh: True 时跳过 AI 结果缓存强制重新分析（「重新分析」入口使用）
+        """
         try:
             input_data = self.bazi_input.get_data()
             self._last_bazi_input = input_data
@@ -1767,10 +2606,15 @@ class MainWindow(QMainWindow):
 
             self.bazi_result.show_ai_loading('文化研究算法正在深入分析八字命理…')
             self.statusBar().showMessage('文化研究算法分析进行中，请稍候…')
+            self._begin_ai_busy('bazi')
 
             task_id = str(uuid.uuid4())
 
             self._bazi_ai_worker = AiAnalysisWorker('bazi', input_data, chart_data, task_id)
+            # 保持 4 位置参数构造契约（测试替身可能不接受额外关键字），
+            # 与 AiAnalysisManager.start_analysis 的既有做法一致
+            if force_refresh:
+                self._bazi_ai_worker.force_refresh = True
             self._bazi_ai_worker.progress_updated.connect(self._on_bazi_ai_progress)
             self._bazi_ai_worker.analysis_finished.connect(self._on_bazi_ai_finished)
             self._bazi_ai_worker.analysis_failed.connect(self._on_bazi_ai_failed)
@@ -1804,20 +2648,15 @@ class MainWindow(QMainWindow):
                 return
 
             ai_analysis = result.get('ai_analysis', {})
+            self._end_ai_busy('bazi')
             self.bazi_result.display_ai_result(ai_analysis)
 
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
             elapsed = result.get('elapsed_seconds', 0)
 
-            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and hasattr(self, '_last_bazi_record_id'):
-                try:
-                    last_id = self._last_bazi_record_id
-                    if last_id:
-                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
-                except Exception as e:
-                    self._logger.warning(f"[AI] 更新八字AI分析结果到数据库失败: {e}")
+            # 更新数据库：按落库时记录的表写回 AI 解读（失败会状态栏提示）
+            self._persist_ai_analysis('bazi', ai_analysis)
 
             self.statusBar().showMessage(
                 f'文化研究算法分析完成 · 报告ID: {report_id} · '
@@ -1829,6 +2668,7 @@ class MainWindow(QMainWindow):
 
     def _on_bazi_ai_failed(self, error_type: str, error_message: str):
         """八字AI分析失败"""
+        self._end_ai_busy('bazi')
         self.bazi_result.display_result(getattr(self.bazi_result, '_current_result', {}))
         self.bazi_result.smart_analyze_btn.setVisible(True)
         self.bazi_result.smart_analyze_btn.setEnabled(True)
@@ -1849,8 +2689,12 @@ class MainWindow(QMainWindow):
 
         QMessageBox.warning(self, title, short_msg)
 
-    def _on_meihua_ai_analyze(self):
-        """梅花易数AI分析按钮点击处理"""
+    def _on_meihua_ai_analyze(self, force_refresh: bool = False):
+        """梅花易数AI分析按钮点击处理。
+
+        Args:
+            force_refresh: True 时跳过 AI 结果缓存强制重新解读（「重新分析」入口使用）
+        """
         try:
             input_data = self.meihua_input.get_data()
             hexagram_data = self.meihua_result.get_hexagram_data_for_ai()
@@ -1861,10 +2705,13 @@ class MainWindow(QMainWindow):
 
             self.meihua_result.show_ai_loading('文化研究算法正在解读卦象玄机…')
             self.statusBar().showMessage('文化研究算法解读进行中，请稍候…')
+            self._begin_ai_busy('meihua')
 
             task_id = str(uuid.uuid4())
 
             self._meihua_ai_worker = AiAnalysisWorker('meihua', input_data, hexagram_data, task_id)
+            if force_refresh:
+                self._meihua_ai_worker.force_refresh = True
             self._meihua_ai_worker.progress_updated.connect(self._on_meihua_ai_progress)
             self._meihua_ai_worker.analysis_finished.connect(self._on_meihua_ai_finished)
             self._meihua_ai_worker.analysis_failed.connect(self._on_meihua_ai_failed)
@@ -1898,20 +2745,15 @@ class MainWindow(QMainWindow):
                 return
 
             ai_analysis = result.get('ai_analysis', {})
+            self._end_ai_busy('meihua')
             self.meihua_result.display_ai_analysis_result(ai_analysis)
 
             token_usage = result.get('token_usage', 0)
             report_id = result.get('report_id', 0)
             elapsed = result.get('elapsed_seconds', 0)
 
-            # 更新数据库：将 AI 分析结果写入 pan_records.ai_json
-            if self.db_manager and hasattr(self, '_last_meihua_record_id'):
-                try:
-                    last_id = self._last_meihua_record_id
-                    if last_id:
-                        self.db_manager.update_pan_ai_result(last_id, ai_analysis)
-                except Exception as e:
-                    self._logger.warning(f"[AI] 更新梅花AI分析结果到数据库失败: {e}")
+            # 更新数据库：按落库时记录的表写回 AI 解读（失败会状态栏提示）
+            self._persist_ai_analysis('meihua', ai_analysis)
 
             self.statusBar().showMessage(
                 f'文化研究算法解读完成 · 报告ID: {report_id} · '
@@ -1923,6 +2765,7 @@ class MainWindow(QMainWindow):
 
     def _on_meihua_ai_failed(self, error_type: str, error_message: str):
         """梅花易数AI分析失败"""
+        self._end_ai_busy('meihua')
         self.meihua_result.display_result(getattr(self.meihua_result, '_current_result', {}))
         self.meihua_result.smart_analyze_btn.setVisible(True)
         self.meihua_result.smart_analyze_btn.setEnabled(True)

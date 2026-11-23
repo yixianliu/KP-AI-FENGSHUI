@@ -203,8 +203,8 @@ def hour_zhi_from_hour(hour: int) -> str:
 def find_li_chun(year: int) -> 'datetime.datetime':
     """近似计算指定年份立春日辰（二分查找黄经315°）。
 
-    立春对应太阳黄经315°，使用天文近似算法二分查找精确时刻。
-    误差控制在±30分钟内，满足排盘需求。
+    立春对应太阳黄经315°，使用 VSOP87D 截断序列求太阳视黄经后二分逼近。
+    与官方公布时刻偏差在 ±1 分钟内（2024 立春实测 -44.9 秒），返回值口径为北京时间。
 
     Args:
         year: 公历年份
@@ -216,38 +216,45 @@ def find_li_chun(year: int) -> 'datetime.datetime':
     return JieQiCalculator.calculate_jieqi(year, 0)  # 立春是第0个节气
 
 
-def get_lunar_year(solar_dt: 'datetime.datetime') -> int:
+def get_lunar_year(solar_dt: 'datetime.datetime', longitude: 'float | None' = None) -> int:
     """根据立春判断农历年份。
 
     立春前一年为上一个农历年，立春后为新年。
 
     Args:
-        solar_dt: 公历日期时间
+        solar_dt: 公历日期时间（真太阳时）
+        longitude: 出生地经度；传值后立春时刻换算到同一真太阳时口径，
+            None 表示按北京时间口径判定（保持旧行为）
 
     Returns:
         int: 农历年份
     """
-    li_chun = find_li_chun(solar_dt.year)
-    if solar_dt < li_chun:
-        return solar_dt.year - 1
-    return solar_dt.year
+    from core.calendar_utils import JieQiCalculator
+    if longitude is None:
+        li_chun = find_li_chun(solar_dt.year)
+        if solar_dt < li_chun:
+            return solar_dt.year - 1
+        return solar_dt.year
+    return JieQiCalculator().get_lunar_year(solar_dt, longitude)
 
 
-def get_month_zhi(solar_dt: 'datetime.datetime') -> str:
+def get_month_zhi(solar_dt: 'datetime.datetime', longitude: 'float | None' = None) -> str:
     """根据节气确定月建地支。
 
     寅月始于立春(0°)，卯月始于惊蛰(345°)，……，丑月始于小寒(285°)。
     月建以「节」为界，非「气」。
 
     Args:
-        solar_dt: 公历日期时间
+        solar_dt: 公历日期时间（真太阳时）
+        longitude: 出生地经度；传值后节气时刻换算到同一真太阳时口径，
+            None 表示按北京时间口径判定（保持旧行为）
 
     Returns:
         str: 月支，如 '寅'
     """
     from core.calendar_utils import JieQiCalculator
     jieqi = JieQiCalculator()
-    return jieqi.get_solar_term_month(solar_dt) or '寅'
+    return jieqi.get_solar_term_month(solar_dt, longitude) or '寅'
 
 
 # ---------------------------------------------------------------- 主入口
@@ -259,6 +266,7 @@ def calculate_pillars(
     hour: int,
     minute: int = 0,
     longitude: float = 120.0,
+    latitude: float = 30.0,
 ) -> dict:
     """完整四柱排盘主入口（纯函数）。
 
@@ -271,13 +279,14 @@ def calculate_pillars(
         hour: 公历小时
         minute: 公历分钟
         longitude: 经度，用于真太阳时修正（默认东经120°）
+        latitude: 纬度，仅随结果保存（真太阳时只依赖经度）
 
     Returns:
         dict: 含 'year', 'month', 'day', 'hour' 四柱，
               以及 'lunar_year', 'month_zhi', 'hour_zhi', 'rizhu' 等字段
     """
     cal = _get_calendar()
-    return cal.calculate_bazi(year, month, day, hour, minute, longitude)
+    return cal.calculate_bazi(year, month, day, hour, minute, longitude, latitude)
 
 
 # ---------------------------------------------------------------- 类封装（向后兼容）
@@ -289,7 +298,8 @@ class PillarEngine:
     """
 
     def calculate(self, year: int, month: int, day: int, hour: int,
-                  minute: int = 0, longitude: float = 120.0) -> dict:
+                  minute: int = 0, longitude: float = 120.0,
+                  latitude: float = 30.0) -> dict:
         """计算四柱。
 
         Args:
@@ -299,8 +309,9 @@ class PillarEngine:
             hour: 公历小时
             minute: 公历分钟
             longitude: 经度（默认东经120°）
+            latitude: 纬度，仅随结果保存（真太阳时只依赖经度）
 
         Returns:
             dict: 四柱结果
         """
-        return calculate_pillars(year, month, day, hour, minute, longitude)
+        return calculate_pillars(year, month, day, hour, minute, longitude, latitude)

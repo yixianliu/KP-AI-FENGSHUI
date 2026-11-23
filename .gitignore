@@ -22,11 +22,19 @@ __pycache__/
 /build/
 /dist_prev/
 
-# ---- 运行期生成数据（数据库为二进制种子库，按需单独提交）----
+# ---- 运行期生成数据 ----
+# database/ 与 data/ 是交付必需资源（建库 schema / 种子数据），必须入库；
+# 仅忽略运行期生成的库文件、日志与上传内容。
 /logs/
 *.log
-/data/
 /.uploads/
+/database/*.db
+/database/*.db-wal
+/database/*.db-shm
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/cache/
 
 # ---- 前端遗留（本项目已不使用）----
 /node_modules/
@@ -55,15 +63,17 @@ config.ini
 # 客户端本机设备标识
 device.json
 **/device.json
-api
 # images 仅保留旧版图标不入库；product_*（README 配图）与二维码需提交
 /images/ico_old.jpeg
 /Lib/
 /pyside6_packages/
-/tests/
-/.github/
 /_build_single/
-/database/
-database
-docs
-dist_test
+docs/**/*.png
+/dist_test
+.github
+/docs
+/dist_release
+/database
+/tests
+/images/
+/data/

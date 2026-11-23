@@ -225,7 +225,7 @@ def generate_interpretation(
 
     Args:
         chart_data: 排盘数据（已计算，不含 AI 内容）
-        pan_type: 术数类型（bazi / meihua / liuren / xuan_kong）
+        pan_type: 术数类型（bazi / meihua / xuan_kong）
         rag_results: RAG 检索结果列表（可选）
         client: AgnesClient 实例（可选，默认新建）
 
@@ -322,7 +322,7 @@ def _build_three_part_prompt(
     Returns:
         str: 完整提示词
     """
-    pan_name = {'bazi': '八字', 'meihua': '梅花易数', 'liuren': '大六壬',
+    pan_name = {'bazi': '八字', 'meihua': '梅花易数',
                 'xuan_kong': '玄空飞星'}.get(pan_type, pan_type)
 
     return f"""你是一位精通传统命理学的资深分析师。请根据以下{pan_name}排盘数据，

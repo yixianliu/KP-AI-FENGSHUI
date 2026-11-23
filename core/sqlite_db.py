@@ -27,6 +27,8 @@ _LOCK = threading.Lock()
 _DB_PATH = None
 _SCHEMA_PATH = None
 _INITIALIZED = False
+# 正在执行初始化的线程 ident：仅用于识别同线程递归（见 ensure_initialized）
+_INIT_OWNER = None
 
 
 def _resource_root():
@@ -97,6 +99,10 @@ def _build_database(db_path: str, schema_path: str):
 
     con = sqlite3.connect(tmp_path)
     try:
+        # journal_mode=WAL 是数据库级持久属性，写入 DB 头后长期有效。
+        # 只在这里设置一次：每个连接重复执行该 PRAGMA 会多一次锁尝试，
+        # 失败还会被静默吞掉（见 get_connection 的说明）。
+        con.execute('PRAGMA journal_mode=WAL')
         with open(schema_path, 'r', encoding='utf-8') as f:
             con.executescript(f.read())
         con.commit()
@@ -116,21 +122,62 @@ def _ensure_breaker_history_table():
     finally:
         con.close()
 
+
+def _ensure_pan_records_input_json():
+    """幂等迁移：为老库的 pan_records 补 input_json 列（允许 NULL）。
+
+    新建库由 schema_sqlite.sql 直接带列；老库通过 PRAGMA table_info 检查后
+    ALTER TABLE 添加，不做整表重建，已有记录保持原样（payload 走回退分支）。
+    """
+    con = get_connection()
+    try:
+        columns = {row['name'] for row in
+                   con.execute('PRAGMA table_info(pan_records)').fetchall()}
+        if 'input_json' not in columns:
+            con.execute('ALTER TABLE pan_records ADD COLUMN input_json TEXT')
+            con.commit()
+            logger.info('已为 pan_records 补充 input_json 列')
+    except Exception as exc:  # noqa: BLE001 - 迁移失败不应阻断启动
+        logger.warning('pan_records.input_json 迁移失败（将沿用回退 payload）：%s', exc)
+    finally:
+        con.close()
+
 def ensure_initialized():
-    """确保数据库存在；首次运行时建库。线程安全。"""
-    global _INITIALIZED
+    """确保数据库已建成（表 + 初始数据可用）；首次运行时建库。线程安全。
+
+    「标志可见 = 表已可用」：``_INITIALIZED`` 只在 schema 建库、熔断历史表补建、
+    pan_records 迁移**全部完成之后**才置 True。旧实现提前置位，导致其它线程
+    在本线程建表尚未完成时就能拿到连接，撞上 ``no such table``（测试表现为
+    ``no such table: shishen_map``，产品路径同样会中招）。
+
+    并发安全性（不死锁）：
+    - ``_LOCK`` 只在本函数获取，持有期间只做本地文件/SQLite 建表，不申请其它锁，
+      因而不存在「持锁等别人、别人又要这把锁」的环；
+    - 同线程递归（``_ensure_breaker_history_table`` → ``get_connection`` →
+      再次进入本函数）由 ``_INIT_OWNER`` 识别后直接放行，不会二次抢锁；
+    - 其它线程在 ``_LOCK`` 上等待初始化完成，随后命中 ``_INITIALIZED`` 快路径返回，
+      即「等完成」而不是「拿到半成品」。
+    """
+    global _INITIALIZED, _INIT_OWNER
     if _INITIALIZED:
         return
+    me = threading.get_ident()
+    if _INIT_OWNER == me:  # 同线程递归：初始化尚未结束，直接放行
+        return
     with _LOCK:
-        if _INITIALIZED:
+        if _INITIALIZED:  # 等锁期间已被别的线程完成
             return
-        # 先标记为已初始化，防止 _ensure_breaker_history_table → get_connection
-        # → ensure_initialized 递归调用时再次进入初始化逻辑
-        _INITIALIZED = True
-        db_path = get_db_path()
-        if not os.path.exists(db_path):
-            _build_database(db_path, get_schema_path())
-        _ensure_breaker_history_table()
+        _INIT_OWNER = me
+        try:
+            db_path = get_db_path()
+            if not os.path.exists(db_path):
+                _build_database(db_path, get_schema_path())
+            _ensure_breaker_history_table()
+            _ensure_pan_records_input_json()
+            # 建库/迁移全部成功后才置位：其它线程此时看到的库一定是可用的
+            _INITIALIZED = True
+        finally:
+            _INIT_OWNER = None
 
 
 def _dict_factory(cursor, row):
@@ -172,14 +219,19 @@ def get_connection() -> sqlite3.Connection:
     - row_factory=dict 工厂：支持按列名访问以及 .get(key, default) 取值，
       与迁移前 MySQL 字典式行行为一致。
     - check_same_thread=False：允许在 Qt 工作线程中使用。
-    - WAL 模式提升读写并发。
+    - journal_mode=WAL 是数据库级持久属性，仅在 _build_database 建库时设置一次；
+      每个连接重复 PRAGMA journal_mode 会多一次锁尝试且失败被静默吞掉（P2-07）。
+      连接级只设置 busy_timeout / synchronous。
     """
     ensure_initialized()
     con = sqlite3.connect(get_db_path(), timeout=30, check_same_thread=False,
                           factory=_Connection)
     con.row_factory = _dict_factory
     try:
-        con.execute('PRAGMA journal_mode=WAL')
+        # busy_timeout 与 connect(timeout=30) 等价，显式声明避免依赖默认值；
+        # synchronous=NORMAL 是 WAL 模式下的推荐档位（连接级属性，必须每连接设置）。
+        con.execute('PRAGMA busy_timeout=30000')
+        con.execute('PRAGMA synchronous=NORMAL')
         con.execute('PRAGMA foreign_keys=OFF')
     except sqlite3.Error:
         pass

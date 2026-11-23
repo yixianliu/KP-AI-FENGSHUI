@@ -272,31 +272,17 @@ def _sample_meihua_data():
     }
 
 
-def _sample_liuren_data():
-    return {
-        'liuren_data': {
-            'pan_date': '2026-01-01', 'si_ke': '四课信息',
-            'san_chuan': '三传信息', 'yue_jiang': '卯',
-            'tian_pan': {'子': '癸', '午': '己'},
-            'tian_jiang': [{'pos': '子', 'jiang': '甲'}, {'pos': '午', 'jiang': '庚'}],
-            'ri_gan': '甲', 'ri_zhi': '子',
-        },
-    }
-
-
 def measure_render(app):
-    """UI 渲染：三面板 display_result + 板块切换 + export_dialog。"""
+    """UI 渲染：双面板 display_result + 板块切换 + export_dialog。"""
     print("\n── 2. UI 渲染 ──")
 
-    # 2a. 三面板 display_result
+    # 2a. 双面板 display_result
     from ui.components.result_panel import ResultPanel
     from ui.components.meihua_result_panel import MeihuaResultPanel
-    from ui.components.liuren_result_panel import LiurenResultPanel
 
     panels = [
         ('八字结果面板', ResultPanel, _sample_bazi_data()),
         ('梅花结果面板', MeihuaResultPanel, _sample_meihua_data()),
-        ('六壬结果面板', LiurenResultPanel, _sample_liuren_data()),
     ]
     built = []
     for name, cls, data in panels:
@@ -313,9 +299,9 @@ def measure_render(app):
         _record(f'{name} display_result', elapsed_ms, RENDER_LIMIT_MS)
 
     # 2b. 重复渲染（第二次走热路径，反映稳态）
-    for name, p_data in zip(['八字', '梅花', '六壬'],
-                            [_sample_bazi_data(), _sample_meihua_data(), _sample_liuren_data()]):
-        p = built[['八字', '梅花', '六壬'].index(name)]
+    for name, p_data in zip(['八字', '梅花'],
+                            [_sample_bazi_data(), _sample_meihua_data()]):
+        p = built[['八字', '梅花'].index(name)]
         t0 = time.perf_counter()
         try:
             p.display_result(p_data)
@@ -348,7 +334,7 @@ def measure_switch(app, win):
     """板块切换 _switch() × 3 平均耗时。"""
     print("\n── 2d. 板块切换 ──")
     times = []
-    for pid in ('bazi', 'meihua', 'liuren', 'bazi'):
+    for pid in ('bazi', 'meihua', 'xuan_kong', 'bazi'):
         t0 = time.perf_counter()
         try:
             win._switch(pid)

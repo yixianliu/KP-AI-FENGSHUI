@@ -1,11 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from importlib.util import find_spec
+from pathlib import Path
+
+# PySide6 platforms 插件按当前解释器动态定位（不写死盘符 / venv 路径）
+_pyside6_platforms = str(Path(find_spec('PySide6').submodule_search_locations[0]) / 'plugins' / 'platforms')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/favicon.ico', '.'), ('database/schema_sqlite.sql', 'database'), ('D:/PythonProject/KP-AI-FENGSHUI/venv/Lib/site-packages/PySide6/plugins/platforms', 'platforms')],
+    datas=[('assets/favicon.ico', '.'), ('database/schema_sqlite.sql', 'database'), (_pyside6_platforms, 'platforms')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

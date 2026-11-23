@@ -1,0 +1,9 @@
+# 统一换行符，避免 core.autocrlf=true 在不同平台 checkout 后破坏脚本可执行性。
+# 规则依据（实测）：
+#   - *.sh 必须 LF：CRLF 会让 bash 报 "$'\r': command not found"
+#   - *.bat / *.cmd 必须 CRLF：LF-only 批处理会让 cmd 解析 if (...) else (...) 复合块错乱
+#   - *.ps1 统一 CRLF，避免跨平台编辑器反复改动
+*.sh  text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

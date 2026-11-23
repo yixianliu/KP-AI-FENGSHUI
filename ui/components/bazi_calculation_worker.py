@@ -14,39 +14,65 @@ from datetime import datetime
 
 
 class BaziCalculationWorker(QThread):
-    """后台计算八字排盘结果的工作线程。"""
+    """后台计算八字排盘结果的工作线程。
+
+    两种用法：
+    1. ``BaziCalculationWorker(input_data)``：独立完成「core 直连」的排盘计算
+       （保留给测试与无 Service 的降级环境，原逻辑不变）；
+    2. ``BaziCalculationWorker(input_data, task=可调用对象)``：把业务编排
+       （含 Service 主路径、落库等）整体交给 ``task`` 在后台执行，主窗口走这条路径。
+       这样 ``_on_bazi`` 在 GUI 线程只做轻量准备 + 启动线程。
+    """
 
     # 信号
     finished = Signal(dict)          # 计算成功，传递结果字典
     failed = Signal(str, str)        # 计算失败，传递错误类型和错误消息
     progress = Signal(str, str)      # 进度更新，传递阶段和消息
 
-    def __init__(self, input_data: dict):
+    def __init__(self, input_data: dict, task=None):
         """
         Args:
             input_data: 输入面板数据（年/月/日/时/经纬度/农历标志/性别等）
+            task: 可选的后台任务；给定时不走内置计算流程，直接以 worker 为入参执行
         """
         super().__init__()
         self.input_data = input_data
         self._is_cancelled = False
+        self._task = task
 
     def cancel(self):
         """请求取消计算。"""
         self._is_cancelled = True
+        self.requestInterruption()
 
     def run(self):
-        """执行八字排盘计算流程。"""
+        """执行八字排盘计算流程（或外部注入的后台任务）。"""
+        # 外部任务模式：业务编排由主窗口注入，本线程只负责线程生命周期与错误兜底
+        if self._task is not None:
+            try:
+                payload = self._task(self)
+                if self._is_cancelled or self.isInterruptionRequested():
+                    return
+                self.finished.emit(payload)
+            except ValueError as e:
+                self.failed.emit('validation_error', str(e))
+            except Exception as e:  # noqa: BLE001 - 后台线程必须兜住所有异常
+                traceback.print_exc()
+                self.failed.emit('calculation_error', str(e))
+            return
         try:
             self.progress.emit('validating', '正在验证输入数据…')
             y, m, d, hh, mm = self.input_data['year'], self.input_data['month'], self.input_data['day'], self.input_data['hour'], self.input_data['minute']
             longitude = self.input_data['longitude']
             latitude = self.input_data.get('latitude', 30.0)
-            is_lunar = self.input_data['is_lunar']
+            is_lunar = bool(self.input_data.get('is_lunar', False))
+            is_leap = bool(self.input_data.get('is_leap', False))
             gender = self.input_data.get('gender', '男')
 
-            # 出生地解析
+            # 出生地解析：仅当坐标来源为 auto（默认值/程序回填）时才允许
+            # 用地名文本覆盖；用户显式设定的经纬度永远优先
             loc_text = (self.input_data.get('location') or '').strip()
-            if loc_text:
+            if loc_text and self.input_data.get('coords_source', 'auto') == 'auto':
                 longitude, latitude = self._resolve_location(loc_text, longitude, latitude)
                 self.input_data['longitude'] = longitude
                 self.input_data['latitude'] = latitude
@@ -54,20 +80,27 @@ class BaziCalculationWorker(QThread):
 
             if is_lunar:
                 self.progress.emit('converting', '正在转换农历日期…')
-                lunar_conv = LunarConverter()
-                sol = lunar_conv.lunar_to_solar(y, m, d)
-                if not sol:
-                    self.failed.emit('validation_error', '农历转换失败：日期无效')
-                    return
-                y, m, d = sol
 
             self.progress.emit('calculating', '正在计算八字命理…')
+            bazi_calc = BaziCalculator()
+            # 农历转换统一由 core 层完成；失败直接返回错误态，不继续算盘
+            try:
+                bazi = bazi_calc.calculate(
+                    y, m, d, hh, mm, longitude, is_lunar, is_leap, latitude)
+            except ValueError as e:
+                self.failed.emit('validation_error', f'农历转换失败：{e}')
+                return
+
+            # 后续一律使用公历日期（公历输入时与原逻辑一致）
+            try:
+                y, m, d = (int(x) for x in str(bazi.get('solar_date', '')).split('-')[:3])
+            except Exception:
+                pass
+
             dt = datetime(y, m, d, hh, mm)
             solar_time_calc = SolarTimeCalculator()
             sdt = solar_time_calc.get_true_solar_time(dt, longitude)
 
-            bazi_calc = BaziCalculator()
-            bazi = bazi_calc.calculate(y, m, d, hh, mm, longitude, is_lunar=False)
             lunar_conv = LunarConverter()
             li = lunar_conv.solar_to_lunar(y, m, d)
 
@@ -91,6 +124,9 @@ class BaziCalculationWorker(QThread):
                 traceback.print_exc()
                 dayun = {'periods': [], 'direction': '顺行'}
                 liunian = {'years': []}
+                # 确保流年数据结构有效，防止前端因空列表而不展示卡片
+                if not liunian or not isinstance(liunian, dict):
+                    liunian = {'years': []}
 
             # 计算十二长生
             if self._is_cancelled:
@@ -188,8 +224,25 @@ class BaziCalculationWorker(QThread):
             self.failed.emit('calculation_error', str(e))
 
     def _resolve_location(self, text, fallback_lon=120.0, fallback_lat=30.0):
-        """将出生地文本解析为（经度, 纬度）。"""
-        # 1) 本地城市库优先
+        """将出生地文本解析为（经度, 纬度），仅使用本地数据，不发任何网络请求。
+
+        P1-01 修订：原实现在本地库未命中时会同步调用 AI 地理编码（同步 HTTP +
+        重试 sleep），一旦在 GUI 线程触发就会让界面「未响应」数十秒。现在：
+            1) 先用 service/location_resolver 的内置城市表（唯一来源）；
+            2) 再退回 core.location_db 的本地城市库；
+            3) 仍未命中则直接返回回退坐标，由调用方显式提示用户。
+        """
+        # 1) 内置城市表（与输入面板下拉共用同一份数据）
+        try:
+            from service.location_resolver import resolve_local
+            hit = resolve_local(text)
+            if hit:
+                _, lon, lat = hit
+                return float(lon), float(lat)
+        except Exception:
+            pass
+
+        # 2) 本地城市库
         try:
             db = LocationDB()
             hits = db.search_city(text)
@@ -207,30 +260,7 @@ class BaziCalculationWorker(QThread):
         except Exception:
             pass
 
-        # 2) AI 地理解析（加超时保护）
-        try:
-            from api.agnes_client import get_agnes_client, AgnesClient
-            client = get_agnes_client()
-            prompt = (
-                f"请解析出生地「{text}」的地理坐标，"
-                f"仅返回一个 JSON 对象，不要任何解释："
-                f'{{"longitude": 数值, "latitude": 数值, "timezone": "Asia/Shanghai"}}'
-            )
-            resp = client.chat_completion(
-                [{'role': 'user', 'content': prompt}],
-                temperature=0.0, max_tokens=256,
-            )
-            content = (resp or {}).get('content', '')
-            cleaned = AgnesClient._clean_json_response(content)
-            import json
-            obj = json.loads(cleaned)
-            lon = float(obj['longitude'])
-            lat = float(obj['latitude'])
-            return lon, lat
-        except Exception:
-            pass
-
-        # 3) 兜底
+        # 3) 兜底：不联网，交给调用方提示
         return float(fallback_lon), float(fallback_lat)
 
     def _compute_bazi_types(self, bazi, wx):

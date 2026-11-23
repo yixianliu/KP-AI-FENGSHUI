@@ -87,7 +87,7 @@ except Exception:
 # 领域局部色板豁免：领域专有、与项目品牌色不冲突的局部着色（五行色、领域色等），
 # 强行令牌化会改变视觉（需深底保可读性），故登记豁免，不报为硬编码红线。
 COLOR_EXEMPT_DOMAIN = {
-    # 五行领域色（大六壬面板领域专用，深底保可读性）
+    # 五行领域色（深底保可读性）
     '#3a7d44', '#c0392b', '#b9770e', '#5a5a5a', '#2471a3',
     # 领域色板
     '#4a5a8a', '#0f0f1a',
@@ -105,7 +105,6 @@ EXEMPT = {'ui/styles.py'}
 MARGIN_TOKENS_EXEMPT = (
     'ui/components/result_panel.py',
     'ui/components/meihua_result_panel.py',
-    'ui/components/liuren_result_panel.py',
     'ui/components/xuan_kong_result_panel.py',
 )
 

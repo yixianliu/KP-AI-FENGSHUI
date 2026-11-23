@@ -10,11 +10,50 @@
     统一传入 hour=12（正午）是刻意为之：中午时刻远离子时边界，
     可避免早晚子时规则把日期推到前后一天，从而保证纯日期换算的稳定性。
 """
+import datetime
 import logging
 
 from .bazi._baazi_compat import BaZiCalculator
 
 logger = logging.getLogger(__name__)
+
+
+def convert_lunar_to_solar(year, month, day, is_leap=False):
+    """农历日期 → 公历日期（严格转换，失败抛出 ValueError）。
+
+    与 :meth:`LunarConverter.lunar_to_solar` 的区别：本函数不吞异常，
+    供 Service / 排盘核心使用，确保「转换失败绝不继续算盘」。
+
+    Args:
+        year: 农历年（1900~2100）。
+        month: 农历月（1~12）。
+        day: 农历日（1~30）。
+        is_leap: 是否为闰月。
+
+    Returns:
+        datetime.date: 对应的公历日期。
+
+    Raises:
+        ValueError: 参数非法、日期不存在（含闰月不存在）或缺少 lunarcalendar 依赖。
+    """
+    try:
+        y, m, d = int(year), int(month), int(day)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'农历日期格式非法: {year}-{month}-{day}') from exc
+
+    try:
+        from lunarcalendar import Converter, Lunar
+    except ImportError as exc:  # pragma: no cover - 依赖缺失时的兜底
+        raise ValueError('缺少 lunarcalendar 依赖，无法进行农历转换') from exc
+
+    try:
+        # Lunar 构造时会校验该农历日期（含闰月）是否真实存在
+        lunar = Lunar(y, m, d, bool(is_leap))
+        solar = Converter.Lunar2Solar(lunar)
+        return datetime.date(int(solar.year), int(solar.month), int(solar.day))
+    except Exception as exc:
+        leap_note = '（闰月）' if is_leap else ''
+        raise ValueError(f'农历日期不存在: {y}年{m}月{d}日{leap_note}') from exc
 
 
 class LunarConverter:
@@ -31,18 +70,18 @@ class LunarConverter:
             year: 农历年。
             month: 农历月。
             day: 农历日。
-            is_leap: 是否闰月（当前底层按普通月处理，保留参数以兼容调用方）。
+            is_leap: 是否闰月，True 时按闰月查表转换。
 
         Returns:
             tuple[int, int, int] | None: 成功返回 (公历年, 月, 日)，
-            日期非法或底层计算异常时返回 None。
+            日期非法或底层计算异常时返回 None（显式失败态，调用方不得继续排盘）。
         """
         try:
-            result = self.core.calculate(year, month, day, 12, is_lunar=True)
-            solar = result['solar_date'].split('-')
-            return (int(solar[0]), int(solar[1]), int(solar[2]))
-        except Exception as exc:
-            logger.warning('[农历转换] 农历转公历失败 %s-%s-%s: %s', year, month, day, exc)
+            solar = convert_lunar_to_solar(year, month, day, is_leap)
+            return (solar.year, solar.month, solar.day)
+        except ValueError as exc:
+            logger.warning('[农历转换] 农历转公历失败 %s-%s-%s 闰月=%s: %s',
+                           year, month, day, is_leap, exc)
             return None
 
     def solar_to_lunar(self, year, month, day):

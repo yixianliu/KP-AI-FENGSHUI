@@ -19,7 +19,6 @@ MOVES = {
     "meihua": "divination.meihua",
     "hexagram_analyzer": "divination.hexagram_analyzer",
     "hexagram_data": "divination.hexagram_data",
-    "liuren": "divination.liuren",
     "knowledge_base": "knowledge.knowledge_base",
     "rag_knowledge": "knowledge.rag_knowledge",
     "analysis_storage": "knowledge.analysis_storage",

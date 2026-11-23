@@ -39,7 +39,7 @@ class DataValidator:
     #: 允许的性别取值
     GENDER_OPTIONS = ['男', '女']
     #: 允许的排盘类型
-    PAN_TYPES = ['八字', '梅花易数', '大六壬']
+    PAN_TYPES = ['八字', '梅花易数']
 
     def __init__(self):
         """初始化数据验证器"""
@@ -407,63 +407,6 @@ class DataValidator:
 
         return passed
 
-    def validate_liuren_input(self, input_data: Dict[str, Any]) -> bool:
-        """
-        验证大六壬起课输入数据。
-
-        Args:
-            input_data: 输入数据字典
-
-        Returns:
-            是否验证通过
-        """
-        self.reset()
-        logger.info("[数据验证] 开始验证大六壬输入数据")
-
-        # 延迟导入：liuren 模块较重，且仅本方法需要
-        from core.divination.liuren import GATE_METHODS
-        ZHI = _DI_ZHI  # 复用权威地支表，不再局部硬编
-
-        method = input_data.get('method', '')
-        if not method:
-            self.add_error('起课方式', '起课方式不能为空')
-            return False
-
-        if method not in GATE_METHODS:
-            self.add_error('起课方式', f"不支持的起课方式: {method}")
-        else:
-            self.validate_required(input_data, 'year', '年份')
-            self.validate_required(input_data, 'month', '月份')
-            self.validate_required(input_data, 'day', '日期')
-            self.validate_required(input_data, 'hour', '小时')
-
-            year_valid, year_val = self.validate_integer(
-                input_data.get('year'), '年份', min_val=1900, max_val=2100)
-            month_valid, month_val = self.validate_integer(
-                input_data.get('month'), '月份', min_val=1, max_val=12)
-            day_valid, day_val = self.validate_integer(
-                input_data.get('day'), '日期', min_val=1, max_val=31)
-            hour_valid, hour_val = self.validate_integer(
-                input_data.get('hour'), '小时', min_val=0, max_val=23)
-
-            if year_valid and month_valid and day_valid:
-                self.validate_date(year_val, month_val, day_val, '起课日期')
-
-            zhan_shi = input_data.get('zhan_shi')
-            if zhan_shi and zhan_shi not in ZHI:
-                self.add_error('占时', f"不支持的占时地支: {zhan_shi}")
-
-        if 'question' in input_data and input_data['question']:
-            self.validate_string_length(input_data['question'], '所问之事', max_len=500)
-
-        passed = len(self.errors) == 0
-        if passed:
-            logger.info("[数据验证] 大六壬输入数据验证通过")
-        else:
-            logger.error(f"[数据验证] 大六壬输入数据验证失败，共{len(self.errors)}个错误")
-
-        return passed
-
     def validate_bazi_result(self, bazi_data: Dict[str, Any]) -> bool:
         """
         验证八字排盘结果数据完整性
@@ -599,136 +542,6 @@ class DataValidator:
 
         return passed
 
-    def validate_liuren_result(self, liuren_data: Dict[str, Any]) -> bool:
-        """
-        验证大六壬排盘结果数据完整性
-
-        Args:
-            liuren_data: 大六壬排盘结果数据
-
-        Returns:
-            是否验证通过
-        """
-        self.reset()
-        logger.info("[数据验证] 开始验证大六壬排盘结果数据")
-
-        self._validate_required_fields(liuren_data)
-        self._validate_day_gan_zhi(liuren_data)
-        self._validate_yue_jiang(liuren_data)
-        self._validate_zhan_shi(liuren_data)
-        self._validate_di_pan(liuren_data)
-        self._validate_tian_pan(liuren_data)
-        self._validate_si_ke(liuren_data)
-        self._validate_san_chuan(liuren_data)
-        self._validate_tian_jiang(liuren_data)
-        self._validate_shen_sha(liuren_data)
-
-        passed = len(self.errors) == 0
-        if passed:
-            logger.info("[数据验证] 大六壬排盘结果数据验证通过")
-        else:
-            logger.error(f"[数据验证] 大六壬排盘结果验证失败，共{len(self.errors)}个错误")
-
-        return passed
-
-    def _validate_required_fields(self, liuren_data: Dict[str, Any]) -> None:
-        required_fields = ['method', 'method_name', 'question', 'time', 'ri_gan', 'ri_zhi',
-                           'yue_jiang', 'zhan_shi', 'is_day', 'di_pan', 'tian_pan',
-                           'si_ke', 'san_chuan', 'tian_jiang', 'shen_sha']
-        for field in required_fields:
-            self.validate_required(liuren_data, field, f"六壬.{field}")
-
-    def _validate_day_gan_zhi(self, liuren_data: Dict[str, Any]) -> None:
-        # 日干支验证
-        if 'ri_gan' in liuren_data:
-            if liuren_data['ri_gan'] not in self.TIAN_GAN:
-                self.add_error('六壬.ri_gan', f"日干'{liuren_data['ri_gan']}'不合法")
-        if 'ri_zhi' in liuren_data:
-            if liuren_data['ri_zhi'] not in self.DI_ZHI:
-                self.add_error('六壬.ri_zhi', f"日支'{liuren_data['ri_zhi']}'不合法")
-
-    def _validate_yue_jiang(self, liuren_data: Dict[str, Any]) -> None:
-        # 月将验证
-        if 'yue_jiang' in liuren_data:
-            if liuren_data['yue_jiang'] not in self.DI_ZHI:
-                self.add_error('六壬.yue_jiang', f"月将'{liuren_data['yue_jiang']}'不合法")
-
-    def _validate_zhan_shi(self, liuren_data: Dict[str, Any]) -> None:
-        # 占时验证
-        if 'zhan_shi' in liuren_data:
-            if liuren_data['zhan_shi'] not in self.DI_ZHI:
-                self.add_error('六乡.zhan_shi', f"占时'{liuren_data['zhan_shi']}'不合法")
-
-    def _validate_di_pan(self, liuren_data: Dict[str, Any]) -> None:
-        # 地盘验证（应为12地支）
-        if 'di_pan' in liuren_data and isinstance(liuren_data['di_pan'], list):
-            if len(liuren_data['di_pan']) != 12:
-                self.add_error('六乡.di_pan', f"地盘应含12地支，实际为{len(liuren_data['di_pan'])}")
-            else:
-                for i, z in enumerate(liuren_data['di_pan']):
-                    if z not in self.DI_ZHI:
-                        self.add_error('六乡.di_pan', f"第{i+1}位地支'{z}'不合法")
-
-    def _validate_tian_pan(self, liuren_data: Dict[str, Any]) -> None:
-        # 天盘验证（字典，键为地盘支，值为天盘支）
-        if 'tian_pan' in liuren_data and isinstance(liuren_data['tian_pan'], dict):
-            if len(liuren_data['tian_pan']) != 12:
-                self.add_error('六乡.tian_pan', f"天盘应含12项，实际为{len(liuren_data['tian_pan'])}")
-            for dz, tp in liuren_data['tian_pan'].items():
-                if dz not in self.DI_ZHI:
-                    self.add_error('六乡.tian_pan', f"地盘键'{dz}'不合法")
-                if tp not in self.DI_ZHI:
-                    self.add_error('六乡.tian_pan', f"天盘值'{tp}'不合法")
-
-    def _validate_si_ke(self, liuren_data: Dict[str, Any]) -> None:
-        # 四课验证
-        if 'si_ke' in liuren_data and isinstance(liuren_data['si_ke'], dict):
-            si_ke = liuren_data['si_ke']
-            for ke_name in ['gan_shang', 'gan_yin', 'zhi_shang', 'zhi_yin']:
-                if ke_name in si_ke and isinstance(si_ke[ke_name], dict):
-                    ke = si_ke[ke_name]
-                    if 'dizhi' in ke and ke['dizhi'] not in self.DI_ZHI:
-                        self.add_error(f'六乡.si_ke.{ke_name}.dizhi', f"地支'{ke['dizhi']}'不合法")
-                    if 'tianpan' in ke and ke['tianpan'] not in self.DI_ZHI:
-                        self.add_error(f'六乡.si_ke.{ke_name}.tianpan', f"天盘支'{ke['tianpan']}'不合法")
-
-    def _validate_san_chuan(self, liuren_data: Dict[str, Any]) -> None:
-        # 三传验证
-        if 'san_chuan' in liuren_data and isinstance(liuren_data['san_chuan'], dict):
-            san_chuan = liuren_data['san_chuan']
-            for trans in ['chu', 'zhong', 'mo', 'gate']:
-                self.validate_required(san_chuan, trans, f"六乡.san_chuan.{trans}")
-            if 'chu' in san_chuan and san_chuan['chu'] not in self.DI_ZHI:
-                self.add_error('六乡.san_chuan.chu', f"初传'{san_chuan['chu']}'不合法")
-            if 'zhong' in san_chuan and san_chuan['zhong'] not in self.DI_ZHI + self.TIAN_GAN:
-                self.add_error('六乡.san_chuan.zhong', f"中传'{san_chuan['zhong']}'不合法")
-            if 'mo' in san_chuan and san_chuan['mo'] not in self.DI_ZHI + self.TIAN_GAN:
-                self.add_error('六乡.san_chuan.mo', f"末传'{san_chuan['mo']}'不合法")
-
-    def _validate_tian_jiang(self, liuren_data: Dict[str, Any]) -> None:
-        # 十二天将验证
-        if 'tian_jiang' in liuren_data and isinstance(liuren_data['tian_jiang'], list):
-            if len(liuren_data['tian_jiang']) != 12:
-                self.add_error('六乡.tian_jiang', f"十二天将应含12项，实际为{len(liuren_data['tian_jiang'])}")
-            else:
-                valid_jiang = ['贵人', '螣蛇', '朱雀', '六合', '勾陈', '青龙',
-                               '天空', '白虎', '太常', '玄武', '太阴', '天后']
-                for i, tj in enumerate(liuren_data['tian_jiang']):
-                    if isinstance(tj, dict):
-                        if 'jiang' in tj and tj['jiang'] not in valid_jiang:
-                            self.add_error('六乡.tian_jiang', f"第{i+1}位天将'{tj['jiang']}'不合法")
-                        if 'pos' in tj and tj['pos'] not in self.DI_ZHI:
-                            self.add_error('六乡.tian_jiang', f"第{i+1}位地支'{tj['pos']}'不合法")
-
-    def _validate_shen_sha(self, liuren_data: Dict[str, Any]) -> None:
-        # 神煞验证
-        if 'shen_sha' in liuren_data and isinstance(liuren_data['shen_sha'], dict):
-            shen_sha = liuren_data['shen_sha']
-            expected_sha = ['驿马', '三传', '空亡', '六合', '六害', '天马', '旺相休囚死']
-            for sa in expected_sha:
-                if sa not in shen_sha:
-                    self.add_warning(f'六乡.shen_sha.{sa}', '字段缺失')
-
 
     def validate_ai_analysis_result(
         self,
@@ -755,9 +568,6 @@ class DataValidator:
         elif analysis_type == 'meihua':
             required_fields = ['gua_overview', 'situation_analysis', 'good_omens',
                               'bad_omens', 'action_advice', 'final_verdict']
-        elif analysis_type == 'liuren':
-            required_fields = ['ke_overview', 'si_ke_analysis', 'san_chuan_analysis',
-                              'tian_jiang_analysis', 'final_verdict']
         else:
             self.add_error('分析类型', f"不支持的分析类型: {analysis_type}")
             return False
@@ -790,7 +600,7 @@ class DataValidator:
         
         Args:
             analysis_data: The AI analysis result dictionary.
-            pan_type: One of 'bazi', 'meihua', 'liuren'.
+            pan_type: One of 'bazi', 'meihua'.
             
         Returns:
             True if validation passes, False otherwise.
@@ -873,18 +683,6 @@ class DataValidator:
             True if validation passes, False otherwise.
         """
         return self._validate_analysis_schema(analysis_data, 'meihua')
-
-    def validate_liuren_analysis(self, analysis_data: Dict[str, Any]) -> bool:
-        """
-        Validate Liu Ren AI analysis result against the JSON schema.
-        
-        Args:
-            analysis_data: The AI analysis result dictionary.
-            
-        Returns:
-            True if validation passes, False otherwise.
-        """
-        return self._validate_analysis_schema(analysis_data, 'liuren')
 
     def get_errors(self) -> List[str]:
         """获取所有错误信息"""

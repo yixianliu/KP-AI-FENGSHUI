@@ -38,7 +38,8 @@ EXPECTED_SEED_CHECKSUMS = {
     'di_zhi_hidden_gan': (56, '76a849c03884b30a'),
     'yue_ling_weight': (60, 'a32d754dc2e18103'),
     'ba_gua': (8, 'f948c136ac47f321'),
-    'hexagram_64': (64, 'a123dc87a005f005'),
+    # 2026-11-04：hexagram_64 的上下卦编号统一为先天数（兑2/坎6）后重新核算
+    'hexagram_64': (64, 'e942dcbf9277e429'),
     'hexagram_yao_ci': (96, '993cd85078cdb4e1'),
     'shishen_knowledge': (10, '75203f261fdd58a2'),
     'shishen_map': (10, '3cd8c7057835f58d'),
@@ -63,8 +64,56 @@ EXPECTED_SEED_CHECKSUMS = {
 }
 
 
+# ==================== 历史记录板块归一化（历史面板与主窗口共用） ====================
+# pan_records.pan_type 存中文标签（写入方 ui/main_window.py::_save_pan_record），
+# analysis_records 没有 pan_type 列，其记录全部由八字 Service 路径写入。
+PAN_KIND_LABELS = {
+    'bazi': '八字',
+    'meihua': '梅花',
+    'xuan_kong': '玄空',
+}
+_PAN_TYPE_TO_KIND = {
+    '八字排盘': 'bazi',
+    '八字四柱': 'bazi',
+    'bazi': 'bazi',
+    '梅花易数': 'meihua',
+    'meihua': 'meihua',
+    '玄空飞星': 'xuan_kong',
+    'xuan_kong': 'xuan_kong',
+}
+# 允许查询/删除的白名单表（防止外部传入任意表名拼进 SQL）
+_HISTORY_TABLES = ('pan_records', 'analysis_records')
+
+# ==================== 64 卦上下卦编号（先天数）迁移基准 ====================
+# 历史建库脚本把「坎」记为 2、「兑」记为 6，与先天八卦数（兑2 / 坎6）正好相反，
+# 导致含兑/坎的 28 卦按先天数查 hexagram_64 时取到错误卦名。
+# 下列两张表只用于按「卦名」重新推导期望编号，不参与业务查询。
+_HEXAGRAM_NATURE_NUM = {'天': 1, '泽': 2, '火': 3, '雷': 4, '风': 5, '水': 6, '山': 7, '地': 8}
+_HEXAGRAM_TRIGRAM_NUM = {'乾': 1, '兑': 2, '离': 3, '震': 4, '巽': 5, '坎': 6, '艮': 7, '坤': 8}
+# 历史偏差形态：兑/坎两数互换
+_HEXAGRAM_SWAP_26 = {2: 6, 6: 2}
+
+# 单例创建锁：并发首次构造时只允许分配一个实例
+_db_manager_lock = threading.Lock()
+
+
 class DatabaseManager:
-    """数据库管理器 - 封装所有基于本地 SQLite 的数据库操作"""
+    """数据库管理器 - 封装所有基于本地 SQLite 的数据库操作
+
+    进程内真单例：``__new__`` 保证任何 ``DatabaseManager()`` 调用都返回同一实例，
+    ``__init__`` 按数据库路径做幂等初始化（路径未变则直接返回），因此不会重复
+    建运行期表、也不会启动第二条后台种子校验线程。
+    """
+
+    def __new__(cls, *args, **kwargs):
+        """进程内单例：已存在实例则直接返回，避免覆盖模块级单例注册表。"""
+        global _db_manager_singleton
+        if _db_manager_singleton is not None:
+            return _db_manager_singleton
+        with _db_manager_lock:
+            if _db_manager_singleton is None:
+                _db_manager_singleton = super().__new__(cls)
+            return _db_manager_singleton
 
     def __init__(self, config_path: str = None):
         """
@@ -73,18 +122,32 @@ class DatabaseManager:
         Args:
             config_path: 兼容旧签名保留，当前实现忽略（DB 路径由 core.sqlite_db 统一解析）。
         """
-        # 关键：在 __init__ 最开始就注册单例，防止初始化期间的递归创建
-        # （如 StorageLogHandler.emit 记录日志触发 get_db_manager()）
-        global _db_manager_singleton, _db_manager_ready
-        _db_manager_singleton = self
-
-        self.config_path = config_path
-        # 首次运行时由 schema_sqlite.sql 建库；随后补建运行期表
-        sqlite_db.ensure_initialized()
-        self._init_runtime_tables()
-        # 标记「已完成初始化」——peek_db_manager() 只有在此时才对外暴露单例，
-        # 避免初始化中途被别的线程取到半成品实例。
-        _db_manager_ready = True
+        # 防递归：初始化期间再次被调用（如 StorageLogHandler.emit 记录日志）
+        # 直接返回，避免半成品实例重复建表 / 启动第二条校验线程
+        if getattr(self, '_initializing', False):
+            return
+        current_path = sqlite_db.get_db_path()
+        # 路径未变 => 已完成初始化，幂等直接返回
+        if getattr(self, '_initialized_path', None) == current_path:
+            return
+        self._initializing = True
+        try:
+            # 路径切换（测试隔离换库）时，先收尾旧库校验线程再重建运行期表，
+            # 保证任何时刻最多只有一条 kp-db-verify 线程存活
+            old_verify = getattr(self, '_bg_verify_thread', None)
+            if old_verify is not None and old_verify.is_alive():
+                old_verify.join(3.0)
+            self.config_path = config_path
+            # 首次运行时由 schema_sqlite.sql 建库；随后补建运行期表
+            sqlite_db.ensure_initialized()
+            self._init_runtime_tables()
+            self._initialized_path = current_path
+            # 标记「已完成初始化」——peek_db_manager() 只有在此时才对外暴露单例，
+            # 避免初始化中途被别的线程取到半成品实例。
+            global _db_manager_ready
+            _db_manager_ready = True
+        finally:
+            self._initializing = False
 
     def _connect(self):
         """获取一个本地 SQLite 连接（row_factory=Row，调用方负责 close）。"""
@@ -152,13 +215,37 @@ class DatabaseManager:
                 )
             """)
             conn.commit()
+            # 64 卦上下卦编号幂等修正：必须在后台种子校验线程启动前完成，
+            # 保证校验读到的是修正后的数据（已修正的库在此为纯读操作，不写任何行）
+            self._migrate_hexagram_64_numbering(conn)
             # 初始化常用字笔画数据（康熙字典笔画标准）
             self._init_stroke_count_data(cur)
             conn.commit()
             # 种子数据完整性验证：放入后台线程，避免阻塞主线程（stroke_count 表 10 万行全表扫描很慢）
-            threading.Thread(target=self._verify_seed_integrity_async, daemon=True).start()
+            # 持有引用供关窗/退出前 join，避免线程存活到解释器退出阶段引发崩溃
+            self._bg_verify_thread = threading.Thread(
+                target=self._verify_seed_integrity_async,
+                daemon=True,
+                name='kp-db-verify',
+            )
+            self._bg_verify_thread.start()
         finally:
             conn.close()
+
+    def wait_background_verify(self, timeout: float = 3.0) -> bool:
+        """等待后台种子校验线程收尾（供关窗/退出路径调用，绝不 terminate）。
+
+        Args:
+            timeout: 最长等待秒数。
+
+        Returns:
+            bool: True 表示已结束或从未启动；False 表示超时后仍在运行。
+        """
+        th = getattr(self, '_bg_verify_thread', None)
+        if th is None or not th.is_alive():
+            return True
+        th.join(timeout)
+        return not th.is_alive()
 
     def _verify_seed_integrity_async(self):
         """后台异步验证种子数据完整性，避免阻塞 UI 主线程。
@@ -213,10 +300,12 @@ class DatabaseManager:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     stroke_data = [(item['char'], item['strokes']) for item in data.get('characters', [])]
-                    for char, strokes in stroke_data:
-                        cur.execute(
+                    # 批量写入：10 万行逐条 execute 会把初始化窗口拉长到数秒，
+                    # 放大与解释器退出阶段的线程竞争；executemany 复用同一事务，语义不变
+                    if stroke_data:
+                        cur.executemany(
                             "INSERT OR IGNORE INTO stroke_count (char, strokes, source) VALUES (?, ?, 'unihan')",
-                            (char, strokes)
+                            stroke_data
                         )
                     json_loaded = True
                     logger.info(f"[笔画数据] 从 {json_path} 加载了 {len(stroke_data)} 个字符")
@@ -285,10 +374,12 @@ class DatabaseManager:
                 ('百', 6), ('千', 3), ('万', 3), ('亿', 3),
             ]
             
-        for char, strokes in stroke_data:
-            cur.execute(
+        # 兜底补写内置数据：仅当外部 JSON 未装载时才需要（JSON 已装载时
+        # 内置字条均已在其中，此处原本会对 10 万行再跑一遍 OR IGNORE 空写，纯属浪费）
+        if not json_loaded and stroke_data:
+            cur.executemany(
                 "INSERT OR IGNORE INTO stroke_count (char, strokes, source) VALUES (?, ?, 'kangxi')",
-                (char, strokes)
+                stroke_data
             )
 
     def _compute_table_checksum(self, cur, table_name: str, compute_md5: bool = True) -> tuple:
@@ -320,6 +411,98 @@ class DatabaseManager:
             logger.warning(f"[DB校验] 计算表 {table_name} 校验和失败: {e}")
             return (0, 'error' if compute_md5 else None)
 
+    @staticmethod
+    def _expected_hexagram_nums(name: str):
+        """按卦名推导 (上卦先天数, 下卦先天数)；无法推导时返回 None。"""
+        if not name or len(name) < 2:
+            return None
+        if '为' in name:
+            # 八纯卦：乾为天 / 兑为泽 / 坎为水 …，上下卦同数
+            num = _HEXAGRAM_TRIGRAM_NUM.get(name[0])
+            return (num, num) if num else None
+        # 其余卦名：首字象上卦，次字象下卦（如 水泽节 = 坎上兑下）
+        up = _HEXAGRAM_NATURE_NUM.get(name[0])
+        low = _HEXAGRAM_NATURE_NUM.get(name[1])
+        return (up, low) if up and low else None
+
+    def _migrate_hexagram_64_numbering(self, conn) -> int:
+        """幂等迁移：把 hexagram_64 的 upper_num/lower_num 统一为先天八卦数。
+
+        历史库把「坎」记作 2、「兑」记作 6（与先天数兑2/坎6 相反），此处按卦名
+        重新推导期望值，仅修正「兑/坎互换」这一种偏差形态，只写 hexagram_64 两列。
+
+        幂等性：已修正的库逐行比对全部相等，不会产生任何 UPDATE，因此重复执行
+        结果不变。选型说明：本次硬约束禁止改动 hexagram_64 以外的表，无法给
+        db_version 加标记列，故采用「内容自校验」判据（本身即幂等），而非版本号。
+
+        Args:
+            conn: 已打开的 SQLite 连接（本方法内部提交）
+
+        Returns:
+            int: 实际修正的行数（0 表示无需修正或数据无法判定）
+        """
+        try:
+            cur = conn.cursor()
+            rows = cur.execute(
+                "SELECT hexagram_id, name, upper_num, lower_num FROM hexagram_64 "
+                "ORDER BY hexagram_id"
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001 - 迁移失败不得阻断启动
+            logger.warning("[64卦迁移] 读取 hexagram_64 失败，跳过修正：%s", exc)
+            return 0
+        if not rows:
+            return 0
+
+        updates = []
+        undetermined = []
+        final_pairs = set()
+        for row in rows:
+            hexagram_id = row['hexagram_id']
+            current = (row['upper_num'], row['lower_num'])
+            expected = self._expected_hexagram_nums(row['name'])
+            if expected is None:
+                undetermined.append((hexagram_id, row['name'], current))
+                final_pairs.add(current)
+                continue
+            if current == expected:
+                final_pairs.add(current)
+                continue
+            # 只认「兑/坎互换」这一种历史偏差，其它差异视为未知数据，不做猜测
+            swapped = (_HEXAGRAM_SWAP_26.get(expected[0], expected[0]),
+                       _HEXAGRAM_SWAP_26.get(expected[1], expected[1]))
+            if current != swapped:
+                undetermined.append((hexagram_id, row['name'], current))
+                final_pairs.add(current)
+                continue
+            updates.append((expected[0], expected[1], hexagram_id))
+            final_pairs.add(expected)
+
+        if undetermined:
+            # 存在无法判定的行时整体放弃，避免「半修正」留下更难排查的混合状态
+            logger.warning(
+                "[64卦迁移] 有 %d 行编号不符卦名且非兑/坎互换形态，整体跳过修正：%s",
+                len(undetermined), undetermined[:5])
+            return 0
+        if not updates:
+            return 0
+        if len(final_pairs) != len(rows):
+            logger.warning(
+                "[64卦迁移] 修正后上下卦组合数 %d != 行数 %d，放弃修正",
+                len(final_pairs), len(rows))
+            return 0
+
+        try:
+            conn.executemany(
+                "UPDATE hexagram_64 SET upper_num = ?, lower_num = ? WHERE hexagram_id = ?",
+                updates)
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            conn.rollback()
+            logger.warning("[64卦迁移] 写入失败已回滚：%s", exc)
+            return 0
+        logger.info("[64卦迁移] 已按先天数修正 hexagram_64 共 %d 行上下卦编号", len(updates))
+        return len(updates)
+
     def _verify_seed_integrity(self, cur):
         """启动时验证种子数据完整性，对比预期校验和。
 
@@ -332,11 +515,15 @@ class DatabaseManager:
         """
         drift_details = {}
         drift_detected = False
+        # 【P2-06】第一遍校验结果直接复用于 db_version，避免对每张种子表重复
+        # COUNT（stroke_count 10 万行此前每次启动被算两遍，纯属浪费）。
+        actual_checksums = {}
 
         for table_name, (expected_rows, expected_md5) in EXPECTED_SEED_CHECKSUMS.items():
             # 大表（expected_md5 为 None）仅校验行数，不计算 MD5
             compute_md5 = expected_md5 is not None
             actual_rows, actual_md5 = self._compute_table_checksum(cur, table_name, compute_md5=compute_md5)
+            actual_checksums[table_name] = {'rows': actual_rows, 'md5': actual_md5}
             # 对比时忽略 MD5 为 None 的情况
             md5_mismatch = compute_md5 and actual_md5 != expected_md5
             # 仅对行数偏离报警；MD5 偏离记为 debug，避免刷屏
@@ -358,12 +545,8 @@ class DatabaseManager:
                     f"预期={expected_md5}, 实际={actual_md5}"
                 )
 
-        # 更新 db_version 表
-        current_checksums = {}
-        for table_name, (expected_rows, expected_md5) in EXPECTED_SEED_CHECKSUMS.items():
-            compute_md5 = expected_md5 is not None
-            rows, md5 = self._compute_table_checksum(cur, table_name, compute_md5=compute_md5)
-            current_checksums[table_name] = {'rows': rows, 'md5': md5}
+        # 更新 db_version 表（复用第一遍结果，不再二次扫描/COUNT）
+        current_checksums = actual_checksums
 
         import datetime
         now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1122,7 +1305,8 @@ class DatabaseManager:
     def save_pan_record(self, user_id: int, name: str, gender: str,
                         birth_date: str, birth_time: str, city: str,
                         pan_type: str, result: Dict[str, Any],
-                        ai_analysis: Optional[Dict] = None) -> Optional[int]:
+                        ai_analysis: Optional[Dict] = None,
+                        input_json: Optional[Dict] = None) -> Optional[int]:
         """
         保存排盘记录（带重试机制，处理数据库锁定）
 
@@ -1136,6 +1320,7 @@ class DatabaseManager:
             pan_type: 排盘类型
             result: 排盘结果字典
             ai_analysis: AI 深度分析结果（可选，落库 ai_json 列）
+            input_json: 完整原始输入（可选，落库 input_json 列，供历史一键载入）
 
         Returns:
             记录ID，失败返回None
@@ -1151,13 +1336,15 @@ class DatabaseManager:
                     cursor.execute(
                         """
                         INSERT INTO pan_records
-                        (user_id, name, gender, birth_date, birth_time, city, pan_type, result_json, ai_json)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (user_id, name, gender, birth_date, birth_time, city, pan_type,
+                         result_json, ai_json, input_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             user_id or 1, name, gender, birth_date, birth_time,
                             city, pan_type, json.dumps(result, ensure_ascii=False),
-                            json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis else None
+                            json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis else None,
+                            json.dumps(input_json, ensure_ascii=False) if input_json else None
                         )
                     )
                     record_id = cursor.lastrowid
@@ -1178,19 +1365,20 @@ class DatabaseManager:
 
     def update_pan_ai_result(self, record_id: int, ai_analysis: Dict[str, Any]) -> bool:
         """
-        更新排盘记录的 AI 分析结果到 ai_json 列（带重试机制）。
+        更新 pan_records 的 AI 分析结果到 ai_json 列（带重试机制）。
 
         Args:
             record_id: 排盘记录 ID
             ai_analysis: AI 分析结果字典
 
         Returns:
-            成功返回 True，失败返回 False
+            True: 确实更新了至少一行（记录存在）
+            False: 记录不存在（rowcount=0）、JSON 序列化失败或重试后仍报错
         """
         import time
         max_retries = 3
         retry_delay = 0.1
-        
+
         for attempt in range(max_retries):
             try:
                 with self._connect() as connection:
@@ -1199,8 +1387,10 @@ class DatabaseManager:
                         "UPDATE pan_records SET ai_json = ? WHERE id = ?",
                         (json.dumps(ai_analysis, ensure_ascii=False), record_id)
                     )
+                    # 必须在 commit 前取 rowcount：0 表示 id 不存在，绝不能当成功返回
+                    affected = cursor.rowcount
                     connection.commit()
-                    return cursor.rowcount > 0
+                    return affected > 0
             except Exception as e:
                 error_msg = str(e)
                 if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
@@ -1210,6 +1400,50 @@ class DatabaseManager:
                     print(f"更新排盘AI分析结果失败(重试{max_retries}次后): {e}")
                 else:
                     print(f"更新排盘AI分析结果失败: {e}")
+                return False
+
+    def update_analysis_ai(self, record_id: int, ai_analysis: Dict[str, Any]) -> bool:
+        """
+        更新 analysis_records 的 AI 分析结果到 ai_analysis_json 列（带重试机制）。
+
+        说明：analysis_records 的 AI 结果列名为 ai_analysis_json（NOT NULL），
+        与 pan_records 的 ai_json 是两张不同的表。八字 Service 路径落库到
+        analysis_records，回写时必须走本方法，否则 UPDATE pan_records 会因
+        id 不存在而 rowcount=0，AI 结论永远落不了库。
+
+        Args:
+            record_id: analysis_records 记录 ID
+            ai_analysis: AI 分析结果字典
+
+        Returns:
+            True: 确实更新了至少一行（记录存在）
+            False: 记录不存在（rowcount=0）、JSON 序列化失败或重试后仍报错
+        """
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as connection:
+                    cursor = connection.cursor()
+                    cursor.execute(
+                        "UPDATE analysis_records SET ai_analysis_json = ? WHERE id = ?",
+                        (json.dumps(ai_analysis, ensure_ascii=False), record_id)
+                    )
+                    # 必须在 commit 前取 rowcount：0 表示 id 不存在，绝不能当成功返回
+                    affected = cursor.rowcount
+                    connection.commit()
+                    return affected > 0
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                if attempt == max_retries - 1:
+                    print(f"更新分析记录AI解读失败(重试{max_retries}次后): {e}")
+                else:
+                    print(f"更新分析记录AI解读失败: {e}")
                 return False
 
     def get_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
@@ -1246,6 +1480,359 @@ class DatabaseManager:
         except Exception as e:
             print(f"获取排盘记录失败: {e}")
             return None
+
+    # ==================== 历史记录：只读查询 / 批量删除 ====================
+
+    @staticmethod
+    def _load_json_dict(raw) -> dict:
+        """把数据库里的 JSON 文本安全解析为 dict（失败返回空 dict，不抛错）。"""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def _history_title(cls, pan_kind: str, row: dict, result: dict) -> str:
+        """生成列表用的一行摘要（四柱 / 卦名 / 坐向）。"""
+        if pan_kind == 'bazi':
+            bz = result.get('bazi') or {}
+            pillars = [str(bz.get(k) or '') for k in
+                       ('year_pillar', 'month_pillar', 'day_pillar', 'hour_pillar')]
+            text = ' '.join(p for p in pillars if p)
+            if text:
+                return text
+        elif pan_kind == 'meihua':
+            name = str((result.get('ben_gua') or {}).get('name') or '')
+            if name:
+                return name
+            question = str((result.get('basic_info') or {}).get('question') or '')
+            if question:
+                return question
+        elif pan_kind == 'xuan_kong':
+            text = str(result.get('sui_xiang') or '')
+            if text:
+                return text
+        # 兜底：姓名 + 出生日期（至少让用户能分辨记录）
+        name = str(row.get('name') or '').strip()
+        birth = str(row.get('birth_date') or '').strip()
+        if name and birth:
+            return f'{name} · {birth}'
+        return name or birth or '未命名记录'
+
+    @classmethod
+    def _history_has_ai(cls, source_table: str, ai_raw) -> bool:
+        """判断该记录是否已有可展示的 AI 解读。
+
+        注意：analysis_records.ai_analysis_json 在八字 Service 路径下始终写入
+        确定性建议占位（仅 zonghe / note 两个键），不能当作 AI 解读。
+        """
+        data = cls._load_json_dict(ai_raw)
+        if not data:
+            return False
+        if source_table == 'analysis_records':
+            meaningful = {k: v for k, v in data.items() if k not in ('zonghe', 'note')}
+            return bool(meaningful)
+        return True
+
+    @classmethod
+    def _normalize_history_row(cls, source_table: str, row: dict) -> dict:
+        """把两套表结构统一成历史面板使用的轻量记录。
+
+        Args:
+            source_table: 'pan_records' 或 'analysis_records'
+            row: 原始查询行（含 JSON 文本列）
+
+        Returns:
+            dict: 统一字段（source_table/id/pan_kind/pan_label/title/has_ai/created_at…）
+        """
+        if source_table == 'pan_records':
+            pan_kind = _PAN_TYPE_TO_KIND.get(str(row.get('pan_type') or ''), '')
+            result = cls._load_json_dict(row.get('result_json'))
+            ai_raw = row.get('ai_json')
+        else:
+            pan_kind = 'bazi'
+            result = cls._load_json_dict(row.get('professional_chart_json'))
+            ai_raw = row.get('ai_analysis_json')
+        return {
+            'source_table': source_table,
+            'id': int(row.get('id') or 0),
+            'pan_kind': pan_kind,
+            'pan_label': PAN_KIND_LABELS.get(pan_kind, '其它'),
+            'title': cls._history_title(pan_kind, row, result),
+            'name': str(row.get('name') or ''),
+            'gender': str(row.get('gender') or ''),
+            'birth_date': str(row.get('birth_date') or ''),
+            'birth_time': str(row.get('birth_time') or ''),
+            'city': str(row.get('city') or ''),
+            'has_ai': cls._history_has_ai(source_table, ai_raw),
+            'created_at': str(row.get('created_at') or ''),
+        }
+
+    @staticmethod
+    def _build_history_payload(pan_kind: str, row: dict, result: dict) -> dict:
+        """从记录列 + 排盘结果重建「载入」所需的输入参数（缺失字段保持空值）。
+
+        pan_records 未单独存原始输入，只能由列与 result_json.basic_info 反推；
+        精度以现有落库内容为限，主窗口载入时应允许用户再校正。
+        """
+        def _int(v, default=0):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
+        basic = result.get('basic_info') or {}
+        # birth_date: 'YYYY-MM-DD'
+        parts = str(row.get('birth_date') or '').split('-')
+        year = _int(parts[0]) if len(parts) == 3 else _int(basic.get('year'))
+        month = _int(parts[1]) if len(parts) == 3 else _int(basic.get('month'))
+        day = _int(parts[2]) if len(parts) == 3 else _int(basic.get('day'))
+        # birth_time: 'HH:MM'
+        tparts = str(row.get('birth_time') or '').split(':')
+        hour = _int(tparts[0]) if len(tparts) >= 2 else _int(basic.get('hour'))
+        minute = _int(tparts[1]) if len(tparts) >= 2 else 0
+
+        payload = {
+            'name': str(row.get('name') or ''),
+            'gender': str(row.get('gender') or ''),
+            'year': year, 'month': month, 'day': day,
+            'hour': hour, 'minute': minute,
+            'location': str(row.get('city') or basic.get('location') or ''),
+            'longitude': basic.get('longitude', 120.0),
+            'latitude': basic.get('latitude', 30.0),
+            'is_lunar': False,
+            'is_leap': False,
+        }
+        if pan_kind == 'meihua':
+            extra = result.get('divination_extra') or {}
+            payload.update({
+                'method': basic.get('method') or extra.get('method') or '',
+                'question': basic.get('question') or '',
+                'divination_extra': extra,
+            })
+        elif pan_kind == 'xuan_kong':
+            payload.update({
+                'sui_xiang': str(result.get('sui_xiang') or ''),
+                'build_year': _int(result.get('build_year')),
+                'current_year': _int(result.get('current_year'), _int(result.get('build_year'))),
+            })
+        return payload
+
+    def get_history_page(self, pan_kind: Optional[str] = None, keyword: str = '',
+                         date_from: str = '', date_to: str = '',
+                         page: int = 1, page_size: int = 50) -> Dict[str, Any]:
+        """分页查询历史记录（pan_records ∪ analysis_records），按创建时间倒序。
+
+        Args:
+            pan_kind: 板块过滤，'bazi'/'meihua'/'xuan_kong'；None 或空串表示全部
+            keyword: 关键字（姓名/出生地/出生日期/结果 JSON 子串）
+            date_from: 起始日期（'YYYY-MM-DD'，按 created_at 的日期部分比较）
+            date_to: 结束日期（同上）
+            page: 页码，从 1 开始
+            page_size: 每页条数（1~200，默认 50）
+
+        Returns:
+            dict: {'items': list[dict], 'total': int, 'page': int,
+                   'page_size': int, 'pages': int}
+        """
+        try:
+            page = max(1, int(page))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            page_size = 50
+        page_size = max(1, min(page_size, 200))
+
+        kw = (keyword or '').strip()
+        df = (date_from or '').strip()
+        dt = (date_to or '').strip()
+
+        # 两套表的 WHERE 条件分别拼装（表名来自白名单，变量全部走参数绑定）
+        pan_where, pan_params = [], []
+        ana_where, ana_params = [], []
+
+        if pan_kind in PAN_KIND_LABELS:
+            raw_types = [k for k, v in _PAN_TYPE_TO_KIND.items() if v == pan_kind]
+            marks = ', '.join('?' for _ in raw_types)
+            pan_where.append(f'pan_type IN ({marks})')
+            pan_params.extend(raw_types)
+            # analysis_records 只承载八字记录，其它板块过滤时直接排除
+            if pan_kind != 'bazi':
+                ana_where.append('0 = 1')
+
+        if kw:
+            pat = f'%{kw}%'
+            pan_where.append(
+                '(name LIKE ? OR city LIKE ? OR birth_date LIKE ? OR result_json LIKE ?)')
+            pan_params.extend([pat, pat, pat, pat])
+            ana_where.append(
+                '(name LIKE ? OR city LIKE ? OR birth_date LIKE ? '
+                ' OR professional_chart_json LIKE ? OR input_json LIKE ?)')
+            ana_params.extend([pat, pat, pat, pat, pat])
+
+        if df:
+            pan_where.append('date(created_at) >= ?')
+            pan_params.append(df)
+            ana_where.append('date(created_at) >= ?')
+            ana_params.append(df)
+        if dt:
+            pan_where.append('date(created_at) <= ?')
+            pan_params.append(dt)
+            ana_where.append('date(created_at) <= ?')
+            ana_params.append(dt)
+
+        sources = (
+            ('pan_records', pan_where, pan_params),
+            ('analysis_records', ana_where, ana_params),
+        )
+
+        # 1) 总数（两表求和）
+        total = 0
+        for table, where, params in sources:
+            sql = f'SELECT COUNT(*) AS c FROM {table}'
+            if where:
+                sql += ' WHERE ' + ' AND '.join(where)
+            row = self._query_one(sql, tuple(params))
+            total += int((row or {}).get('c') or 0)
+
+        # 2) 每张表各取前 page*page_size 条，合并排序后再切页
+        #    这样只需解析当前页的 JSON，避免把全部记录读进内存
+        fetch_limit = page * page_size
+        merged = []
+        for table, where, params in sources:
+            sql = f'SELECT * FROM {table}'
+            if where:
+                sql += ' WHERE ' + ' AND '.join(where)
+            sql += ' ORDER BY created_at DESC, id DESC LIMIT ?'
+            rows = self._query_all(sql, tuple(params) + (fetch_limit,))
+            for r in rows:
+                row = dict(r)
+                merged.append((str(row.get('created_at') or ''), int(row.get('id') or 0),
+                               table, row))
+
+        merged.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        start = (page - 1) * page_size
+        items = [self._normalize_history_row(table, row)
+                 for _, _, table, row in merged[start:start + page_size]]
+        pages = (total + page_size - 1) // page_size if total else 0
+        return {
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'pages': pages,
+        }
+
+    def get_history_detail(self, source_table: str,
+                           record_id: int) -> Optional[Dict[str, Any]]:
+        """按「表 + id」取单条完整记录（含原始结果、AI 解读与载入用 payload）。
+
+        Args:
+            source_table: 'pan_records' 或 'analysis_records'
+            record_id: 记录 ID
+
+        Returns:
+            dict 或 None（记录不存在）。字段包含 items 中的轻量字段，另加
+            result / ai / payload / raw。
+
+        Raises:
+            ValueError: source_table 不在白名单内
+        """
+        if source_table not in _HISTORY_TABLES:
+            raise ValueError(f'不支持的历史记录表: {source_table!r}')
+        try:
+            rid = int(record_id)
+        except (TypeError, ValueError):
+            return None
+
+        row = self._query_one(f'SELECT * FROM {source_table} WHERE id = ?', (rid,))
+        if not row:
+            return None
+        row = dict(row)
+
+        if source_table == 'pan_records':
+            pan_kind = _PAN_TYPE_TO_KIND.get(str(row.get('pan_type') or ''), '')
+            result = self._load_json_dict(row.get('result_json'))
+            ai_raw = row.get('ai_json')
+            # 优先使用完整原始输入；老库记录无 input_json 或解析失败时回退反推
+            stored_input = self._load_json_dict(row.get('input_json'))
+            payload = stored_input or self._build_history_payload(pan_kind, row, result)
+        else:
+            pan_kind = 'bazi'
+            result = self._load_json_dict(row.get('professional_chart_json'))
+            ai_raw = row.get('ai_analysis_json')
+            payload = self._load_json_dict(row.get('input_json'))
+
+        ai = self._load_json_dict(ai_raw) if self._history_has_ai(source_table, ai_raw) else {}
+        item = self._normalize_history_row(source_table, row)
+        item.update({
+            'result': result,
+            'ai': ai or None,
+            'payload': payload,
+            # 保留原始行，便于调用方读取表内全部列
+            'raw': row,
+        })
+        return item
+
+    def delete_history_records(self, records) -> int:
+        """按记录标识批量硬删除历史记录，返回实际删除条数。
+
+        两套表的 id 空间独立（可能出现相同 id），因此每条标识必须携带表名。
+        表结构没有软删除列，本次采用硬删除（不新增列、不改 schema）。
+
+        Args:
+            records: 可迭代标识，元素为
+                     {'source_table': 'pan_records', 'id': 12} 或 ('pan_records', 12)
+
+        Returns:
+            int: 实际删除行数（部分 id 不存在时小于入参条数）
+
+        Raises:
+            ValueError: 出现非法表名或无法解析的标识
+        """
+        if not records:
+            return 0
+
+        grouped = {table: [] for table in _HISTORY_TABLES}
+        for item in records:
+            if isinstance(item, dict):
+                table = item.get('source_table') or item.get('table')
+                rid = item.get('id')
+            elif isinstance(item, (tuple, list)) and len(item) == 2:
+                table, rid = item
+            else:
+                raise ValueError(f'无法识别的历史记录标识: {item!r}')
+            if table not in _HISTORY_TABLES:
+                raise ValueError(f'不支持的历史记录表: {table!r}')
+            try:
+                grouped[table].append(int(rid))
+            except (TypeError, ValueError):
+                raise ValueError(f'历史记录 id 非法: {rid!r}')
+
+        deleted = 0
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            for table, ids in grouped.items():
+                if not ids:
+                    continue
+                # 去重并分批（SQLite 单语句参数上限约 999，按 200 一批更保守）
+                uniq = list(dict.fromkeys(ids))
+                for offset in range(0, len(uniq), 200):
+                    chunk = uniq[offset:offset + 200]
+                    marks = ', '.join('?' for _ in chunk)
+                    cursor.execute(
+                        f'DELETE FROM {table} WHERE id IN ({marks})', tuple(chunk))
+                    deleted += cursor.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        return deleted
 
     def init_database(self):
         """
@@ -1345,9 +1932,53 @@ class DatabaseManager:
                     pass
                 return False
 
+    def save_system_logs_batch(self, rows: list) -> bool:
+        """批量写入系统日志：单连接 executemany + 单次提交，供日志异步消费线程调用。
+
+        与 ``save_system_log`` 语义保持独立（后者仍是单条同步写），本方法只做批量；
+        rows 中每项为 ``{'level','message','module','data'}``（data 可为 dict 或 None）。
+
+        Args:
+            rows: 待写入的日志行列表；空列表视为成功（无需写库）。
+
+        Returns:
+            全部写入并提交成功返回 True；SQLite 锁冲突会短暂重试，最终失败返回 False。
+        """
+        if not rows:
+            return True
+
+        payload = []
+        for r in rows:
+            data = r.get('data')
+            payload.append((
+                r.get('level'),
+                r.get('message'),
+                r.get('module'),
+                json.dumps(data, ensure_ascii=False) if data else None,
+            ))
+
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+        for attempt in range(max_retries):
+            try:
+                with self._connect() as conn:
+                    conn.executemany(
+                        "INSERT INTO system_logs (level, message, module, data_json) "
+                        "VALUES (?, ?, ?, ?)",
+                        payload
+                    )
+                    conn.commit()
+                    return True
+            except Exception as e:
+                error_msg = str(e)
+                if "database is locked" in error_msg.lower() and attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                return False
+
 
 _db_manager_singleton = None
-_db_manager_initializing = False  # 防止初始化期间的递归调用
 _db_manager_ready = False  # 单例是否已**完成**初始化
 
 
@@ -1367,22 +1998,27 @@ def peek_db_manager() -> "DatabaseManager | None":
 def get_db_manager(config_path: str = None) -> "DatabaseManager":
     """DatabaseManager 进程内单例。
 
-    使用 _db_manager_initializing 标志防止初始化期间的递归创建：
-    - 当 DatabaseManager.__init__ 正在运行时，_db_manager_initializing=True
-    - 此时若再次调用 get_db_manager()，直接返回正在初始化的实例（_db_manager_singleton 已预设）
-    - 避免 StorageLogHandler.emit 触发的日志记录导致重复初始化
+    自 v5.0.7 起 ``DatabaseManager.__new__`` 本身就是真单例，本函数保留为
+    语义化入口：初始化期间的递归创建由 ``__init__`` 的防递归标记拦截，
+    不再需要 ``_db_manager_initializing`` 忙等。
     """
-    global _db_manager_singleton, _db_manager_initializing
-    if _db_manager_singleton is None:
-        if _db_manager_initializing:
-            # 正在初始化中，等待完成（极少见，通常不会走这里）
-            import time
-            while _db_manager_singleton is None:
-                time.sleep(0.01)
-            return _db_manager_singleton
-        _db_manager_initializing = True
-        try:
-            _db_manager_singleton = DatabaseManager(config_path)
-        finally:
-            _db_manager_initializing = False
-    return _db_manager_singleton
+    return DatabaseManager(config_path)
+
+
+def shutdown_db_background_tasks(timeout: float = 3.0) -> bool:
+    """模块级统一收尾：join 单例的后台种子校验线程（绝不 terminate）。
+
+    Args:
+        timeout: 最长等待秒数。
+
+    Returns:
+        bool: True 表示已结束或从未启动；False 表示超时后仍在运行。
+    """
+    inst = _db_manager_singleton
+    if inst is None:
+        return True
+    th = getattr(inst, '_bg_verify_thread', None)
+    if th is None or not th.is_alive():
+        return True
+    th.join(timeout)
+    return not th.is_alive()

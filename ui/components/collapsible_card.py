@@ -1,7 +1,7 @@
 """
 可折叠卡片（共享组件）v2.1 - 概率统计/关键词高亮增强版
 ========================
-三套右侧结果面板（八字 / 梅花易数 / 大六壬）统一复用此组件，保证
+三套右侧结果面板（八字 / 梅花易数 / 玄空飞星）统一复用此组件，保证
 视觉一致：左侧强调色条 + 图标 + 标题 + 内容区。
 
 配色约定（视觉层次）：
@@ -30,9 +30,9 @@ from datetime import datetime
 from typing import List, Tuple, Optional
 
 from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-                               QButtonGroup,
+                               QButtonGroup, QApplication,
                                QPushButton, QScrollArea, QGridLayout, QSizePolicy,
-                               QGraphicsDropShadowEffect)
+                               QGraphicsDropShadowEffect, QToolTip)
 from PySide6.QtCore import (Qt, QEvent, QPropertyAnimation, QEasingCurve, QTimer,
                             Signal, Property, QObject)
 from PySide6.QtGui import QFont, QCursor
@@ -41,6 +41,29 @@ from ui.components.typography import TLabel  # M3-3：分区标题/副标题/时
 
 # 模块级 logger：便于排查 _strength_verdict 文案是否按预期产出
 logger = logging.getLogger(__name__)
+
+
+def _rgba(color: str, alpha: float) -> str:
+    """把十六进制色值转成 Qt QSS 可解析的 rgba() 字符串。
+
+    为什么必须转换：Qt 的 8 位十六进制色语义是 #AARRGGBB（alpha 在前），
+    与 CSS 的 #RRGGBBAA 恰好相反。直接在 6 位色值后拼接两位 alpha
+    （如 f"{color}40"）会被 Qt 解析成 AARRGGBB，渲染出完全不同的颜色：
+    例如 #c9a227 + "40" = #C9A22740 → alpha=0xC9、RGB=#A22740（暗红），
+    而非预期的「金色 25% 透明度」。
+
+    Args:
+        color: 六位十六进制色值（#RRGGBB 或 #RGB）。
+        alpha: 不透明度 0~1。
+
+    Returns:
+        形如 "rgba(201, 162, 39, 0.25)" 的 QSS 颜色串。
+    """
+    h = color.lstrip('#')
+    if len(h) == 3:
+        h = ''.join(ch * 2 for ch in h)
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {alpha:g})"
 
 
 class _ClickableHeader(QFrame):
@@ -613,135 +636,69 @@ class ResponsiveFlow(QWidget):
 
 
 def ai_section_header(title: str = '文化研究算法算命详批', icon: str = '🧙') -> QWidget:
-    """文化研究算法算命区 hero 标题 v2.3：鎏金渐变背景 + 大图标 + 大标题 + 副标题 + 时间戳。
+    """文化研究算法算命区标题（M7 收敛版）：一条金色分隔线 + 标题 + 时间戳。
 
-    视觉与文案升级（v2.3）：
-    - 顶部 1px 鎏金渐变分隔线，营造仪式感
-    - 双层背景：鎏金微透底 + 装饰性金色光晕
-    - 左侧 64px 大圆形图标（外圈光晕 + 内圈实心）+ 20px 加粗主标题
-    - 副标题改为「文化研究算法亲批 · 承古法、参五行、酌神煞」，强化算命语境
-    - 右侧显示算命时间戳 + 「法旨/批语」徽章（取代原「KP v1.0」徽章）
-    - 底部装饰文案改为「☯ 大师兄亲批，仅供文化研究参考 ☯」，剔除「AI 自动生成」字样
+    结构调整（M7，依据 UI 合规审查 D06/D07）：
+    - 去掉渐变底、1px 金边、72px 光晕外圈、60px 双层描边圆、3 个 chip、底部双金线，
+      收敛为「一条金色分隔线 + 标题」，同一区域只保留单向层次；
+    - 标题色由 LIUJIN_DARK(#8f751c，约 2.3:1) 改为正文 TEXT，保证可读；
+    - 保留小太极 ☯ 与时间戳，作为唯一的轻量点缀。
 
     Returns:
         可直接 addWidget 的 QWidget（无外边距，由父布局控制间距）。
     """
     container = QFrame()
-    container.setObjectName('longhushan_hero_header')
-    container.setStyleSheet(f"""
-        QFrame#longhushan_hero_header {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 {Colors.LIUJIN_GLOW}, stop:0.5 {Colors.LIUJIN_GLOW},
-                stop:1 rgba(184, 138, 48, 0.02));
-            border: 1px solid {Colors.LIUJIN_LIGHT};
-            border-radius: {Spacing.RADIUS_LG};
-            margin: 18px 0 8px 0;
-        }}
+    container.setObjectName('ai_section_header')
+    # M7 结构收敛：原「渐变底 + 1px 金边 + 72px 光晕圈 + 60px 双层描边圆
+    # + 3 chip + 底部双金线」属多层边框，现收敛为「一条金色分隔线 + 标题」，
+    # 仅保留单向层次，容器本身透明、无边框、无渐变底。
+    container.setStyleSheet("""
+        QFrame#ai_section_header {
+            background: transparent;
+            border: none;
+        }
     """)
     v = QVBoxLayout(container)
     v.setContentsMargins(Spacing.S_MARGIN_EXTRA, Spacing.S_GAP_SM, Spacing.S_MARGIN_EXTRA, Spacing.S_GAP_SM)
     v.setSpacing(Spacing.S3)
 
-    # ---------- 顶部：图标 + 标题 + 时间戳 ----------
+    # ---------- 唯一一条金色分隔线 ----------
+    line_top = QFrame()
+    line_top.setFixedHeight(1)
+    line_top.setStyleSheet(f"background: {Colors.LIUJIN}; border: none;")
+    v.addWidget(line_top)
+
+    # ---------- 标题行：小太极 + 标题 + 时间戳 ----------
     h = QHBoxLayout()
-    h.setSpacing(Spacing.S4)
+    h.setSpacing(Spacing.S3)
     h.setAlignment(Qt.AlignVCenter)
 
-    # 左侧大圆形图标：外圈光晕 + 内圈实心 + 中央字符
-    icon_outer = QFrame()
-    icon_outer.setFixedSize(72, 72)
-    icon_outer.setStyleSheet(f"""
-        QFrame {{
-            background: qradialgradient(cx:0.5, cy:0.5, radius:0.6,
-                stop:0 {Colors.LIUJIN}40, stop:1 transparent);
-            border: none;
-        }}
-    """)
-    icon_outer_lay = QVBoxLayout(icon_outer)
-    icon_outer_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-    icon_outer_lay.setContentsMargins(Spacing.S_MIN, Spacing.S_MIN, Spacing.S_MIN, Spacing.S_MIN)
-    icon_outer_lay.setAlignment(Qt.AlignCenter)
+    icon_lbl = QLabel(icon)
+    icon_lbl.setStyleSheet(
+        f"font-size: 18px; color: {Colors.LIUJIN}; "
+        f"background: transparent; border: none;")
+    h.addWidget(icon_lbl)
 
-    icon_box = QFrame()
-    icon_box.setFixedSize(60, 60)
-    icon_box.setStyleSheet(f"""
-        QFrame {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {Colors.LIUJIN_LIGHT}, stop:1 {Colors.LIUJIN});
-            border: 2px solid {Colors.LIUJIN};
-            border-radius: 30px;
-        }}
-    """)
-    icon_lay = QVBoxLayout(icon_box)
-    icon_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
-    icon_lay.setContentsMargins(0, 0, 0, 0)
-    icon_inner = QLabel(icon)
-    icon_inner.setAlignment(Qt.AlignCenter)
-    icon_inner.setStyleSheet("""
-        font-size: 30px;
-        color: white;
-        background: transparent;
-        border: none;
-    """)
-    icon_lay.addWidget(icon_inner)
-    icon_outer_lay.addWidget(icon_box)
-    h.addWidget(icon_outer)
-
-    # 标题区（主标题 + 副标题）：M3-3 统一走 TLabel 工厂
     title_col = QVBoxLayout()
     title_col.setSpacing(Spacing.S1)
     title_col.setAlignment(Qt.AlignVCenter)
 
-    # 主标题（TLabel.h1 = 20px，§ 由 TLabel.h1 的 _SPECS 给出）
+    # 主标题（TLabel.h1 = 20px）：M7 改正文色。原 LIUJIN_DARK(#8f751c)
+    # 压在 LIUJIN_GLOW 底上实测约 2.3:1，不达 WCAG AA；金色只留给分隔线。
     title_label = TLabel.h1(title)
     title_label.setStyleSheet(
-        f"font-weight: {Fonts.W_BOLD}; color: {Colors.LIUJIN_DARK}; "
+        f"font-weight: {Fonts.W_BOLD}; color: {Colors.TEXT}; "
         f"letter-spacing: 2px;"
     )
 
-    # 副标题：去 AI 化、改为文化研究算法算命描述（TLabel.caption = 12px）
     sub_label = TLabel.caption(
         '· 文化研究算法亲批  ·  承古法、参五行、酌神煞  ·'
     )
-    sub_label.setStyleSheet(f"color: {Colors.TEXT2}; letter-spacing: 1px;")
+    sub_label.setStyleSheet(f"color: {Colors.TEXT3}; letter-spacing: 1px;")
 
     title_col.addWidget(title_label)
     title_col.addWidget(sub_label)
-
-    # 三段式标签：体现「算命」语境而非 AI 语境
-    tag_row = QHBoxLayout()
-    tag_row.setSpacing(Spacing.S2)
-    tag_row.setContentsMargins(Spacing.S0, Spacing.S1, Spacing.S0, Spacing.S0)
-    tag_items = [
-        ('古法', Colors.ZHUSHA),
-        ('五行', Colors.LIUJIN),
-        ('神煞', Colors.QINGHUA),
-    ]
-    for text, tag_color in tag_items:
-        chip = QLabel(text)
-        chip.setStyleSheet(f"""
-            background: {tag_color}1A;
-            color: {tag_color};
-            border: 1px solid {tag_color}55;
-            border-radius: 8px;
-            padding: 1px 8px;
-            font-size: 11px;
-            font-weight: {Fonts.W_MEDIUM};
-            font-family: {Fonts.BODY};
-        """)
-        chip.setFixedHeight(18)
-        tag_row.addWidget(chip)
-    tag_row.addStretch()
-
-    title_col.addWidget(title_label)
-    title_col.addWidget(sub_label)
-    title_col.addLayout(tag_row)
     h.addLayout(title_col, 1)
-
-    # 右侧：时间戳 + 「法旨」徽章（取代 AI 徽章）
-    ts_col = QVBoxLayout()
-    ts_col.setSpacing(Spacing.S1)
-    ts_col.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     ts_text = datetime.now().strftime('%Y-%m-%d %H:%M')
     ts_lbl = QLabel(f'🕐 {ts_text}')
@@ -750,57 +707,9 @@ def ai_section_header(title: str = '文化研究算法算命详批', icon: str =
         f"font-family: {Fonts.MONO};"
     )
     ts_lbl.setAlignment(Qt.AlignRight)
-
-    badge = QLabel('法旨 · 批语')
-    badge.setStyleSheet(f"""
-        background: {Colors.LIUJIN};
-        color: white;
-        font-size: 11px;
-        font-weight: {Fonts.W_BOLD};
-        padding: 3px 10px;
-        border-radius: 9px;
-        font-family: {Fonts.BODY};
-        letter-spacing: 1px;
-    """)
-    badge.setAlignment(Qt.AlignRight)
-    badge.setFixedHeight(20)
-
-    ts_col.addWidget(ts_lbl)
-    ts_col.addWidget(badge)
-    h.addLayout(ts_col)
+    h.addWidget(ts_lbl)
 
     v.addLayout(h)
-
-    # ---------- 底部装饰：金线 + 文字点缀（去 AI 描述） ----------
-    deco_row = QHBoxLayout()
-    deco_row.setSpacing(Spacing.S2)
-    deco_row.setAlignment(Qt.AlignVCenter)
-
-    line_left = QFrame()
-    line_left.setFixedHeight(1)
-    line_left.setStyleSheet(
-        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        f"stop:0 transparent, stop:1 {Colors.LIUJIN_LIGHT}); border: none;"
-    )
-
-    # 装饰文案：改为「大师兄亲批」，去掉 AI 字样
-    deco_text = QLabel('☯  大师兄亲批 · 仅供文化研究参考  ☯')
-    deco_text.setStyleSheet(
-        f"font-size: 11px; color: {Colors.LIUJIN}; "
-        f"font-family: {Fonts.BODY}; letter-spacing: 1.5px;"
-    )
-
-    line_right = QFrame()
-    line_right.setFixedHeight(1)
-    line_right.setStyleSheet(
-        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        f"stop:0 {Colors.LIUJIN_LIGHT}, stop:1 transparent); border: none;"
-    )
-
-    deco_row.addWidget(line_left, 1)
-    deco_row.addWidget(deco_text)
-    deco_row.addWidget(line_right, 1)
-    v.addLayout(deco_row)
 
     return container
 
@@ -901,7 +810,9 @@ class _NavChipButton(QPushButton):
 
     def _apply_style(self, hovered: bool):
         if hovered:
-            bg = f'{self.active_color}25'
+            # M7：原 f'{active_color}25' 被 Qt 按 #AARRGGBB 解析成暗色；
+            # 改用 rgba() 表达 15% 透明度的强调色悬停底
+            bg = _rgba(self.active_color, 0.15)
             border = self.active_color
             color = self.active_color
         else:
@@ -914,14 +825,14 @@ class _NavChipButton(QPushButton):
                 background: {bg};
                 color: {color};
                 border: 1px solid {border};
-                border-radius: 14px;
+                border-radius: {Spacing.RADIUS_PILL}px;
                 padding: 0 12px;
                 font-size: {Fonts.SZ_SMALL};
                 font-family: {Fonts.BODY};
                 font-weight: {Fonts.W_MEDIUM};
             }}
             QPushButton:hover {{
-                background: {self.active_color}30;
+                background: {_rgba(self.active_color, 0.19)};
                 border-color: {self.active_color};
                 color: {self.active_color};
             }}
@@ -973,9 +884,11 @@ def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
         可直接 addWidget 到卡片内容容器的 QWidget。
     """
     container = QFrame()
+    # M7（D09）：原「LIUJIN_GLOW 底 + 整体圆角框」在卡片内再套一层框；
+    # 现改透明底，仅保留 4px 左侧色条，形成单向层次。
     container.setStyleSheet(f"""
         QFrame {{
-            background: {Colors.LIUJIN_GLOW};
+            background: transparent;
             border-left: 4px solid {color};
             border-radius: {Spacing.RADIUS_SM};
         }}
@@ -990,7 +903,7 @@ def highlight_label(text: str, color: str = Colors.LIUJIN) -> QWidget:
         font-size: 13px; font-weight: {Fonts.W_BOLD};
         color: white; background: {color};
         border: 1px solid {color};
-        border-radius: 11px;
+        border-radius: {Spacing.RADIUS_PILL}px;
         font-family: {Fonts.TITLE};
     """)
     star.setFixedSize(22, 22)
@@ -1257,7 +1170,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                     QFrame {{
                         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                             stop:0 {_glow(color)}, stop:1 transparent);
-                        border: 1px solid {color}40;
+                        border: 1px solid {_rgba(color, 0.25)};
                         border-radius: {Spacing.RADIUS_SM};
                     }}
                 """)
@@ -1296,7 +1209,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 QFrame#prob-row-*:hover {{
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 {Colors.CARD_HOVER}, stop:1 {Colors.HOVER});
-                    border-color: {color}80;
+                    border-color: {_rgba(color, 0.5)};
                     border-left-width: 5px;
                 }}
             """)
@@ -1348,7 +1261,7 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                     Colors.WARNING if level_tag in ('中', '平') else Colors.DANGER)
                 lvl_lbl.setStyleSheet(f"""
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {lvl_color}, stop:1 {lvl_color}CC);
+                        stop:0 {lvl_color}, stop:1 {_rgba(lvl_color, 0.8)});
                     color: white;
                     font-size: {Fonts.SZ_MICRO}; font-weight: {Fonts.W_BOLD};
                     border-radius: {Spacing.RADIUS_SM}; padding: 2px 8px;
@@ -1388,13 +1301,13 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 # 强度徽章 - 更精致的样式
                 strength_lbl = QLabel(f'·  {strength}  ·')
                 strength_lbl.setStyleSheet(f"""
-                    background: qlineargient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {strength_color}22, stop:1 {strength_color}11);
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 {_rgba(strength_color, 0.13)}, stop:1 {_rgba(strength_color, 0.07)});
                     color: {strength_color};
                     font-size: {Fonts.SZ_SMALL};
                     font-weight: {Fonts.W_BOLD};
-                    border: 1px solid {strength_color}55;
-                    border-radius: 14px;
+                    border: 1px solid {_rgba(strength_color, 0.33)};
+                    border-radius: {Spacing.RADIUS_PILL}px;
                     padding: 4px 14px;
                     font-family: {Fonts.BODY};
                     letter-spacing: 2px;
@@ -1415,14 +1328,14 @@ def probability_stats_widget(stats: object, color: str = Colors.LIUJIN) -> QWidg
                 progress.setStyleSheet(f"""
                     QProgressBar {{
                         border: none;
-                        border-radius: 5px;
+                        border-radius: {Spacing.RADIUS_SM_INT}px;
                         background: {Colors.BG_DARK};
                         text-align: center;
                     }}
                     QProgressBar::chunk {{
                         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 {strength_color}CC, stop:1 {strength_color});
-                        border-radius: 5px;
+                            stop:0 {_rgba(strength_color, 0.8)}, stop:1 {strength_color});
+                        border-radius: {Spacing.RADIUS_SM_INT}px;
                     }}
                 """)
                 rv.addWidget(progress)
@@ -1606,13 +1519,13 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
         w = QFrame()
         w.setStyleSheet(f"""
             QFrame {{
-                background: {bg}20;
-                border: 1px solid {bg}55;
-                border-radius: 10px;
+                background: {_rgba(bg, 0.13)};
+                border: 1px solid {_rgba(bg, 0.33)};
+                border-radius: {Spacing.RADIUS_INT}px;
                 padding: 2px 8px;
             }}
             QFrame:hover {{
-                background: {bg}35;
+                background: {_rgba(bg, 0.21)};
                 border-color: {bg};
             }}
         """)
@@ -1621,7 +1534,7 @@ def _build_strength_legend(color: str = Colors.LIUJIN) -> QWidget:
         h.setSpacing(Spacing.S1)
         dot = QFrame()
         dot.setFixedSize(8, 8)
-        dot.setStyleSheet(f"background:{bg}; border-radius:4px;")
+        dot.setStyleSheet(f"background:{bg}; border-radius:{Spacing.RADIUS_XS}px;")
         lbl = QLabel(text)
         lbl.setStyleSheet(f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT}; font-family:{Fonts.BODY};")
         h.addWidget(dot)
@@ -1761,7 +1674,7 @@ _RISK_KEYWORDS = (
     '克', '冲', '破', '害', '刑', '空亡', '劫煞', '灾煞', '病符', '丧门', '吊客',
     '官非', '口舌', '破财', '漏财', '阻滞', '延迟', '受阻', '不利', '欠佳', '薄弱',
     '亏损', '损耗', '衰退', '下滑', '低迷', '动荡', '波折', '坎坷', '险阻',
-    # 六壬术语偏负向/需留意
+    # 命理术语偏负向/需留意
     '鬼', '墓', '绝', '死', '病', '囚', '死气', '绝气', '墓库',
     '刑克', '冲克', '刑害', '空绝', '暗鬼', '克害', '克应', '刑冲',
     # 命理纳音等
@@ -1776,7 +1689,7 @@ _POSITIVE_KEYWORDS = (
     '贵人', '天乙', '文昌', '天德', '月德', '福星', '禄神', '驿马', '将星', '华盖',
     '逢凶化吉', '转危为安', '有救', '可为', '大吉', '上吉', '中吉', '小吉',
     '顺遂', '圆满', '美满', '亨通', '旺盛', '兴旺', '繁荣', '富足', '康健', '安宁',
-    # 命理/六壬术语偏正向
+    # 命理术语偏正向
     '身强', '身旺', '从旺', '专旺', '流通', '生化', '得令', '得地', '得势',
     '财官双美', '食神生财', '伤官佩印', '比劫帮身', '印旺', '官印相生',
     '长生', '沐浴', '冠带', '临官', '帝旺', '衰', '病', '死', '墓', '绝', '胎', '养',
@@ -1903,7 +1816,9 @@ def _create_sentiment_badge(score: float) -> QWidget:
     elif score >= -0.4:
         label, bg, fg = '⚠ 凶', Colors.DANGER_LIGHT, Colors.DANGER
     else:
-        label, bg, fg = '☠ 大凶', Colors.DANGER, Colors.TEXT_INV
+        # M7 对比度：改为 DANGER_DARK 底 + 浅色字（约 5.0:1），
+        # 原 DANGER(#C45545) 底 + TEXT_INV 仅约 4.2:1，13px 以下不足 AA
+        label, bg, fg = '☠ 大凶', Colors.DANGER_DARK, Colors.TEXT
 
     badge.setText(label)
     badge.setStyleSheet(f"""
@@ -2069,7 +1984,7 @@ def ai_section_card_header(
     bar.setFixedSize(4, 28)
     bar.setStyleSheet(f"""
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {color}, stop:1 {color}55);
+            stop:0 {color}, stop:1 {_rgba(color, 0.33)});
         border: none;
         border-radius: 2px;
     """)
@@ -2081,9 +1996,9 @@ def ai_section_card_header(
     badge.setStyleSheet(f"""
         QFrame {{
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {color}, stop:1 {color}DD);
-            border: 1.5px solid {color}66;
-            border-radius: 15px;
+                stop:0 {color}, stop:1 {_rgba(color, 0.87)});
+            border: 1.5px solid {_rgba(color, 0.4)};
+            border-radius: {Spacing.RADIUS_PILL}px;
         }}
     """)
     bl = QVBoxLayout(badge)
@@ -2234,7 +2149,7 @@ def disclaimer_card(text: str = '') -> QWidget:
         font-size: 11px;
         font-weight: {Fonts.W_BOLD};
         padding: 2px 8px;
-        border-radius: 8px;
+        border-radius: {Spacing.RADIUS_SM};
         font-family: {Fonts.BODY};
     """)
     title_row.addWidget(tag)
@@ -2390,11 +2305,13 @@ def _extract_conclusion_keypoints(text: str, max_n: int = 3) -> List[str]:
 
 
 def _build_conclusion_keypoints(items: List[str], color: str) -> QWidget:
-    """渲染「关键要点」卡片：浅色底 + 左色条 + 逐项要点（关键词高亮）。"""
+    """渲染「关键要点」卡片：透明底 + 左色条 + 逐项要点（关键词高亮）。"""
     box = QFrame()
+    # M7（D09）：去掉 LIUJIN_GLOW 底色，避免「卡片内再套一层色块」的多层框；
+    # 仅保留 4px 左侧色条，形成单向层次。
     box.setStyleSheet(f"""
         QFrame {{
-            background: {_glow(color)};
+            background: transparent;
             border-left: 4px solid {color};
             border-radius: {Spacing.RADIUS_SM};
         }}
@@ -2425,8 +2342,10 @@ def _build_conclusion_keypoints(items: List[str], color: str) -> QWidget:
         t.setTextFormat(Qt.RichText)
         t.setOpenExternalLinks(False)
         t.setText(_highlight_keywords_in_text(s, color))
+        # M7 对比度：原 TEXT_INV(#12121f) 压在半透明强调色底上属「深色字压深色底」，
+        # 正文改 Colors.TEXT（浅色），保证深色主题下可读
         t.setStyleSheet(
-            f"font-size: 13px; color: {Colors.TEXT_INV}; "
+            f"font-size: 13px; color: {Colors.TEXT}; "
             f"font-family: {Fonts.BODY}; line-height: 1.7;"
         )
         row.addWidget(dot)
@@ -2436,16 +2355,13 @@ def _build_conclusion_keypoints(items: List[str], color: str) -> QWidget:
 
 
 def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
-    """hero 整体结论块 v2.3：高级视觉权重的总结性 hero 卡片（可读性优化版）。
+    """hero 整体结论块（M7 收敛版）：单一卡片 + 一条金色分隔线 + 标题 + 内容。
 
-    升级点（v2.3，仅改展示结构，不改结论语义）：
-    - 双层渐变背景 + 顶部/底部装饰双金线（视觉权重最高）
-    - 「🎯 整体结论」hero 标题 + 古籍副标题 + 情感徽章
-    - 「✨ 关键要点」速读卡：抽取最具决定性的结论句（吉/凶强信号），
-      左色条 + 圆点列表 + 关键词高亮，便于一眼抓住重点（已排除首句以免与核心论断重复）
-    - 正文按段落结构化渲染：保留 AI 原始换行；无换行长文按 ~3 句自动分段；
-      首段作为「核心论断」略放大加粗建立层级，后续段落统一字号/行距，规范间距
-    - 关键词内联高亮贯穿始终，字体统一为 BODY 家族，行距 1.9 舒适易读
+    结构变更（M7，依据 UI 合规审查 D06）：
+    - 去掉双层渐变底、1.5px 金边、顶部/底部装饰双金线、关键要点后再加一条分隔线，
+      收敛为「一张卡片 + 一条金色分隔线」，同区域只保留单向层次；
+    - 标题色由 LIUJIN_DARK(#8f751c，深色卡片上约 3.5:1) 改为正文 TEXT；
+    - 其余（情感徽章、关键要点抽取、分段正文、关键词高亮）语义与排版保持不变。
 
     Args:
         text: 整体结论正文
@@ -2463,29 +2379,19 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     # 实测该处渲染回退为 Qt 默认浅灰底 #efefef（正是本段想消除的「浅色孤岛」）。
     # 故注释只能放在 QSS 字符串之外。
     box = QFrame()
+    # M7（D06）：原「双层渐变底 + 1.5px 金边 + 顶部双金线 + 中间金线 + 底部双金线」
+    # 属多层边框/多层描边，现收敛为单一卡片：平色底 + 1px 边框 + 10px 圆角，
+    # 标题下仅保留一条金色分隔线，形成单向层次。
     box.setStyleSheet(f"""
         QFrame {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 {Colors.CARD_HOVER},
-                stop:0.5 {Colors.CARD},
-                stop:1 {Colors.CARD});
-            border: 1.5px solid {Colors.LIUJIN_LIGHT};
-            border-radius: {Spacing.RADIUS_LG};
+            background: {Colors.CARD};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS};
         }}
     """)
     bl = QVBoxLayout(box)
     bl.setContentsMargins(Spacing.S5, Spacing.S4, Spacing.S5, Spacing.S4)
     bl.setSpacing(Spacing.S3)
-
-    # 顶部装饰双线
-    line_top = QFrame()
-    line_top.setFixedHeight(2)
-    line_top.setStyleSheet(
-        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        f"stop:0 transparent, stop:0.5 {Colors.LIUJIN}, stop:1 transparent); "
-        f"border: none;"
-    )
-    bl.addWidget(line_top)
 
     # 标题行
     header_row = QHBoxLayout()
@@ -2495,9 +2401,10 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     head_col = QVBoxLayout()
     head_col.setSpacing(Spacing.S0)
     head = QLabel('🎯 整体结论')
+    # M7 对比度：原 LIUJIN_DARK(#8f751c) 压在深色卡片上仅约 3.5:1，改正文色
     head.setStyleSheet(
         f"font-size: {Fonts.FS_H3}px; font-weight: {Fonts.W_BOLD}; "
-        f"color: {Colors.LIUJIN_DARK}; font-family: {Fonts.TITLE}; "
+        f"color: {Colors.TEXT}; font-family: {Fonts.TITLE}; "
         f"letter-spacing: 1px;")
     # T5.1 古籍副标题：动态检测正文中的《书名》引用，否则回退默认文案
     import re as _re
@@ -2518,27 +2425,16 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
     header_row.addWidget(_create_sentiment_badge(score))
     bl.addLayout(header_row)
 
-    # 分隔线
+    # 唯一一条金色分隔线
     div = QFrame()
     div.setFixedHeight(1)
-    div.setStyleSheet(
-        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        f"stop:0 {Colors.LIUJIN_LIGHT}, stop:1 transparent); "
-        f"border: none;"
-    )
+    div.setStyleSheet(f"background: {Colors.LIUJIN}; border: none;")
     bl.addWidget(div)
 
     # 关键要点：抽取最具决定性的结论句，便于快速浏览（与正文不重复核心论断）
     key_points = _extract_conclusion_keypoints(text, max_n=3)
     if key_points:
         bl.addWidget(_build_conclusion_keypoints(key_points, color))
-        kp_div = QFrame()
-        kp_div.setFixedHeight(1)
-        kp_div.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            f"stop:0 {Colors.LIUJIN_LIGHT}, stop:1 transparent); border: none;"
-        )
-        bl.addWidget(kp_div)
 
     # 正文：按段落结构化渲染（保留 AI 原始换行 / 长句自动分段），层次分明、便于细读
     paragraphs = _split_conclusion_paragraphs(text)
@@ -2563,16 +2459,6 @@ def hero_conclusion_block(text: str, color: str = Colors.LIUJIN) -> QWidget:
                 f"padding: 2px 0;"
             )
         bl.addWidget(lbl)
-
-    # 底部装饰双线
-    line_bot = QFrame()
-    line_bot.setFixedHeight(2)
-    line_bot.setStyleSheet(
-        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        f"stop:0 transparent, stop:0.5 {Colors.LIUJIN}, stop:1 transparent); "
-        f"border: none;"
-    )
-    bl.addWidget(line_bot)
 
     return box
 
@@ -2626,7 +2512,7 @@ def rich_list_block(items: List[str],
         div.setFixedHeight(1)
         div.setStyleSheet(
             f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            f"stop:0 {color}55, stop:1 transparent); border: none;"
+            f"stop:0 {_rgba(color, 0.33)}, stop:1 transparent); border: none;"
         )
         cl.addWidget(div)
 
@@ -2640,13 +2526,16 @@ def rich_list_block(items: List[str],
             continue
         # 序号
         num_lbl = QLabel('')
+        # 序号字体降为 FS_CAPTION；min-width 22→26 容纳三位数
+        # 注意：Qt QSS 注释只能写在字符串外（/* */ 内），`#` 是对象名选择器，
+        # 写在 QSS 里会被解析成畸形选择器导致整个规则解析失败（Could not parse stylesheet）。
         num_lbl.setStyleSheet(f"""
             color: {color};
-            font-size: {Fonts.FS_CAPTION}px;  # 序号字体降为 FS_CAPTION
+            font-size: {Fonts.FS_CAPTION}px;
             font-weight: {Fonts.W_MEDIUM};
             font-family: {Fonts.MONO};
             background: transparent;
-            min-width: 26px;  # M3-4（b）：宽度 22→26，容纳三位数
+            min-width: 26px;
         """)
         if ordered:
             num_lbl.setText(f'{idx:02d}')
@@ -2683,8 +2572,8 @@ def rich_list_block(items: List[str],
             f"QPushButton {{ "
             f"    background: {Colors.CARD_HOVER}; "
             f"    color: {color}; "
-            f"    border: 1px solid {color}55; "
-            f"    border-radius: 8px; "
+            f"    border: 1px solid {_rgba(color, 0.33)}; "
+            f"    border-radius: {Spacing.RADIUS_SM}; "
             f"    padding: 2px 10px; "
             f"    font-size: 12px; "
             f"    font-family: {Fonts.BODY}; }} "
@@ -2860,15 +2749,17 @@ def code_block(text: str, language: str = '') -> QWidget:
         f"    background: {Colors.BG_DARK}; "
         f"    color: {Colors.TEXT2}; "
         f"    border: 1px dashed {Colors.BORDER}; "
-        f"    border-radius: 6px; "
+        f"    border-radius: {Spacing.RADIUS_SM_INT}px; "
         f"    font-size: {Fonts.FS_MICRO}px; "
         f"    font-family: {Fonts.BODY}; }} "
         f"QPushButton:hover {{ "
         f"    border-color: {Colors.LIUJIN}; color: {Colors.LIUJIN}; }}"
     )
     copy_btn.clicked.connect(lambda: _copy_text(container, text))
-    top.addWidget(lang_lbl, 0, 1)
-    top.addWidget(copy_btn, 0, 2)
+    # 注意：addWidget 第三参是对齐标志（Qt.AlignmentFlag），传整数 1 会被
+    # PySide6 拒绝并抛 TypeError，导致整个代码块构造失败。
+    top.addWidget(lang_lbl, 0, Qt.AlignTop)
+    top.addWidget(copy_btn, 0, Qt.AlignTop)
     layout.addLayout(top)
 
     # 代码区：等宽、可滚动
@@ -2893,10 +2784,25 @@ def code_block(text: str, language: str = '') -> QWidget:
 
 
 def _copy_text(container: QWidget, text: str) -> None:
-    """将代码文本写入剪贴板（幂等，无额外资源）。"""
-    import app as _app  # 延迟 import，避免循环依赖
-    clip = _app.QApplication.clipboard()
+    """把代码块文本写入系统剪贴板。
+
+    Args:
+        container: 代码块容器，用于在复制失败时定位提示气泡。
+        text:      待复制的代码文本；None/空串按空文本处理，不抛异常。
+
+    说明：
+        - 原实现误用 ``import app``（仓库内无 ``app`` 模块），点击「复制」
+          必然抛 ModuleNotFoundError，这里改用 PySide6 的 QApplication。
+        - 剪贴板属于外部系统服务，失败不应打断界面；但也不能静默吞掉，
+          否则用户会误以为「已复制」，因此失败时给出 tooltip + 日志提示。
+    """
+    payload = text or ''
     try:
-        clip.copy(text or '')
-    except Exception:
-        pass
+        if QApplication.instance() is None:
+            raise RuntimeError('QApplication 未初始化，无法访问系统剪贴板')
+        QApplication.clipboard().setText(payload)
+    except Exception as exc:
+        logger.warning('代码块复制失败：%s', exc)
+        anchor = (container.mapToGlobal(container.rect().bottomLeft())
+                  if container is not None else QCursor.pos())
+        QToolTip.showText(anchor, '复制失败，请手动选中代码文本复制')

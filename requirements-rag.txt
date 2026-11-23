@@ -1,0 +1,21 @@
+# KP-AI-FENGSHUI 可选 RAG 知识库依赖
+#
+# 用途：ai/rag/retriever.py 的向量检索与重排能力（本地知识库语义检索）。
+# 这些包体积大（chromadb + torch + 模型权重常占地数百 MB），
+# 且 KP-AI-FENGSHUI.spec 的 excludes 已显式排除，不随客户端产物分发。
+#
+# 使用前提：
+#   1. 仅在需要本地 RAG 检索的开发/服务端环境安装；
+#   2. 相关 import 均在函数内 try-import，未安装时主流程自动降级（不影响排盘与 AI 调用）；
+#   3. 首次使用需下载 bge-small-zh 等嵌入模型，请预留磁盘与网络；
+#   4. 项目内置 Lib/site-packages/ai_extra 里的部分二进制为 cp312（如
+#      mmh3.cp312-win_amd64.pyd），在 Python 3.13 下不可用，RAG 请按本清单重装。
+#
+# 安装：pip install -r requirements-rag.txt
+#
+# 说明：仅列出 ai/rag/retriever.py 真正 import 的包；
+#       langchain / langchain-community 全仓零 import，故不列入（装了也用不上）。
+
+chromadb>=0.4                  # 本地向量数据库（retriever.py:28，try-import）
+sentence-transformers>=3.0     # bge-small-zh 向量化（retriever.py:88，懒加载）
+rank-bm25>=0.2                 # BM25 关键词检索（retriever.py:37，try-import）

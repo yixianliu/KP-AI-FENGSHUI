@@ -90,8 +90,7 @@ class ExcelExporter(BaseExporter):
         Args:
             data: 排盘结果字典，可能包含 basic_info / bazi_types / bazi /
                 wuxing / shishen / dayun / liunian / yuncheng / mingli /
-                analysis / ai_analysis / meihua_data / meihua_ai /
-                liuren_data / liuren_ai / zonghe 等键
+                analysis / ai_analysis / meihua_data / meihua_ai / zonghe 等键
             file_path: 目标 xlsx 文件路径
 
         Returns:
@@ -105,6 +104,8 @@ class ExcelExporter(BaseExporter):
             raise RuntimeError(
                 "缺少依赖 openpyxl，无法导出 Excel，请先安装：pip install openpyxl"
             )
+        # 记录最后一次失败原因，供后台导出线程回传给 UI（不再只打印日志）
+        self.last_error = ''
         try:
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -181,12 +182,7 @@ class ExcelExporter(BaseExporter):
                 self._add_meihua_section(ws, row, data.get('meihua_data', {}) or {},
                                           data.get('meihua_ai', {}) or {})
 
-            # 大六壬
-            if has_chapter(data, 'liuren'):
-                self._add_liuren_section(ws, row, data.get('liuren_data', {}) or {},
-                                          data.get('liuren_ai', {}) or {})
-
-            # 综合建议（融合三方结论）
+            # 综合建议（融合各板块结论）
             if has_chapter(data, 'zonghe'):
                 self._add_zonghe_section(ws, row, data.get('zonghe', {}))
 
@@ -203,6 +199,7 @@ class ExcelExporter(BaseExporter):
         except Exception as e:
             # 导出属于用户主动触发的非关键路径，失败时不应让界面崩溃，
             # 统一吞掉异常并以返回值告知调用方
+            self.last_error = f'{type(e).__name__}: {e}'
             print(f"Excel 导出失败: {e}")
             return False
 
@@ -641,7 +638,7 @@ class ExcelExporter(BaseExporter):
         cell.border = self.styles['border']
 
     def _add_zonghe_section(self, ws, start_row, z: dict):
-        """写入「综合建议」区块：AI 融合八字/梅花/六壬三方结论后的统一判断。
+        """写入「综合建议」区块：AI 融合各板块结论后的统一判断。
 
         是整张表的收口区块，末尾附免责说明。
 
@@ -761,67 +758,4 @@ class ExcelExporter(BaseExporter):
             if mh_ai.get('final_verdict'):
                 self._cell(ws, row, 1, '结论', align='left')
                 self._cell(ws, row, 2, str(mh_ai.get('final_verdict')), align='left')
-                row += 1
-
-    def _add_liuren_section(self, ws, start_row, lr: dict, lr_ai: dict):
-        """写入「大六壬起课」区块：课体要素 + AI 课理解读。
-
-        结构与 _add_meihua_section 完全对称：排盘数据与 AI 解读来自两个
-        独立的键，各自判空后再决定是否渲染对应部分。
-
-        Args:
-            ws: openpyxl 工作表对象
-            start_row: 本区块标题所在行号
-            lr: liuren_data 子字典，含 pan_date / si_ke / san_chuan / gate /
-                yue_jiang / tian_jiang / shen_sha 等键
-            lr_ai: liuren_ai 子字典，键见 _AI_SECTIONS，另有 final_verdict 结论
-
-        Returns:
-            None
-        """
-        ws.merge_cells(f'A{start_row}:B{start_row}')
-        title_cell = ws.cell(row=start_row, column=1, value='大六壬起课')
-        title_cell.font = self.styles['header']
-        title_cell.alignment = self.styles['center']
-        title_cell.fill = self.styles['fill_gold']
-        title_cell.border = self.styles['border']
-
-        row = start_row + 1
-        for key, label in (
-            ('pan_date', '公历日期'), ('si_ke', '四课'), ('san_chuan', '三传'),
-            ('gate', '三传门法'), ('yue_jiang', '月将'),
-            ('tian_jiang', '天将'), ('shen_sha', '神煞'),
-        ):
-            val = lr.get(key)
-            if val:
-                self._cell(ws, row, 1, label, align='left')
-                self._cell(ws, row, 2, str(val), align='left')
-                row += 1
-
-        if lr_ai:
-            # AI 解读前空出一行，并用与区块标题同款样式起一个二级小标题，
-            # 把「课体事实」与「AI 主观解读」在视觉上分开
-            row += 1
-            ws.merge_cells(f'A{row}:B{row}')
-            sub = ws.cell(row=row, column=1, value='— 文化研究算法六壬解读 —')
-            sub.font = self.styles['header']
-            sub.alignment = self.styles['center']
-            sub.fill = self.styles['fill_gold']
-            sub.border = self.styles['border']
-            row += 1
-            for key, title in _AI_SECTIONS:
-                items = lr_ai.get(key, []) or []
-                if not items:
-                    continue
-                self._cell(ws, row, 1, title, align='left')
-                self._cell(ws, row, 2, '', align='left')
-                row += 1
-                for it in items:
-                    self._cell(ws, row, 1, '•', align='center')
-                    self._cell(ws, row, 2, str(it), align='left')
-                    row += 1
-            # final_verdict 是六壬特有的总断语，独立于 _AI_SECTIONS 各分项，放在最后压轴
-            if lr_ai.get('final_verdict'):
-                self._cell(ws, row, 1, '结论', align='left')
-                self._cell(ws, row, 2, str(lr_ai.get('final_verdict')), align='left')
                 row += 1

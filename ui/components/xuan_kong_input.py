@@ -4,10 +4,13 @@ ui/components/xuan_kong_input.py — 玄空飞星输入面板
 提供坐向（如'子山午向'）、建造年份、当前年份三个输入项，供主窗口派发排盘。
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QFrame)
-from PySide6.QtCore import Qt, Signal
+                             QLineEdit, QPushButton, QFrame, QScrollArea)
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QFont
 from ui.styles import Colors, Fonts, Spacing, Stylesheets
+from ui.components.collapsible_card import CollapsibleCard
+from ui.components.input_panel import (build_action_bar, form_label,
+                                       refresh_form_labels)
 
 import math
 
@@ -169,13 +172,29 @@ class XuanKongInputPanel(QWidget):
     收集坐向、建造年份、当前年份后打包 dict，供 service/ai 层排盘。
     """
 
+    #: 本面板全部标签文案：显式清单决定标签列宽（不遍历控件猜测）
+    LABEL_TEXTS = ('建造年份', '当前年份')
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._form_labels = []           # 已创建的标签，字体变化时统一重算宽度
         self.setStyleSheet(f"background-color: {Colors.BG};")
         self._build()
 
     def _build(self):
-        lay = QVBoxLayout(self)
+        """构建输入表单：滚动容器 + 吸底操作条（与八字 / 梅花面板同构）。
+
+        罗盘 self.compass 仍按自身 210×210 固定尺寸自绘与换算点击坐标，
+        本方法只在外层套一个 QScrollArea，不改变罗盘任何几何参数。
+        """
+        scroll = QScrollArea()
+        scroll.setStyleSheet(Stylesheets.SCROLL)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {Colors.BG};")
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(Spacing.S6, Spacing.S5, Spacing.S6, Spacing.S5)
         lay.setSpacing(Spacing.S4)
 
@@ -198,8 +217,21 @@ class XuanKongInputPanel(QWidget):
         sep.setStyleSheet(f"background-color: {Colors.QINGHUA}; border-radius: 1px;")
         lay.addWidget(sep)
 
-        # 坐向输入（T3.5：环形罗盘点选 + 文本框手工输入，二者双向联动）
-        lay.addWidget(QLabel('坐向（点击罗盘选山，或直接输入如：子山午向）'))
+        # 分组隐喻与八字 / 梅花统一：两个默认展开的折叠卡片
+        # 卡片 1：坐向（环形罗盘点选 + 文本框手工输入，二者双向联动）
+        sui_card = CollapsibleCard('坐向选择', '⛰', accent_color=Colors.QINGHUA, collapsed=False)
+        sui_body = QWidget()
+        sui_body.setStyleSheet('background: transparent;')
+        sui_lay = QVBoxLayout(sui_body)
+        sui_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
+        sui_lay.setSpacing(Spacing.S3)
+
+        # 长说明允许换行并缩写，窄窗口（350px 左栏）下不再被裁切。
+        sui_xiang_hint = QLabel('坐向（点选罗盘或输入「子山午向」）')
+        sui_xiang_hint.setWordWrap(True)
+        sui_xiang_hint.setStyleSheet(
+            f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
+        sui_lay.addWidget(sui_xiang_hint)
 
         compass_row = QHBoxLayout()
         compass_row.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
@@ -208,49 +240,88 @@ class XuanKongInputPanel(QWidget):
         self.compass.mountain_selected.connect(self._on_compass_pick)
         compass_row.addWidget(self.compass)
         compass_row.addStretch()
-        lay.addLayout(compass_row)
+        sui_lay.addLayout(compass_row)
 
         self.sui_xiang_edit = QLineEdit('子山午向')
         self.sui_xiang_edit.setStyleSheet(Stylesheets.INPUT)
         self.sui_xiang_edit.setAlignment(Qt.AlignCenter)
-        lay.addWidget(self.sui_xiang_edit)
+        sui_lay.addWidget(self.sui_xiang_edit)
 
         # 当前选中山的度数范围提示
         self.mnt_info = QLabel('')
         self.mnt_info.setAlignment(Qt.AlignCenter)
         self.mnt_info.setStyleSheet(
             f"font-size:{Fonts.SZ_MICRO}; color:{Colors.LIUJIN}; font-family:{Fonts.BODY};")
-        lay.addWidget(self.mnt_info)
+        sui_lay.addWidget(self.mnt_info)
         self._sync_mnt_info()
         # 手工改写文本框时，反向同步罗盘高亮
         self.sui_xiang_edit.textChanged.connect(self._on_sui_xiang_changed)
+        sui_card.set_content(sui_body)
+        lay.addWidget(sui_card)
 
-        # 建造年份
-        lay.addWidget(QLabel('建造年份'))
+        # 卡片 2：年份（建造年份 + 当前年份流年叠加）
+        year_card = CollapsibleCard('年份设置', '◷', accent_color=Colors.QINGHUA, collapsed=False)
+        year_body = QWidget()
+        year_body.setStyleSheet('background: transparent;')
+        year_lay = QVBoxLayout(year_body)
+        year_lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
+        year_lay.setSpacing(Spacing.S3)
+
+        # 建造年份：与其余两块面板同构的定宽标签列
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S2)
+        row.addWidget(self._label('建造年份'))
         self.build_year_edit = QLineEdit('2024')
         self.build_year_edit.setStyleSheet(Stylesheets.INPUT)
-        lay.addWidget(self.build_year_edit)
+        row.addWidget(self.build_year_edit, 1)
+        year_lay.addLayout(row)
 
-        # 当前年份
-        lay.addWidget(QLabel('当前年份（流年叠加）'))
+        # 当前年份（流年叠加）
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.S2)
+        row.addWidget(self._label('当前年份'))
         self.current_year_edit = QLineEdit('2025')
         self.current_year_edit.setStyleSheet(Stylesheets.INPUT)
-        lay.addWidget(self.current_year_edit)
+        row.addWidget(self.current_year_edit, 1)
+        year_lay.addLayout(row)
+        year_card.set_content(year_body)
+        lay.addWidget(year_card)
 
         lay.addStretch()
+        scroll.setWidget(content)
 
-        # 按钮组
-        btn_hl = QHBoxLayout()
-        btn_hl.setSpacing(Spacing.S2)
+        # 吸底操作条：按钮脱离滚动容器，最小窗口下仍恒定可见
         self.submit_btn = QPushButton('起盘')
         self.submit_btn.setCursor(Qt.PointingHandCursor)
         self.submit_btn.setStyleSheet(Stylesheets.BUTTON_PRIMARY)
         self.reset_btn = QPushButton('重置')
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.setStyleSheet(Stylesheets.BUTTON_SECONDARY)
-        btn_hl.addWidget(self.submit_btn)
-        btn_hl.addWidget(self.reset_btn)
-        lay.addLayout(btn_hl)
+
+        outer = QVBoxLayout(self)
+        outer.setSpacing(Spacing.S0)  # 操作条紧贴滚动区，1px 上分隔线即面板分界
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll, 1)
+        outer.addWidget(build_action_bar(self.submit_btn, self.reset_btn))
+
+    def _label(self, text):
+        """生成表单左侧定宽说明标签（与八字 / 梅花面板共用同一套实现）。
+
+        Args:
+            text: 标签文字。
+
+        Returns:
+            FormLabel: 宽度由本面板文案集合实测字体宽度决定的次级灰标签。
+        """
+        lb = form_label(text, Colors.TEXT2, self.LABEL_TEXTS)
+        self._form_labels.append(lb)
+        return lb
+
+    def changeEvent(self, event):
+        """字体变化时按新字体重算所有标签列宽（换字体/DPI 后不裁切）。"""
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            refresh_form_labels(self._form_labels)
 
     # ----- 数据读写契约（与 InputPanel / MeihuaInputPanel 保持一致） -----
 
@@ -287,17 +358,30 @@ class XuanKongInputPanel(QWidget):
             self.mnt_info.setText('')
 
     def get_data(self) -> dict:
-        """打包当前输入为 dict。"""
+        """打包当前输入为 dict。
+
+        Raises:
+            ValueError: 坐向为空，或建造/当前年份不是整数。
+                        由主窗口统一捕获并展示错误态，避免静默套用默认值出盘。
+        """
+        sui_xiang = self.sui_xiang_edit.text().strip()
+        if not sui_xiang:
+            raise ValueError('坐向不能为空，请输入如「子山午向」')
+        raw_build = self.build_year_edit.text().strip()
         try:
-            build = int(self.build_year_edit.text())
+            build = int(raw_build)
         except ValueError:
-            build = 2024
-        try:
-            current = int(self.current_year_edit.text())
-        except ValueError:
+            raise ValueError(f'建造年份必须为整数，收到「{raw_build}」')
+        raw_current = self.current_year_edit.text().strip()
+        if raw_current:
+            try:
+                current = int(raw_current)
+            except ValueError:
+                raise ValueError(f'当前年份必须为整数，收到「{raw_current}」')
+        else:
             current = build
         return {
-            'sui_xiang': self.sui_xiang_edit.text().strip() or '子山午向',
+            'sui_xiang': sui_xiang,
             'build_year': build,
             'current_year': current,
         }

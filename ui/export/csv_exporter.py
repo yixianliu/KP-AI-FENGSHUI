@@ -71,14 +71,15 @@ class CsvExporter(BaseExporter):
         Args:
             data: 排盘结果字典，可能包含 basic_info / bazi_types / bazi /
                 wuxing / shishen / dayun / liunian / yuncheng / mingli /
-                analysis / ai_analysis / meihua_data / meihua_ai /
-                liuren_data / liuren_ai / zonghe 等键
+                analysis / ai_analysis / meihua_data / meihua_ai / zonghe 等键
             file_path: 目标 CSV 文件路径
 
         Returns:
             bool，写入成功返回 True；任何异常（路径不可写、编码失败等）
             被捕获后打印错误并返回 False，不向上抛出
         """
+        # 记录最后一次失败原因，供后台导出线程回传给 UI（不再只打印日志）
+        self.last_error = ''
         try:
             # newline='' 由 csv 模块自行控制换行符，否则 Windows 上每行会多出空行；
             # utf-8-sig 写入 BOM，使 Excel 直接双击打开时不会把中文识别成乱码
@@ -96,13 +97,13 @@ class CsvExporter(BaseExporter):
                 self._export_analysis(writer, data)
                 self._export_ai_analysis(writer, data)
                 self._export_meihua(writer, data)
-                self._export_liuren(writer, data)
                 self._export_zonghe(writer, data)
 
             return True
         except Exception as e:
             # 导出属于用户主动触发的非关键路径，失败时不应让界面崩溃，
             # 统一吞掉异常并以返回值告知调用方
+            self.last_error = f'{type(e).__name__}: {e}'
             print(f"CSV 导出失败: {e}")
             return False
 
@@ -285,38 +286,6 @@ class CsvExporter(BaseExporter):
                     writer.writerow([title, _to_str(it)])
             if mh_ai.get('final_verdict'):
                 writer.writerow(['结论', _to_str(mh_ai.get('final_verdict'))])
-        writer.writerow([])
-
-    def _export_liuren(self, writer, data):
-        if not has_chapter(data, 'liuren'):
-            return
-        lr = data.get('liuren_data', {}) or {}
-        writer.writerow(['大六壬起课'])
-        for key, label in (
-            ('pan_date', '公历日期'),
-            ('si_ke', '四课'),
-            ('san_chuan', '三传'),
-            ('gate', '三传门法'),
-            ('yue_jiang', '月将'),
-            ('tian_jiang', '天将'),
-            ('shen_sha', '神煞'),
-        ):
-            val = lr.get(key)
-            if val:
-                writer.writerow([label, _to_str(val)])
-        # 嵌入式 AI 解读
-        lr_ai = data.get('liuren_ai') or {}
-        if lr_ai:
-            writer.writerow([])
-            writer.writerow(['— 文化研究算法六壬解读 —'])
-            for key, title in _AI_SECTIONS:
-                items = lr_ai.get(key, []) or []
-                if isinstance(items, str):
-                    items = [items] if items.strip() else []
-                for it in items:
-                    writer.writerow([title, _to_str(it)])
-            if lr_ai.get('final_verdict'):
-                writer.writerow(['结论', _to_str(lr_ai.get('final_verdict'))])
         writer.writerow([])
 
     def _export_zonghe(self, writer, data):

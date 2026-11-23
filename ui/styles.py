@@ -79,7 +79,7 @@ class Colors:
     TEXT3 = '#9C97A8'
     TEXT4 = '#918C9E'       # 四级灰阶（M7：提亮至 WCAG AA ≥4.5:1；原 #6B6678 仅 2.83:1）
     TEXT_INV = '#12121f'
-    # 纯白：仅用于彩色标签底上的文字（如大六壬五行 chip），勿作正文用
+    # 纯白：仅用于彩色标签底上的文字（如五行 chip），勿作正文用
     WHITE = '#FFFFFF'
 
     # ========== 边框与分割 ==========
@@ -143,7 +143,7 @@ class Colors:
     CANVAS_DARK = '#0F0F1A'
 
     # ========== 卡纸高亮渐变（关键柱/标题专用，暖宣纸色）==========
-    # 三面板复用同一渐变（result_panel 日柱 / meihua / liuren 高亮块），
+    # 各结果面板复用同一渐变（result_panel 日柱 / meihua / xuan_kong 高亮块），
     # 原为三处独立硬编码，易漂移——统一归此。渐变方向 stop0→stop1：
     HIGHLIGHT_WARM_STRONG = '#FFFBF0'   # 渐变起点（更亮）
     HIGHLIGHT_WARM = '#FFF5E0'          # 渐变终点（略暗）
@@ -509,7 +509,7 @@ class Spacing:
 
 
 # ==================== 密度档应用（UI 升级 M1-1 / M3-1） ====================
-# 四结果面板的内容区边距曾各写一套（result_panel 24 / meihua·liuren 0），
+# 各结果面板的内容区边距曾各写一套（result_panel 24 / meihua·xuan_kong 0），
 # 切板块时留白跳变（方案 Q03）。此处提供**唯一入口**，面板只允许通过它设置
 # 内容布局的边距与间距，杜绝双层 padding 叠加与再次漂移。
 DEFAULT_DENSITY = Spacing.DENSITY['normal']
@@ -571,6 +571,10 @@ def _build_font_scale_qss():
 # 故焦点环必须写 `QPushButton:focus { border: FOCUS_BORDER; }`。
 # Qt 采用 border-box 盒模型，加粗 border 不改变控件外部尺寸，无需补偿 padding。
 FOCUS_BORDER = f'2px solid {Colors.BRAND}'
+
+#: QSpinBox / QDoubleSpinBox / QDateEdit 等复合控件自带约 3px 的按钮内框，
+#: 相同 QSS min-height 下总高会比 QLineEdit 多 3px；扣除后表单行高才严格一致。
+COMPLEX_CONTROL_CHROME = 3
 
 
 class Stylesheets:
@@ -726,17 +730,20 @@ class Stylesheets:
     """
 
     # ==================== 主按钮（朱砂红） ====================
+    # M7 对比度修复：原 color=TEXT_INV(#12121f) 压在朱砂红 #8b0000 上仅
+    # 1.68:1，远低于 WCAG AA 4.5:1。改 WHITE 后为 8.57:1，满足 AA/AAA。
     BTN_PRIMARY = f"""
         QPushButton {{
             background-color: {Colors.ZHUSHA};
-            color: {Colors.TEXT_INV};
+            color: {Colors.WHITE};
             border: none;
             border-radius: {Spacing.RADIUS_SM};
             font-size: 14px;
             font-weight: {Fonts.W_MEDIUM};
             font-family: {Fonts.BODY};
-            padding: 10px 28px;
-            min-height: 40px;
+            /* 12px 上下内边距 + 36px 内容高 = 60px，与次按钮总高一致 */
+            padding: {Spacing.S3}px {Spacing.S6}px;
+            min-height: {Spacing.CONTROL_H}px;
         }}
         QPushButton:hover {{
             background-color: {Colors.ZHUSHA_DARK};
@@ -762,8 +769,9 @@ class Stylesheets:
             border-radius: {Spacing.RADIUS_SM};
             font-size: 13px;
             font-family: {Fonts.BODY};
-            padding: 10px 22px;
-            min-height: 40px;
+            /* 本体 34px + 上下 12px + 1px 边框 ×2 = 60px，与主按钮总高一致 */
+            padding: {Spacing.S3}px {Spacing.S5}px;
+            min-height: {Spacing.CONTROL_H - Spacing.S_MIN}px;
         }}
         QPushButton:hover {{
             background-color: {Colors.CARD_HOVER};
@@ -811,8 +819,9 @@ class Stylesheets:
             background-color: transparent;
             border: 1px solid {Colors.BORDER};
             border-radius: {Spacing.RADIUS_SM};
-            margin-top: 8px;
-            padding-top: 12px;
+            /* 标题占 12px 上边距；内容四边统一 16px，与 CollapsibleCard 内容区对齐 */
+            margin-top: {Spacing.S3}px;
+            padding: {Spacing.S4}px;
             font-size: {Fonts.SZ_SECTION};
             font-weight: {Fonts.W_MEDIUM};
             color: {Colors.TEXT};
@@ -836,8 +845,8 @@ class Stylesheets:
             border-radius: {Spacing.RADIUS_SM};
             font-size: {Fonts.SZ_BODY};
             font-family: {Fonts.BODY};
-            padding: 8px 12px;
-            min-height: 36px;
+            padding: {Spacing.S2}px {Spacing.S3}px;
+            min-height: {Spacing.CONTROL_H}px;
             color: {Colors.TEXT};
             selection-background-color: {Colors.QINGHUA};
             selection-color: white;
@@ -852,6 +861,65 @@ class Stylesheets:
         QLineEdit::placeholder {{
             color: {Colors.TEXT3};
         }}
+        /* 微调框与单行输入共用同一套高度/内边距，保证表单行距节奏一致 */
+        QSpinBox, QDoubleSpinBox {{
+            background-color: {Colors.CARD};
+            border: 1px solid {Colors.BORDER};
+            border-radius: {Spacing.RADIUS_SM};
+            font-size: {Fonts.SZ_BODY};
+            font-family: {Fonts.BODY};
+            /* 右侧 0px、左侧 4px：把横向空间让给数字文本，上下按钮单独占 12px */
+            padding: {Spacing.S2}px {Spacing.S0}px {Spacing.S2}px {Spacing.S1}px;
+            min-height: {Spacing.CONTROL_H - COMPLEX_CONTROL_CHROME}px;
+            color: {Colors.TEXT};
+            selection-background-color: {Colors.QINGHUA};
+            selection-color: white;
+        }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            width: {Spacing.S3}px;
+            border: none;
+            border-left: 1px solid {Colors.BORDER};
+            background: {Colors.CARD};
+            border-top-right-radius: {Spacing.RADIUS_SM};
+        }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            width: {Spacing.S3}px;
+            border: none;
+            border-left: 1px solid {Colors.BORDER};
+            background: {Colors.CARD};
+            border-bottom-right-radius: {Spacing.RADIUS_SM};
+        }}
+        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+            background: {Colors.HOVER};
+        }}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+            image: none;
+            width: 0px;
+            height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 5px solid {Colors.TEXT3};
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+            image: none;
+            width: 0px;
+            height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid {Colors.TEXT3};
+        }}
+        QSpinBox:focus, QDoubleSpinBox:focus {{
+            border: 1.5px solid {Colors.QINGHUA};
+            background-color: {Colors.CARD_HOVER};
+        }}
+        QSpinBox:hover:!focus, QDoubleSpinBox:hover:!focus {{
+            border-color: {Colors.BORDER2};
+        }}
     """
 
     # ==================== 下拉框 ====================
@@ -862,8 +930,9 @@ class Stylesheets:
             border-radius: {Spacing.RADIUS_SM};
             font-size: {Fonts.SZ_BODY};
             font-family: {Fonts.BODY};
-            padding: 7px 28px 7px 12px;
-            min-height: 36px;
+            /* 右 28px 为下拉箭头留白（S6+S1），上下与输入框同为 8px */
+            padding: {Spacing.S2}px {Spacing.S6 + Spacing.S1}px {Spacing.S2}px {Spacing.S3}px;
+            min-height: {Spacing.CONTROL_H}px;
             color: {Colors.TEXT};
         }}
         QComboBox:focus {{
@@ -954,8 +1023,8 @@ class Stylesheets:
             border-radius: {Spacing.RADIUS_SM};
             font-size: {Fonts.SZ_BODY};
             font-family: {Fonts.BODY};
-            padding: 7px 12px;
-            min-height: 36px;
+            padding: {Spacing.S2}px {Spacing.S3}px;
+            min-height: {Spacing.CONTROL_H - COMPLEX_CONTROL_CHROME}px;
             color: {Colors.TEXT};
         }}
         QDateEdit:focus {{

@@ -1,41 +1,43 @@
-# KP-AI-FENGSHUI Requirements
+# KP-AI-FENGSHUI 主程序依赖（客户端/打包必需）
 # Python 3.10+ 推荐，managed Python 3.13.12 为打包目标版本
+# 说明：仅收录 core/ ui/ api/ service/ ai/ 与 KP-AI-FENGSHUI.spec 实际引用的包。
+#       可选 RAG 依赖（chromadb/sentence-transformers/rank-bm25）见
+#       requirements-rag.txt，它们不随客户端打包，缺失不影响主流程。
 
 # ===== GUI 框架 =====
-# PySide6 6.10+ 的 Qt6Core 硬依赖 ICU 库（icuuc.dll）；wheel 不内置时
-# 需确保 conda 环境或系统已提供对应 ICU（如 conda install icu=73）。
-# 6.9.2 已验证在 Windows + Python 3.12 下无需额外 ICU 即可直接运行。
-PySide6>=6.9,<6.12
+# 必须锁 6.9.2：6.10+ 的 Qt6Core 硬依赖 ICU（icuuc.dll），wheel 不自带，
+# 干净 venv 中会报 ImportError: DLL load failed while importing
+# QtCore/QtWidgets（实测 6.11.3 在 Python 3.13 下必然失败）。
+# 6.9.2 已在 Python 3.13 + 干净 venv 实机验证可正常启动（离屏 10 秒存活）。
+PySide6==6.9.2
 
-# ===== 历法计算 =====
-lunarcalendar==0.0.9          # 农历转换
-numpy>=1.26                   # 向量化排盘计算
-pandas>=2.0                   # 数据处理
+# ===== 历法 / 排盘计算 =====
+lunarcalendar==0.0.9          # 农历转换（core/lunar_converter.py）
+numpy>=1.26                   # 向量化排盘（core/bazi/bazi_batch.py）
 
 # ===== 数据库 =====
-sqlite3                        # 内置，无需安装
+# sqlite3 属于 Python 标准库，无需也不可通过 pip 安装
 
 # ===== AI 接口 =====
-requests>=2.28                 # HTTP 请求（Agnes AI 客户端）
-urllib3>=2.0
+requests>=2.28                 # HTTP 请求（api/agnes_client.py）
+urllib3>=2.0                   # requests 底层传输
+certifi>=2024.0                # SSL 证书链（spec 打包 certifi/cacert.pem）
 
-# ===== 数据校验 =====
-pydantic>=2.0                  # Pydantic v2 数据校验
+# ===== 导出 =====
+# 实测基线（2026-11-04，Python 3.13 干净 venv，同一份数据真导出 PDF）：
+#   4.2.5 与 5.0.1 均可正常出件（6 页 / 中文可提取 / EOF+startxref 完整），
+#   5.0.1 产物 11949 字节、4.2.5 为 11977 字节，差异仅版本元数据。
+# 二者都可靠时优先锁项目 venv 实际跑过测试的版本 → 5.0.1。
+openpyxl==3.1.5                # Excel 导出（ui/export/excel_exporter.py）
+reportlab==5.0.1               # PDF 导出（ui/export/pdf_exporter.py，已实测出件）
 
-# ===== AI RAG 知识库 =====
-langchain>=0.2                 # LangChain 框架
-langchain-community>=0.2       # LangChain 社区组件
-chromadb>=0.4                  # 本地向量数据库
-sentence-transformers>=3.0     # bge-small-zh 向量化
+# ===== 图表 =====
+matplotlib>=3.7                # 指标图表（ui/components/ai_metrics_chart.py）
 
-# ===== 缓存与工具 =====
-certifi>=2024.0                # SSL 证书
-openpyxl==3.1.5                # Excel 导出
-reportlab==4.2.5               # PDF 导出
-openai>=1.0                    # OpenAI API 兼容接口
-deepseek>=1.0                  # DeepSeek API 兼容接口
+# ===== 加密 =====
+bcrypt>=4.0                    # KP-AI-FENGSHUI.spec hiddenimports 显式声明
 
-# ===== 测试框架 =====
+# ===== 测试 / 打包工具（运行主程序非必需，但仓库自带 tests/ 与 scripts/ 需要） =====
 pytest>=8.0                    # 单元测试
 pytest-cov>=4.0                # 覆盖率报告
 hypothesis>=6.0                # 属性测试

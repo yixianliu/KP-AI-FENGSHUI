@@ -12,7 +12,6 @@ core/rag_knowledge.py — RAG 知识库管理器（轻量化本地实现）
 - 八字：格局论断、五行旺衰、十神定位、调候用神
 - 玄空飞星：三元九运、二十四山向、九宫飞布、替卦、七星打劫
 - 梅花易数：体用生克、动静动静、卦气旺衰
-- 大六壬：九宗门、三传、天地盘、天将神煞
 """
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ class KnowledgeChunk:
     """单个知识块（来自古籍原文）。"""
     id: str
     source: str          # 古籍名称，如 '子平真诠'
-    category: str        # 板块：bazi/liuren/meihua/xuan_kong/all
+    category: str        # 板块：bazi/meihua/xuan_kong/all
     content: str         # 原文内容（500-800字符块）
     context: str = ''    # 上下文摘要
     tags: List[str] = field(default_factory=list)   # 关键词标签
@@ -243,18 +242,6 @@ class RagKnowledgeBase:
             context='体用生克与卦气旺衰',
             tags=['体用','生克','动静','卦气','互卦','变卦','旺衰'])
 
-        # ---- 大六壬 ----
-        add('大六壬', 'liuren',
-            '大六壬以月将加占时，布天地盘为基。'
-            '九宗门者：贼克、比用、昴星、别责、八专、伏吟、返吟、涉害、毕法。'
-            '三传者，初传为事之始，中传为事之中，末传为事之终。'
-            '贼克法：有克曰贼，无克曰重审。'
-            '比用法：二日贼相等，取比日干者为初传。'
-            '天将者，贵人、螣蛇、朱雀、六合、青龙、天空、白虎、太常、玄武、太阴、天后、吊客。'
-            '神煞者，驿马、桃花、禄神、贵人、羊刃、劫煞、灾煞、咸池。',
-            context='九宗门三传与天将神煞',
-            tags=['九宗门','三传','月将','天盘','地盘','天将','神煞','驿马','禄神'])
-
         return chunks
 
     def _compute_index(self) -> None:
@@ -275,7 +262,7 @@ class RagKnowledgeBase:
 
         Args:
             query: 查询文本（可含关键词）
-            category: 板块过滤（bazi/liuren/meihua/xuan_kong/all）
+            category: 板块过滤（bazi/meihua/xuan_kong/all）
             top_k: 返回条数上限
             min_score: 最低相关度阈值
 

@@ -7,11 +7,13 @@ scripts/build_release.py — 一键发布构建（自动移除密钥 → 打包 
 产物始终零密钥残留。
 
 步骤（与项目约定一致）：
+  0. 门禁脚本前置校验（tests/ui/verify_*.py 缺失即中止，杜绝静默跳过）
   1. scripts/purge_ai_secrets.py   自动移除 / 清空全部 AI 原始信息
                                  （含 core.debug_keys 调试密钥、种子库运行期表）
   2. 旧 dist 重命名移开（避免 PyInstaller 清理旧目录触发安全删除门禁）
   3. PyInstaller build_release.spec 构建 EXE
-  4. scripts/verify_build_security.py 产物级密钥残留校验（失败即中止）
+  4. tests/ui/verify_build_security.py 产物级密钥残留校验（失败即中止）
+  5. tests/ui/verify_offscreen_gui_e2e.py 离屏 GUI e2e 冒烟（失败即中止）
 
 用法：
     python scripts/build_release.py
@@ -30,6 +32,11 @@ DIST = ROOT / "dist"
 GENIE_TRASH = "C:/Program Files/WorkBuddy/resources/vendor/genie-trash/win32-x64.exe"
 VERSION_INFO = ROOT / "version_info.txt"
 
+# 发布门禁脚本的权威位置：均在 tests/ui/ 下（scripts/ 的同名文件已迁移为薄壳）。
+# 这里显式声明并在构建开始前校验存在性——脚本缺失必须中止，不允许静默跳过。
+SECURITY_SCRIPT = ROOT / "tests" / "ui" / "verify_build_security.py"
+E2E_SCRIPT = ROOT / "tests" / "ui" / "verify_offscreen_gui_e2e.py"
+
 
 def run(cmd, **kw):
     """执行子进程并打印完整命令行，使构建日志可追踪。
@@ -43,6 +50,33 @@ def run(cmd, **kw):
     """
     print(">>> " + " ".join(str(c) for c in cmd))
     return subprocess.run(cmd, **kw)
+
+
+def preflight_scripts(paths):
+    """构建前置校验：返回缺失的门禁脚本路径列表（空列表=全部就绪）。
+
+    Args:
+        paths: 需要存在的门禁脚本路径（Path 序列）。
+
+    Returns:
+        list[Path]: 不存在的路径；非空即代表门禁缺失，构建必须中止。
+    """
+    return [p for p in paths if not p.exists()]
+
+
+def check_gate_scripts() -> int:
+    """校验发布门禁脚本是否就绪，缺失时打印错误。
+
+    Returns:
+        int: 0=全部就绪；1=存在缺失（调用方应直接中止构建）。
+    """
+    missing = preflight_scripts([SECURITY_SCRIPT, E2E_SCRIPT])
+    if not missing:
+        return 0
+    for p in missing:
+        print(f"[错误] 发布门禁脚本缺失：{p}")
+    print("[错误] 门禁脚本缺失，已中止构建（不允许静默跳过校验）。")
+    return 1
 
 
 def _write_version_info() -> bool:
@@ -168,10 +202,10 @@ def _rmtree_win32(path: Path) -> None:
 def main() -> int:
     """一键发布构建：编排「清密钥→移旧 dist→PyInstaller 打包→产物校验」。
 
-    按项目约定顺序执行四步：先 purge 移除调试密钥与种子库运行期表，再把旧
-    dist 移开（避免触发安全删除门禁），然后 PyInstaller 构建，最后
-    verify_build_security 做产物级字节扫描；任一步失败即中止并返回对应非零
-    退出码，保证产出物始终零密钥残留。
+    按项目约定顺序执行：先做门禁脚本存在性前置校验，再 purge 移除调试密钥
+    与种子库运行期表，把旧 dist 移开（避免触发安全删除门禁），然后 PyInstaller
+    构建，最后用 tests/ui 下的权威脚本做产物级字节扫描与离屏 e2e 冒烟；任一步
+    失败即中止并返回对应非零退出码，保证产出物始终零密钥残留且门禁不空转。
 
     Returns:
         int: 0 表示构建成功且校验通过；非 0 表示中途失败。
@@ -183,6 +217,12 @@ def main() -> int:
     # 而构建失败。强制置 "0" 后，钩子改用 genie-trash 原生二进制回收
     # （实测可用），构建可正常进行。
     os.environ["CODEBUDDY_SAFE_DELETE_SANDBOX"] = "0"
+
+    # 0. 门禁脚本前置校验：缺失即中止（历史教训：e2e 脚本迁移后旧路径 exists()
+    #    为假，整步被静默跳过，等于发布门禁空转；这里改为 fail-closed）
+    code = check_gate_scripts()
+    if code != 0:
+        return code
 
     # 1. 自动移除密钥（含调试密钥清空、种子库运行期表清空 + VACUUM）
     code = run([sys.executable, str(ROOT / "scripts" / "purge_ai_secrets.py")],
@@ -215,22 +255,22 @@ def main() -> int:
     #     运行，必须删除，避免用户误点导致启动失败。
     _remove_stray_root_exe()
 
-    # 4. 产物级密钥校验
-    code = run([sys.executable, str(ROOT / "scripts" / "verify_build_security.py")],
+    # 4. 产物级密钥校验（规则正确的版本：允许官方公开端点、含 .env 指纹比对
+    #    与空产物空转守卫；scripts/ 下同名文件已降级为转发薄壳，不再维护独立规则）
+    code = run([sys.executable, str(SECURITY_SCRIPT)],
                cwd=str(ROOT)).returncode
     if code != 0:
         print("[错误] 产物校验未通过：产物中疑似含密钥，禁止发布！")
         return code
 
     # 5. 离屏 GUI e2e 冒烟（产物形态：验证产物内置平台插件加载 + 本轮模块可拉起）
-    e2e = ROOT / "scripts" / "verify_offscreen_gui_e2e.py"
+    #    脚本存在性已在步骤 0 前置校验，此处无条件执行；失败即中止，杜绝静默跳过
     dist_dir = DIST / "风水排盘专业工具"
-    if e2e.exists():
-        code = run([sys.executable, str(e2e), "--dist", str(dist_dir)],
-                   cwd=str(ROOT)).returncode
-        if code != 0:
-            print("[错误] 离屏 GUI e2e 冒烟未通过，发布前请排查产物形态窗口构造失败原因。")
-            return code
+    code = run([sys.executable, str(E2E_SCRIPT), "--dist", str(dist_dir)],
+               cwd=str(ROOT)).returncode
+    if code != 0:
+        print("[错误] 离屏 GUI e2e 冒烟未通过，发布前请排查产物形态窗口构造失败原因。")
+        return code
 
     print("=" * 64)
     print("[完成] 构建成功且产物零密钥残留，可发布。")

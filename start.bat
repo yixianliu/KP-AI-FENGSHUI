@@ -28,7 +28,9 @@ if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
     set PYTHON="%PROJECT_DIR%\env\Scripts\python.exe"
 ) else (
     where python >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
+    REM 必须用 errorlevel 动态判断（不加 %）：写在 () 复合块内的 %ERRORLEVEL%
+    REM 会在整块解析时提前展开，拿到的是 where 执行前的旧值，导致判定失真。
+    if not errorlevel 1 (
         echo [WARN] 未检测到虚拟环境，使用系统 Python
         set PYTHON=python
     ) else (
@@ -41,7 +43,10 @@ if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
 REM 检测依赖
 echo.
 echo [INFO] 检查依赖...
-%PYTHON% -c "import pyside6; import lunarcalendar; import numpy; print('[OK] 核心依赖已安装')" 2>nul
+REM 检测依赖：探测核心包能否导入（纯探测，不产生副作用）。
+REM 目的：仅当探测失败（依赖缺失/损坏）时才执行 pip install，避免每次启动都重装。
+REM 注意：模块名大小写敏感，PySide6 必须大写 P/S（曾误写为 pyside6，导致每次启动都判为缺依赖并静默重装）。
+%PYTHON% -c "import PySide6; import lunarcalendar; import numpy; print('[OK] 核心依赖已安装')" 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [WARN] 部分依赖缺失，尝试安装...
     %PYTHON% -m pip install -r requirements.txt -q

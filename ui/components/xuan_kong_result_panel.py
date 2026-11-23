@@ -5,7 +5,7 @@ ui/components/xuan_kong_result_panel.py — 玄空飞星结果展示面板
 九宫格绘制依据洛书九宫方位：巽离坤 / 震中兑 / 艮坎乾。
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QScrollArea, QFrame)
+                               QPushButton, QScrollArea, QFrame, QSizePolicy)
 from PySide6.QtCore import Qt
 from ui.styles import (Colors, Fonts, Spacing, Stylesheets,
                        apply_density, DEFAULT_DENSITY)
@@ -52,9 +52,13 @@ class _GridCanvas(QWidget):
         super().__init__(parent)
         self._result = None
         self._hover_idx = -1  # 当前悬停的宫索引（0~8，-1 无）
-        self.setFixedSize(380, 380)
+        # M7：原 setFixedSize(380,380) 在 952×404 容器内两侧留白 572px。
+        # 改为最小尺寸 + 双向可伸缩，绘制时按控件实际宽高缩放，随容器自适应。
+        self.setMinimumSize(300, 260)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
-        self.setStyleSheet(f"background-color: {Colors.BG_DARK}; border-radius: 8px;")
+        self.setStyleSheet(
+            f"background-color: {Colors.BG_DARK}; border-radius: {Spacing.RADIUS};")
 
     def set_result(self, result: dict):
         self._result = result
@@ -153,6 +157,9 @@ class _GridCanvas(QWidget):
                 painter.drawRect(x, y, w, h)
 
             # 宫位名（左上角小字）
+            painter.save()
+            # M7：文字严格裁剪在单元格内，避免长星名溢出到相邻宫
+            painter.setClipRect(x + 2, y + 2, w - 4, h - 4)
             painter.setFont(QFont(Fonts.BODY, 9, QFont.Bold))
             painter.setPen(QPen(QColor(Colors.TEXT), 1))
             painter.drawText(x + 5, y + 16, pos_name)
@@ -172,16 +179,22 @@ class _GridCanvas(QWidget):
                 painter.setPen(QPen(QColor(Colors.TEXT2), 1))
                 painter.drawText(x + w // 2 - 16, y + h - 26, f"山{shan_v} 向{xiang_v}")
 
-                # 星名（小字）
+                # 星名（小字）：M7 只取前两字（如「八白 / 九紫 / 一白」），
+                # 避免「八白左辅·九紫右弼·一白贪狼」这类长串在窄格内溢出
                 painter.setFont(QFont(Fonts.BODY, 8))
                 painter.setPen(QPen(QColor(Colors.TEXT3), 1))
-                star_names = f"{cell.get('yun_star_name','')}·{cell.get('shan_star_name','')}·{cell.get('xiang_star_name','')}"
-                painter.drawText(x + 5, y + h - 12, star_names[:14])
+                short = lambda n: (n or '')[:2]
+                names = [short(cell.get('yun_star_name')),
+                         short(cell.get('shan_star_name')),
+                         short(cell.get('xiang_star_name'))]
+                star_names = '·'.join([n for n in names if n])
+                painter.drawText(x + 5, y + h - 12, star_names)
             else:
                 # 占位：仅宫位名居中
                 painter.setFont(QFont(Fonts.BODY, 11))
                 painter.setPen(QPen(QColor(Colors.TEXT3), 1))
                 painter.drawText(x + w // 2 - 8, y + h // 2 + 4, pos_name)
+            painter.restore()
 
         painter.end()
 
@@ -200,7 +213,7 @@ class XuanKongResultPanel(QWidget):
 
     def _build(self):
         lay = QVBoxLayout(self)
-        # M3-1：根布局归 0（与 bazi/meihua/liuren 一致），标题靠默认边距，内容区由内层承载 24
+        # M3-1：根布局归 0（与 bazi/meihua 一致），标题靠默认边距，内容区由内层承载 24
         lay.setContentsMargins(Spacing.S0, Spacing.S0, Spacing.S0, Spacing.S0)
         lay.setSpacing(Spacing.S4)
 
@@ -221,12 +234,13 @@ class XuanKongResultPanel(QWidget):
         sep.setStyleSheet(f"background-color: {Colors.QINGHUA}; border-radius: 1px;")
         lay.addWidget(sep)
 
-        # 九宫格画布
+        # 九宫格画布容器：随窗口伸缩（不再给画布固定 380×380），
+        # 只约束最小高度，避免右侧出现大片空白
         self.grid_canvas = QFrame()
-        # 圆角 8px 无对应整数令牌（RADIUS_SM_INT=6 / RADIUS_INT=10），
-        # 保留裸值以严格零视觉变化；色值已归位 Colors.CANVAS_DARK
         self.grid_canvas.setStyleSheet(
-            f"background-color: {Colors.CANVAS_DARK}; border-radius: 8px;")
+            f"background-color: {Colors.CANVAS_DARK}; border-radius: {Spacing.RADIUS};")
+        self.grid_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.grid_canvas.setMinimumHeight(340)
         grid_lay = QHBoxLayout(self.grid_canvas)
         grid_lay.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
         grid_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
@@ -235,7 +249,7 @@ class XuanKongResultPanel(QWidget):
         # M3-1：九宫格外包一行，左右 24 内边距，与其余面板内容区口径一致
         grid_row = QHBoxLayout()
         grid_row.setContentsMargins(Spacing.S6, Spacing.S0, Spacing.S6, Spacing.S0)
-        grid_row.addWidget(self.grid_canvas)
+        grid_row.addWidget(self.grid_canvas, 1)
         lay.addLayout(grid_row)
 
         # 文字详情
@@ -278,8 +292,22 @@ class XuanKongResultPanel(QWidget):
         self._add_para(f"坐向：{result.get('sui_xiang', '-')}")
         self._add_para(f"运序：{result.get('yun', '-')}（{result.get('yun_info', {}).get('start', '')}-{result.get('yun_info', {}).get('end', '')}年）")
         self._add_para(f"坐山：{result.get('mount', '-')} → 向首：{result.get('facing', '-')}")
+        lifa = result.get('lifa') or {}
+        if lifa.get('method'):
+            txt = f"立向：{lifa['method']}"
+            if lifa.get('degree') is not None:
+                txt += f"（罗盘 {lifa['degree']:.1f}°，距山中线 {lifa.get('offset', 0.0):.1f}°）"
+            self._add_para(txt)
+        if result.get('pattern') and result['pattern'] != '未判定':
+            self._add_para(f"格局：{result['pattern']}")
+        if 'shan_ruzhong' in result:
+            sdir = '顺飞' if result.get('shan_direction') == 1 else '逆飞'
+            xdir = '顺飞' if result.get('xiang_direction') == 1 else '逆飞'
+            self._add_para(f"山星入中 {result.get('shan_ruzhong')}（{sdir}），"
+                           f"向星入中 {result.get('xiang_ruzhong')}（{xdir}）")
         if result.get('has_tigua'):
-            self._add_para(f"替卦：坐山={result.get('mount_tigua', '')}，向首={result.get('facing_tigua', '')}")
+            self._add_para(f"旧替卦表命中：坐山={result.get('mount_tigua', '')}，"
+                           f"向首={result.get('facing_tigua', '')}（仅参考，未参与排盘）")
         self._add_para(f"建造年份：{result.get('build_year', '-')}, 当前年份：{result.get('current_year', '-')}")
         self._add_divider()
 
@@ -300,8 +328,17 @@ class XuanKongResultPanel(QWidget):
             self._add_section(f"流年飞星叠加（{result.get('current_year', '')}）")
             for item in liunian[:9]:
                 pos = item.get('position', '')
-                star = item.get('star', '-')
-                self._add_para(f"{pos}: {star}")
+                # 计算器输出的键为 liunian（旧键 star 作兼容兜底）
+                star = item.get('liunian', item.get('star', '-'))
+                name = item.get('liunian_star_name', '')
+                self._add_para(f"{pos}: {star}{(' ' + name) if name else ''}")
+
+        lims = result.get('limitations') or []
+        if lims:
+            self._add_divider()
+            self._add_section('简化/未实现说明')
+            for text in lims:
+                self._add_para(f"· {text}")
 
         # 九宫格重绘
         self._redraw_grid(result)
@@ -338,7 +375,8 @@ class XuanKongResultPanel(QWidget):
         # 使用自绘画布 widget（五行背景 + 吉凶着色 + 中宫放大）
         canvas = _GridCanvas()
         canvas.set_result(result)
-        layout.addWidget(canvas, alignment=Qt.AlignHCenter)
+        # M7：填满容器（不再 AlignHCenter 按 sizeHint 缩回 380px 导致两侧留白）
+        layout.addWidget(canvas, 1)
         self._grid_canvas_widget = canvas
 
     def show_error(self, message: str, retry=None):

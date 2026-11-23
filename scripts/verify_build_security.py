@@ -1,72 +1,45 @@
 # -*- coding: utf-8 -*-
-"""scripts/verify_build_security.py — 产物级密钥残留校验（发布门禁）
-用法: python scripts/verify_build_security.py [dist_dir]
-退出: 0=无残留可发布; 1=发现残留禁止发布; 2=参数/目录错误
+"""scripts/verify_build_security.py — 已迁移的兼容薄壳（不做任何独立校验）
+
+真正的发布门禁已迁至 tests/ui/verify_build_security.py：
+  - 允许随包分发的官方公开后端（api.agnes-ai.cn / agnes-2.5-flash）；
+  - 读 server/.env 做机密指纹比对；
+  - 产物目录为空时判红（防空转假绿）。
+
+本文件保留仅为兼容可能存在的外部引用，**不再维护独立规则**，运行时会
+转发到权威实现并透传其退出码。这样任何仍指向本路径的自动化都能拿到正确
+结论，不会因为两份规则分叉而出现「旧版把官方端点判为泄漏 / 空目录判绿」
+这类误判。
+
+用法（参数与退出码同 tests/ui 版）：
+    python scripts/verify_build_security.py [--dist dist] [--env server/.env]
+退出码：0 = 通过；1 = 发现机密残留；2 = 参数或环境错误 / 迁移目标缺失
 """
 from __future__ import annotations
-import re, sys
+
+import runpy
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DIST = ROOT / "dist" / "风水排盘专业工具"
-
-PATTERNS: list[tuple[str, bytes]] = [
-    ("openai_style_key", rb"sk-[A-Za-z0-9]{20,}"),
-    ("openrouter_key", rb"sk-or-v1-[A-Za-z0-9]{20,}"),
-    ("bearer_token", rb"Bearer\s+[A-Za-z0-9_\-]{24,}"),
-    ("api_key_assign", rb"api[_-]?key\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]"),
-    ("endpoint_host", rb"agnes-ai\.cn"),
-    ("embedded_module", rb"_embedded_config"),
-]
-TEXT_EXT = {".md", ".txt", ".log"}
-SAMPLE_LIMIT = 8 * 1024 * 1024
-
-
-def _read_bytes_for_scan(p: Path) -> bytes:
-    size = p.stat().st_size
-    if size <= SAMPLE_LIMIT * 2:
-        return p.read_bytes()
-    with p.open("rb") as f:
-        head = f.read(SAMPLE_LIMIT)
-        f.seek(-SAMPLE_LIMIT, 2)
-        tail = f.read(SAMPLE_LIMIT)
-    return head + tail
-
-
-def scan(dist: Path) -> list[tuple[str, str, int]]:
-    hits: list[tuple[str, str, int]] = []
-    if not dist.is_dir():
-        return hits
-    for p in dist.rglob("*"):
-        if not p.is_file() or p.suffix.lower() in TEXT_EXT:
-            continue
-        try:
-            blob = _read_bytes_for_scan(p)
-        except OSError:
-            continue
-        for name, pat in PATTERNS:
-            n = len(re.findall(pat, blob))
-            if n:
-                hits.append((str(p.relative_to(dist)), name, n))
-    return hits
+# 权威实现位置（本项目内唯一维护点）
+AUTHORITY = Path(__file__).resolve().parent.parent / "tests" / "ui" / "verify_build_security.py"
 
 
 def main() -> int:
-    dist = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DIST
-    if not dist.exists():
-        print("[错误] 分发目录不存在：%s" % dist)
+    """转发执行权威实现；目标缺失时 fail-closed 返回 2，绝不假装通过。
+
+    Returns:
+        int: 权威实现的退出码；目标缺失时返回 2。
+    """
+    if not AUTHORITY.exists():
+        print(f"[错误] 迁移后的门禁脚本不存在：{AUTHORITY}", file=sys.stderr)
+        print("[错误] 拒绝以本薄壳作为有效门禁（fail-closed）。", file=sys.stderr)
         return 2
-    hits = scan(dist)
-    total = sum(1 for p in dist.rglob("*") if p.is_file())
-    print("[校验] 目录：%s" % dist)
-    print("[校验] 文件总数：%d" % total)
-    if not hits:
-        print("[通过] 产物零密钥残留，可发布。")
-        return 0
-    print("[失败] 发现 %d 处疑似残留：" % len(hits))
-    for fname, rule, n in hits[:50]:
-        print("  - %s  [%s x%d]" % (fname, rule, n))
-    return 1
+
+    print(f"[提示] 本文件已迁移，转发执行权威实现：{AUTHORITY}", file=sys.stderr)
+    # run_name='__main__' 触发权威实现的 sys.exit(main())，退出码原样透传
+    runpy.run_path(str(AUTHORITY), run_name="__main__")
+    return 0  # 正常路径上不会到达（SystemExit 已在 run_path 内抛出）
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 AI 分析结果统一渲染器 v2.2
 ========================
 职责：把各面板的「文化研究算法」AI 解读渲染成统一视觉语言，
-消灭八字/梅花/六壬三面板之间的字段映射、命名、高亮缺失等漂移。
+消灭八字/梅花两面板之间的字段映射、命名、高亮缺失等漂移。
 
 v2.2 视觉交互与排版升级：
 - 顶部 hero 标题区（鎏金渐变 + 大图标 + 时间戳 + 副标题）
@@ -15,7 +15,7 @@ v2.2 视觉交互与排版升级：
 约定
 ----
 - 入口：render_analysis(pan_type, payload, target_layout)
-- pan_type: 'bazi' | 'meihua' | 'liuren'
+- pan_type: 'bazi' | 'meihua'
 - target_layout: 结果面板的 QVBoxLayout（各面板自己的内容容器）
 - payload: AI 返回的 dict，字段以 core.analysis_storage._JSON_SCHEMAS 为准
 - 颜色约定：排盘类=青花蓝(Colors.QINGHUA)，AI 解读类=鎏金(Colors.LIUJIN)
@@ -93,7 +93,6 @@ _FALLBACK_KEY_TITLES = {
     'annual_fortune': '近期流年提示',
     'study_exam': '学业考试运',
     'folklore_tips': '民俗开运建议',
-    'tianjiang_detail': '天将神煞详解',
     'scene_readings': '分类占断',
 }
 
@@ -226,8 +225,8 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout,
     Args:
         pan_type: 面板类型标识，用于语义化配色。
         payload: AI 返回的结构化解读 dict。
-        target_layout: 三面板各自的内容布局（bazi.clay / meihua.content_layout /
-                       liuren.content_layout），从该布局外部 append 卡片。
+        target_layout: 各结果面板自己的内容布局（bazi.clay / meihua.content_layout），
+                       从该布局外部 append 卡片。
         scroll_area: 可选，面板的 QScrollArea。传入后启用 M3-2 后半的
                      「目录条悬浮吸顶」——AI 章节目录不随内容滚走。
     """
@@ -307,19 +306,6 @@ def render_analysis(pan_type: str, payload: dict, target_layout: QVBoxLayout,
                 ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
                 ('probability_stats', '概率统计', '📊', Colors.SUCCESS, 'probability'),
                 ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.ZHUSHA, 'disclaimer'),
-            ]
-        elif pan_type == 'liuren':
-            sections = [
-                ('final_verdict', '总体判断', '🎯', Colors.LIUJIN, 'conclusion_hero'),
-                ('analysis', '课体分析', '☯', Colors.LIUJIN, 'conclusion'),
-                ('tianjiang_detail', '天将神煞详解', '🎭', Colors.QINGHUA, 'list'),
-                ('scene_readings', '分类占断', '🧭', Colors.LIUJIN, 'conclusion'),
-                ('scenario_advice', '综合建议', '✨', Colors.ZHUSHA, 'conclusion'),
-                ('timing', '应期时机', '⏳', Colors.SUCCESS, 'conclusion'),
-                ('folklore_tips', '民俗开运建议', '🍀', Colors.SUCCESS, 'advice'),
-                ('historical_cases', '历史案例', '📚', Colors.QINGHUA, 'list'),
-                ('probability_stats', '概率统计', '📊', Colors.LIUJIN, 'probability'),
-                ('disclaimer', DISCLAIMER_TITLE, '⚠', Colors.TEXT3, 'disclaimer'),
             ]
         else:
             sections = []

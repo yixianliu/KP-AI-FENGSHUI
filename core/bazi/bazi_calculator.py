@@ -19,19 +19,23 @@ class BaziCalculator:
         self.yunshi_calc = YunShiCalculator()
         self.mingli_analyzer = MingLiAnalyzer()
 
-    def calculate(self, year, month, day, hour, minute=0, longitude=120.0, is_lunar=False):
+    def calculate(self, year, month, day, hour, minute=0, longitude=120.0,
+                  is_lunar=False, is_leap=False, latitude=30.0):
         """计算八字四柱，返回同时兼容UI展示和底层分析器的格式
         
         参数：
-            year: 公历年
-            month: 公历月
-            day: 公历日
+            year: 年（is_lunar=True 时为农历年）
+            month: 月（is_lunar=True 时为农历月）
+            day: 日（is_lunar=True 时为农历日）
             hour: 小时
             minute: 分钟（新增，支持真太阳时精确计算）
             longitude: 经度（新增，用于真太阳时修正）
-            is_lunar: 是否为农历
+            is_lunar: 是否为农历；True 时由底层严格转换为公历后计算
+            is_leap: 农历是否为闰月（仅 is_lunar=True 时生效）
+            latitude: 纬度（新增，仅随结果保存；真太阳时只依赖经度）
         """
-        result = self.core.calculate(year, month, day, hour, minute, longitude, is_lunar)
+        result = self.core.calculate(year, month, day, hour, minute, longitude,
+                                     is_lunar, is_leap, latitude)
         return {
             'year_pillar': result['year'],
             'month_pillar': result['month'],
@@ -50,6 +54,7 @@ class BaziCalculator:
             'solar_time': result.get('solar_time', ''),
             'original_time': result.get('original_time', ''),
             'longitude': result.get('longitude', 120.0),
+            'latitude': result.get('latitude', 30.0),
         }
 
     def get_wuxing(self, bazi):

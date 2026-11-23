@@ -205,7 +205,7 @@ class MeihuaResultPanel(QWidget):
         """创建结果卡片（统一复用 CollapsibleCard：左侧强调色条 + 图标 + 标题，可折叠）。
 
         配色：排盘类卡片用青色条(Colors.QINGHUA)，AI/强调类用鎏金色条(Colors.LIUJIN)，
-        与八字、大六壬面板保持一致。
+        与八字、玄空飞星面板保持一致。
         """
         accent = Colors.LIUJIN if highlight else Colors.QINGHUA
         card = CollapsibleCard(title, icon, accent_color=accent, collapsed=False)
@@ -382,7 +382,7 @@ class MeihuaResultPanel(QWidget):
                 badge.setStyleSheet(f"""
                     font-size: {Fonts.SZ_MICRO};
                     font-weight: {Fonts.W_BOLD};
-                    color: {Colors.TEXT_INV};
+                    color: white;
                     background: {Colors.ZHUSHA};
                     border: none;
                     border-radius: {Spacing.RADIUS_SM};

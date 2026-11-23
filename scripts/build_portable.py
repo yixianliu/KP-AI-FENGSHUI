@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,15 +28,19 @@ VERSION_INFO = ROOT / "version_info.txt"
 PYSIDE6_PKG = ROOT / "pyside6_packages"
 SPEC_PATH = ROOT / "scripts" / "build_portable.spec"
 
-# ── anaconda3 路径（包含 Qt DLLs / VC 运行时 / _ssl.pyd）───────────────────
-ANACONDA3 = Path(r"D:\anaconda3")
+# ── 基础环境路径：全部由当前解释器动态推导（换机器 / 换 venv / 换 conda 无需改脚本）──
+# conda 布局：base_prefix 下存在 Library\bin；否则退回当前解释器前缀
+_BASE = Path(sys.base_prefix)
+ANACONDA3 = _BASE if (_BASE / "Library" / "bin").is_dir() else Path(sys.prefix)
 ANACONDA_DLLS = ANACONDA3 / "Library" / "bin"   # Qt / VC / SSL DLLs
-ANACONDA_PYD  = ANACONDA3 / "DLLs"               # _ssl.pyd 等
+ANACONDA_PYD = ANACONDA3 / "DLLs"               # _ssl.pyd 等
 
-# ── 用户空间 PySide6 安装路径 ───────────────────────────────────────────────
-USER_PYTHON = Path(r"F:\AppData\Roaming\Python\Python313")
+# 当前解释器的 site-packages（含 venv / 系统 Python / conda）
+SITE_PACKAGES = Path(sysconfig.get_paths()["purelib"])
+# 兼容旧用法：USER_PYTHON / "site-packages" 即 SITE_PACKAGES
+USER_PYTHON = SITE_PACKAGES.parent
 # anaconda3 里的 PySide6 包含真正的 .pyd 文件（用户空间的是纯 shim）
-ANACONDA_PYSIDE6_SITE = ANACONDA3 / "Lib" / "site-packages"
+ANACONDA_PYSIDE6_SITE = SITE_PACKAGES
 PYINSTALLER = subprocess.run(
     [PY, "-m", "pip", "show", "PyInstaller"],
     capture_output=True, text=True
@@ -226,19 +231,6 @@ def _collect_plugins(src: Path, dst: Path) -> list[tuple[str, Path]]:
     return result
 
 
-def _find_certifi_cacert() -> Path:
-    """查找 certifi cacert.pem。"""
-    candidates = [
-        ANACONDA3 / "Lib" / "site-packages" / "certifi" / "cacert.pem",
-        USER_PYTHON / "Lib" / "site-packages" / "certifi" / "cacert.pem",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    import certifi
-    return Path(certifi.where())
-
-
 def _generate_spec(collected: dict) -> Path:
     """自动生成 PyInstaller spec 文件。
 
@@ -279,10 +271,16 @@ def _generate_spec(collected: dict) -> Path:
     # 其余 Qt 插件（styles, imageformats 等）→ datas（打入 PySide6/plugins/）
     # 注：当前实现的过滤条件已合并入其他 datas 收集分支，不再单独保留 other_plugins 字典。
 
-    certifi_cacert = _find_certifi_cacert()
+    def _src_expr(p) -> str:
+        """把源路径表达为 _PKG 相对形式，避免生成的 spec 写死本机绝对路径。"""
+        try:
+            rel = Path(p).relative_to(PYSIDE6_PKG).as_posix()
+        except ValueError:
+            return f"r'{p}'"
+        return f"str(_PKG / r'{rel}')"
 
     def _binaries_lines(items: dict) -> str:
-        return "\n".join(f"        (r'{src}', '.')," for rel, src in items.items())
+        return "\n".join(f"        ({_src_expr(src)}, '.')," for rel, src in items.items())
 
     vc_lines = _binaries_lines(vc_dlls)
     ssl_lines = _binaries_lines(ssl_dlls)
@@ -299,9 +297,9 @@ def _generate_spec(collected: dict) -> Path:
     _init_py_src = _pyside6_pkg_dir / "__init__.py"
     pyside6_datas_entries = []
     if _init_py_src.exists():
-        pyside6_datas_entries.append(f"        (r'{_init_py_src}', 'PySide6'),")
+        pyside6_datas_entries.append(f"        ({_src_expr(_init_py_src)}, 'PySide6'),")
     for rel, src in pyside6_pyds.items():
-        pyside6_datas_entries.append(f"        (r'{src}', 'PySide6'),")
+        pyside6_datas_entries.append(f"        ({_src_expr(src)}, 'PySide6'),")
     pyside6_datas_lines = "\n".join(pyside6_datas_entries)
 
     # shiboken6 包 → datas（整体打入 _internal/shiboken6/，保持版本一致性）
@@ -311,7 +309,7 @@ def _generate_spec(collected: dict) -> Path:
         for p in _shiboken6_pkg_dir.rglob("*"):
             if p.is_file() and not p.name.endswith(('.pyi', '.lib', '.h', '__pycache__')):
                 rel = str(p.relative_to(_shiboken6_pkg_dir)).replace(os.sep, '/')
-                shiboken6_datas_entries.append(f"        (r'{p}', 'shiboken6/{os.path.dirname(rel)}'),")
+                shiboken6_datas_entries.append(f"        ({_src_expr(p)}, 'shiboken6/{os.path.dirname(rel)}'),")
     shiboken6_datas_lines = "\n".join(shiboken6_datas_entries) if shiboken6_datas_entries else "        # 无 shiboken6 数据"
 
     # 插件 datas → PySide6/plugins/
@@ -320,29 +318,42 @@ def _generate_spec(collected: dict) -> Path:
     if _plugins_dir.exists():
         for p in _plugins_dir.rglob("*"):
             if p.is_file():
-                _plugin_datas.append(f"        (r'{p}', 'PySide6/plugins'),")
+                _plugin_datas.append(f"        ({_src_expr(p)}, 'PySide6/plugins'),")
     plugins_datas_str = "\n".join(_plugin_datas) if _plugin_datas else "        # 无插件数据"
 
-    # pathex 顺序：conda PySide6（含真实 .pyd）优先于用户空间 shim
-    _pathex_order = [
-        str(ANACONDA_PYSIDE6_SITE),
-        str(USER_PYTHON / "site-packages"),
-        str(ROOT),
-        str(ROOT / "scripts"),
-    ]
+    # pathex 由生成的 spec 内部按 __file__ 推导，这里不再拼接绝对路径
 
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 """风水排盘专业工具 - 便携版打包配置 (自动生成)"""
 import os
+import sysconfig
+from pathlib import Path
 
 block_cipher = None
 
-_project_root = r'{ROOT}'
-_pyside6_path = r'{PYSIDE6_PKG}'
+# 路径全部由 spec 自身位置推导：换机器 / 换 venv 无需改 spec
+_PKG = Path(__file__).resolve().parent.parent / 'pyside6_packages'
+_ROOT = _PKG.parent
+_SITE = Path(sysconfig.get_paths()['purelib'])
+
+
+def _locate(name):
+    """解析包实际目录，失败回退当前解释器 site-packages。"""
+    from importlib.util import find_spec
+    try:
+        s = find_spec(name)
+        if s and s.origin:
+            return Path(s.origin).parent
+    except Exception:
+        pass
+    return _SITE / name
+
+
+_CERTIFI = _locate('certifi') / 'cacert.pem'
 
 a = Analysis(
-    [r'{ROOT / "main.py"}'],
-    pathex={_pathex_order},
+    [str(_ROOT / 'main.py')],
+    pathex=[str(_SITE), str(_ROOT), str(_ROOT / 'scripts')],
     binaries=[
 {vc_lines}
 {ssl_lines}
@@ -355,10 +366,10 @@ a = Analysis(
 {python3_lines}
     ],
     datas=[
-        (r'{ROOT / "assets" / "favicon.ico"}', '.'),
-        (r'{ROOT / "database"}', 'database'),
-        (r'{ROOT / "data"}', 'data'),
-        (r'{certifi_cacert}', 'certifi'),
+        (str(_ROOT / 'assets' / 'favicon.ico'), '.'),
+        (str(_ROOT / 'database'), 'database'),
+        (str(_ROOT / 'data'), 'data'),
+        (str(_CERTIFI), 'certifi'),
 {plugins_datas_str}
 {pyside6_datas_lines}
 {shiboken6_datas_lines}
@@ -382,7 +393,6 @@ a = Analysis(
         'core.divination.hexagram_analyzer',
         'core.divination.hexagram_data',
         'core.knowledge.knowledge_base',
-        'core.divination.liuren',
         'core.location_db',
         'core.lunar_converter',
         'core.divination.meihua',
@@ -400,8 +410,6 @@ a = Analysis(
         'ui.components.result_panel',
         'ui.components.meihua_input',
         'ui.components.meihua_result_panel',
-        'ui.components.liuren_input',
-        'ui.components.liuren_result_panel',
         'ui.components.ai_analysis_worker',
         'ui.components.collapsible_card',
         'ui.components.export_dialog',
@@ -411,6 +419,8 @@ a = Analysis(
         'ui.export.pdf_exporter',
         'core.app_version',
         'api.agnes_client',
+        'api.ai_metrics',
+        'api.ai_throttle',
         'core.ai_config',
         'core.local_settings',
         'lunarcalendar',
@@ -424,7 +434,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={{}},
-    runtime_hooks=[r'{ROOT / "scripts" / "pyi_rth_ssl.py"}', r'{ROOT / "scripts" / "pyi_rth_pyside6_qt6.py"}'],
+    runtime_hooks=[str(_ROOT / 'scripts' / 'pyi_rth_ssl.py'), str(_ROOT / 'scripts' / 'pyi_rth_pyside6_qt6.py')],
     excludes=['PyQt5', 'PyQt6', 'PIL', 'notebook', 'jinja2', 'tkinter',
               'server', 'server.app', 'core._embedded_config'],
     cipher=block_cipher,
@@ -433,11 +443,13 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# onedir 标准写法：EXE 只装 bootloader + PYZ，二进制与数据统一由 COLLECT 落到
+# _internal/；若 EXE 同时内嵌 a.binaries + a.datas，会与 COLLECT 双份拷贝导致体积翻倍。
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    [],
+    exclude_binaries=True,
     name='风水排盘专业工具',
     debug=False,
     bootloader_ignore_signals=False,
@@ -449,8 +461,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version=os.path.join(_project_root, 'version_info.txt'),
-    icon=os.path.join(_project_root, 'assets', 'favicon.ico'),
+    version=(str(_ROOT / 'version_info.txt') if (_ROOT / 'version_info.txt').is_file() else None),
+    icon=str(_ROOT / 'assets' / 'favicon.ico'),
 )
 
 coll = COLLECT(

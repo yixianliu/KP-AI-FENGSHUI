@@ -4,7 +4,7 @@ core/ganzhi_constants.py — 干支静态常量的唯一权威源
 
 【为什么需要这个模块】
 天干、地支是命理体系中恒定不变的基础序列。在重构前，这两张表被硬编在
-data_validator、liuren、meihua、_baazi_compat、database_manager 以及多个 UI
+data_validator、meihua、_baazi_compat、database_manager 以及多个 UI
 组件里，共出现 8 次。任何一处笔误都会导致索引错位且极难排查。
 本模块把它们收敛为单一定义，所有模块统一从此导入。
 

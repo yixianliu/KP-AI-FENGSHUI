@@ -1,5 +1,7 @@
 """右侧结果面板 v5.0 - 精美国风 · 可折叠卡片 · 清晰排版 · 流畅动画
 """
+import os
+
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QScrollArea, QProgressBar, QGraphicsOpacityEffect,
                              QDialog, QSizePolicy)
@@ -10,9 +12,11 @@ from ui.components.collapsible_card import (CollapsibleCard,
                                   register_anchor_scroller,
                                   loading_panel, ResponsiveFlow,
                                   set_all_cards_collapsed,
-                                  apply_click_feedback)
+                                  apply_click_feedback,
+                                  _rgba)
 from ui.components.timeline import fortune_timeline_widget
 from ui.components.icons import icon as load_icon
+from ui.thread_shutdown import shutdown_threads
 
 # 天干五行颜色映射
 TIANGAN_WUXING = {
@@ -24,6 +28,11 @@ TIANGAN_WUXING = {
 }
 
 # 地支五行颜色映射
+# 全局在途导出目标集合（模块级单例，跨面板共享）：
+# 梅花/玄空等面板导出到同一路径时互相感知，避免并发写同一文件。
+# 仅在 GUI 线程读写（导出完成/失败信号均排队回主线程），无需额外加锁。
+_EXPORT_INFLIGHT_GLOBAL = set()
+
 DIZHI_WUXING = {
     '寅': ('木', Colors.WOOD), '卯': ('木', Colors.WOOD),
     '巳': ('火', Colors.FIRE), '午': ('火', Colors.FIRE),
@@ -34,7 +43,7 @@ DIZHI_WUXING = {
 
 
 class ResultPanel(QWidget):
-    """右侧排盘结果面板：负责展示八字/梅花/六壬等排盘结果、加载与脉冲动画、智能 分析分隔与呈现。
+    """右侧排盘结果面板：负责展示八字/梅花等排盘结果、加载与脉冲动画、智能 分析分隔与呈现。
 
     由 MainWindow 在各板块的结果栈中实例化，接受排盘结果字典并渲染为可折叠卡片；
     同时通过 display_result / show_loading 衔接文化研究算法分析流程。
@@ -53,6 +62,12 @@ class ResultPanel(QWidget):
         # 智能 功能可用性标记（由 MainWindow 在初始化后注入）
         self._available = True
         self._fade_anims = []
+        # 导出任务状态：本面板在途目标集合（驱动按钮/状态显示）+ 线程引用；
+        # 跨面板防重由模块级 _EXPORT_INFLIGHT_GLOBAL 负责，两者同步维护
+        self._export_inflight = set()
+        self._export_workers = {}
+        # 导出期间被临时改写的状态标签原文（结束后原样恢复）
+        self._export_status_backup = None
         self.init_ui()
 
     def init_ui(self):
@@ -477,7 +492,7 @@ class ResultPanel(QWidget):
                     color: white;
                     font-size: 11px;
                     font-weight: {Fonts.W_BOLD};
-                    border-radius: 13px;
+                    border-radius: {Spacing.RADIUS_PILL}px;
                     padding: 0 12px;
                     font-family: {Fonts.BODY};
                 """)
@@ -487,7 +502,7 @@ class ResultPanel(QWidget):
                     color: white;
                     font-size: 11px;
                     font-weight: {Fonts.W_MEDIUM};
-                    border-radius: 13px;
+                    border-radius: {Spacing.RADIUS_PILL}px;
                     padding: 0 12px;
                     font-family: {Fonts.BODY};
                 """)
@@ -512,13 +527,13 @@ class ResultPanel(QWidget):
             bar.setStyleSheet(f"""
                 QProgressBar {{
                     border: none;
-                    border-radius: 9px;
+                    border-radius: {Spacing.RADIUS_SM};
                     background: {Colors.BG_DARK};
                 }}
                 QProgressBar::chunk {{
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                         stop:0 {c_dark}, stop:0.5 {c_main}, stop:1 {c_light});
-                    border-radius: 9px;
+                    border-radius: {Spacing.RADIUS_SM};
                 }}
             """)
             rl.addWidget(bar, 1)
@@ -545,7 +560,7 @@ class ResultPanel(QWidget):
                 {st_sheet}
                 font-size: 11px;
                 font-weight: {Fonts.W_BOLD};
-                border-radius: 10px;
+                border-radius: {Spacing.RADIUS_SM};
                 padding: 0 6px;
                 font-family: {Fonts.BODY};
             """)
@@ -592,7 +607,7 @@ class ResultPanel(QWidget):
             icon_lbl.setStyleSheet(f"font-size: 15px; color: {bc};")
             icon_lbl.setAlignment(Qt.AlignCenter)
             badge = QLabel(tp)
-            badge.setStyleSheet(f"background:{bc}; color:white; font-size:11px; font-weight:{Fonts.W_MEDIUM}; border-radius:4px; padding:2px 8px; font-family:{Fonts.BODY};")
+            badge.setStyleSheet(f"background:{bc}; color:white; font-size:11px; font-weight:{Fonts.W_MEDIUM}; border-radius:{Spacing.RADIUS_XS}px; padding:2px 8px; font-family:{Fonts.BODY};")
             badge.setFixedHeight(20)
             badge_container.addWidget(icon_lbl)
             badge_container.addWidget(badge)
@@ -878,7 +893,7 @@ class ResultPanel(QWidget):
             card.setStyleSheet(f"""
                 QFrame {{
                     background: {bg};
-                    border: 1px solid {color}66;
+                    border: 1px solid {_rgba(color, 0.4)};
                     border-left: 4px solid {color};
                     border-radius: {Spacing.RADIUS};
                 }}
@@ -1301,7 +1316,6 @@ class ResultPanel(QWidget):
     def _on_export_click(self):
         """导出按钮点击事件"""
         from ui.components.export_dialog import ExportDialog
-        from ui.export import CsvExporter, ExcelExporter
         from ui.export.base_exporter import filter_export_data
         from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -1347,27 +1361,144 @@ class ResultPanel(QWidget):
             )
 
             if file_path:
-                try:
-                    if format_type == 'csv':
-                        exporter = CsvExporter()
-                    elif format_type == 'excel':
-                        exporter = ExcelExporter()
-                    else:
-                        try:
-                            from ui.export import PdfExporter
-                        except Exception:
-                            QMessageBox.warning(
-                                self, '导出失败',
-                                '未安装 reportlab，无法导出 PDF。\n请执行：pip install reportlab')
-                            return
-                        exporter = PdfExporter()
+                self._start_export(format_type, export_data, file_path)
 
-                    if exporter.export(export_data, file_path):
-                        QMessageBox.information(self, '导出成功', f'文件已保存至：\n{file_path}')
-                    else:
-                        QMessageBox.warning(self, '导出失败', '导出过程中发生错误')
-                except Exception as e:
-                    QMessageBox.warning(self, '导出失败', f'导出失败：{e}')
+    # ----------------- 异步导出（不阻塞 GUI 线程） -----------------
+
+    @staticmethod
+    def _export_key(file_path: str) -> str:
+        """把目标路径规范化为防重键（Windows 下大小写不敏感）。"""
+        return os.path.normcase(os.path.abspath(file_path))
+
+    def _reserve_export_target(self, file_path: str) -> bool:
+        """占位目标文件；同一路径已在任一结果面板导出时返回 False。
+
+        防重范围覆盖全部面板（模块级共享集合），本面板集合只用于按钮/状态显示。
+        """
+        key = self._export_key(file_path)
+        if key in _EXPORT_INFLIGHT_GLOBAL:
+            return False
+        _EXPORT_INFLIGHT_GLOBAL.add(key)
+        self._export_inflight.add(key)
+        return True
+
+    def _release_export_target(self, file_path: str):
+        """释放目标占位并回收工作线程对象（同时清理全局与本面板集合）。"""
+        key = self._export_key(file_path)
+        _EXPORT_INFLIGHT_GLOBAL.discard(key)
+        self._export_inflight.discard(key)
+        worker = self._export_workers.pop(key, None)
+        if worker is not None:
+            # 信号在 run() 末尾发出，此处 wait 仅作兜底，正常已结束
+            worker.wait(1000)
+            worker.deleteLater()
+
+    def active_export_workers(self) -> list:
+        """返回本面板全部在途导出线程，供主窗口关窗统一收尾。"""
+        return [w for w in self._export_workers.values() if w is not None]
+
+    def shutdown_exports(self, timeout_ms: int = 3000) -> list:
+        """协作式收尾在途导出线程，返回超时仍未结束（已托管）的线程列表。
+
+        多个导出并行时按线程数均分等待预算，避免关窗被 N×timeout 拖长。
+        """
+        workers = self.active_export_workers()
+        if not workers:
+            return []
+        budget = max(200, int(timeout_ms) // len(workers))
+        return shutdown_threads(workers, budget)
+
+    def _build_exporter(self, format_type: str):
+        """按格式创建导出器；依赖缺失时抛 RuntimeError 由调用方提示。"""
+        from ui.export import CsvExporter, ExcelExporter
+
+        if format_type == 'csv':
+            return CsvExporter()
+        if format_type == 'excel':
+            return ExcelExporter()
+        try:
+            from ui.export import PdfExporter
+        except Exception as e:
+            raise RuntimeError(
+                '未安装 reportlab，无法导出 PDF。\n请执行：pip install reportlab') from e
+        return PdfExporter()
+
+    def _start_export(self, format_type: str, export_data: dict, file_path: str):
+        """在后台线程执行导出，期间禁用导出按钮并复用状态标签做进度提示。
+
+        Args:
+            format_type: csv / excel / pdf
+            export_data: 已按章节过滤的导出数据
+            file_path: 目标文件路径（可含中文）
+        """
+        from PySide6.QtWidgets import QMessageBox
+        from ui.components.export_worker import ExportWorker
+
+        # 防重复：同一目标文件正在导出时直接忽略，不做任何提示
+        if not self._reserve_export_target(file_path):
+            return
+
+        try:
+            exporter = self._build_exporter(format_type)
+        except Exception as e:
+            self._release_export_target(file_path)
+            self._refresh_export_busy()
+            QMessageBox.warning(self, '导出失败', f'导出失败：{e}')
+            return
+
+        label = {'csv': 'CSV', 'excel': 'Excel'}.get(format_type, 'PDF')
+        worker = ExportWorker(exporter, export_data, file_path, label)
+        worker.progress.connect(self._on_export_progress)
+        worker.finished.connect(self._on_export_finished)
+        worker.failed.connect(self._on_export_failed)
+        self._export_workers[self._export_key(file_path)] = worker
+        self._refresh_export_busy()
+        worker.start()
+
+    def _refresh_export_busy(self):
+        """按在途导出数量切换「导出中」状态：禁用按钮 + 状态标签进度提示。
+
+        全部导出结束后恢复状态标签原文与样式（无论成功还是失败）。
+        """
+        busy = bool(self._export_inflight)
+        self.export_btn.setEnabled(not busy)
+        if busy:
+            if self._export_status_backup is None:
+                self._export_status_backup = (
+                    self.status_lbl.text(), self.status_lbl.styleSheet())
+            self.status_lbl.setText('导出中…')
+            self.status_lbl.setStyleSheet(
+                f"font-size:{Fonts.SZ_SMALL}; color:{Colors.QINGHUA}; "
+                f"font-family:{Fonts.BODY};")
+        elif self._export_status_backup is not None:
+            text, style = self._export_status_backup
+            self._export_status_backup = None
+            self.status_lbl.setText(text)
+            self.status_lbl.setStyleSheet(style)
+
+    def _on_export_progress(self, message: str):
+        """后台导出进度：复用顶部状态标签，不新增进度控件。"""
+        if self._export_inflight:
+            self.status_lbl.setText(message)
+            self.status_lbl.setStyleSheet(
+                f"font-size:{Fonts.SZ_SMALL}; color:{Colors.QINGHUA}; "
+                f"font-family:{Fonts.BODY};")
+
+    def _on_export_finished(self, file_path: str):
+        """导出成功：先恢复 UI 状态，再弹结果提示。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        self._release_export_target(file_path)
+        self._refresh_export_busy()
+        QMessageBox.information(self, '导出成功', f'文件已保存至：\n{file_path}')
+
+    def _on_export_failed(self, file_path: str, error_type: str, message: str):
+        """导出失败：恢复 UI 状态并把异常摘要回显给用户（不只在日志里）。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        self._release_export_target(file_path)
+        self._refresh_export_busy()
+        QMessageBox.warning(self, '导出失败', f'导出失败：{message}')
 
     # AI分隔标识
     def _add_section_header(self, smart_data):
@@ -1639,7 +1770,7 @@ class ResultPanel(QWidget):
             num.setStyleSheet(f"""
                 background: {color}; color: white;
                 font-size: 11px; font-weight: {Fonts.W_MEDIUM};
-                border-radius: 10px; min-width: 20px; min-height: 20px;
+                border-radius: {Spacing.RADIUS_PILL}px; min-width: 20px; min-height: 20px;
                 font-family: {Fonts.BODY};
             """)
             num.setAlignment(Qt.AlignCenter)

@@ -31,7 +31,6 @@ NAMES = [
 NAME_MAP = {
     "infinity": "bazi",
     "flower": "meihua",
-    "globe": "liuren",
     "mountain": "xuan-kong",
     "robot": "robot",
     "copy": "copy",

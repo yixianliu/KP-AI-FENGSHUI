@@ -29,6 +29,9 @@ _PATTERNS = [
     (re.compile(r'(?i)\b(api[_-]?key|app[_-]?key|device[_-]?token|access[_-]?token'
                 r'|admin[_-]?token|secret|password)(["\']?\s*[:=]\s*["\']?)([^\s"\',;}]{6,})'),
      lambda m: m.group(1) + m.group(2) + MASK),
+    # 长 base64 串（含 +/= 的密文块），避免整段密文原样落日志
+    (re.compile(r'(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{32,}={0,2}(?![A-Za-z0-9+/=])'),
+     lambda m: MASK),
     # 长串 URL-safe 令牌（设备令牌为 token_urlsafe(32)，约 43 字符）
     (re.compile(r'\b[A-Za-z0-9_\-]{40,}\b'), lambda m: MASK),
 ]
@@ -67,6 +70,29 @@ class SecretScrubbingFilter(logging.Filter):
                         scrub(a) if isinstance(a, str) else a
                         for a in record.args
                     )
+
+            # 【P2-09】`logger.error("... %s", exc)` 这类把异常对象（非 str）放进
+            # args 的写法，上面的逐项脱敏覆盖不到：异常对象在 Handler 格式化时
+            # 才转成字符串，其中的凭据会原样落盘。这里做「最终文本兜底」：
+            # 先 getMessage() 得到格式化后的完整文本，再跑一遍 scrub 回填 msg，
+            # 并清空 args，避免 Handler 二次格式化。
+            # 关于二次脱敏：MASK 自身不含可再次命中的敏感片段（key=value 形态
+            # 重复命中时结果仍是同一个 MASK），因此对已脱敏文本重复执行 scrub
+            # 是幂等的，不会破坏首次脱敏的结果。
+            if record.args or not isinstance(record.msg, str):
+                message = record.getMessage()
+                if isinstance(message, str):
+                    record.msg = scrub(message)
+                    record.args = ()
+
+            # 异常体（traceback 文本）不是 msg/args，必须单独渲染后再脱敏，
+            # 否则 `logger.exception` 的堆栈里携带的密钥会原样落盘。
+            if record.exc_info and not record.exc_text:
+                record.exc_text = scrub(
+                    logging.Formatter().formatException(record.exc_info)
+                )
+            if record.stack_info:
+                record.stack_info = scrub(record.stack_info)
         except Exception:
             # 脱敏失败绝不能阻断日志写入
             pass

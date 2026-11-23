@@ -34,7 +34,8 @@ fi
 # 检查依赖
 echo ""
 echo "[INFO] 检查依赖..."
-$PYTHON -c "import pyside6; import lunarcalendar; import numpy" 2>/dev/null
+# 模块名大小写敏感：PySide6 必须大写 P/S（曾误写 pyside6，会每次启动都静默重装依赖）
+$PYTHON -c "import PySide6; import lunarcalendar; import numpy" 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "[WARN] 部分依赖缺失，尝试安装..."
     $PYTHON -m pip install -r requirements.txt -q
@@ -45,9 +46,12 @@ echo ""
 echo "[INFO] 启动 KP-AI-FENGSHUI ..."
 echo ""
 $PYTHON main.py
+# 必须先落存退出码：直接写 echo "...$?" 时，$? 已被上一条 echo 重置为 0，
+# 会把真实的启动失败报成「退出码: 0」，脚本也以 0 退出（对上层等于宣称成功）。
+code=$?
 
-if [ $? -ne 0 ]; then
+if [ $code -ne 0 ]; then
     echo ""
-    echo "[ERROR] 应用启动失败，退出码: $?"
-    exit 1
+    echo "[ERROR] 应用启动失败，退出码: $code"
+    exit $code
 fi

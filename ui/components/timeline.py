@@ -553,7 +553,11 @@ def _build_liunian_cell(year_data, index=0):
         }}
         QFrame:hover {{ border:1px solid {Colors.LIUJIN_LIGHT}; }}
     """)
-    cl = QHBoxLayout(cell)
+    # 先构建水平内容行（独立 QWidget），避免后续因 tip 重构布局时
+    # 对 cell 二次 setLayout 触发
+    # "QLayout: Attempting to add QLayout ... to QFrame ..., which already has a layout"。
+    header_row = QWidget()
+    cl = QHBoxLayout(header_row)
     cl.setContentsMargins(0, 0, 0, 0)
     cl.setSpacing(Spacing.S2)
 
@@ -588,28 +592,12 @@ def _build_liunian_cell(year_data, index=0):
         tip_parts.append(year_data['analysis'])
     if tip_parts:
         tip = '\n\n'.join(tip_parts)
-        # 重构 cell 布局为垂直排列，提升视觉层次
-        # 先保存现有水平布局的控件
-        temp_widgets = []
-        while cl.count() > 0:
-            item = cl.takeAt(0)
-            if item.widget():
-                temp_widgets.append(item.widget())
-        
-        # 重新创建垂直布局
+        # 有明细时使用垂直布局：顶部信息行 + 明细卡片
         v_layout = QVBoxLayout(cell)
         v_layout.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
         v_layout.setSpacing(Spacing.S1)
-        
-        # 顶部信息行
-        header_row = QWidget()
-        h_layout = QHBoxLayout(header_row)
-        h_layout.setContentsMargins(0, 0, 0, 0)
-        h_layout.setSpacing(Spacing.S2)
-        for w in temp_widgets:
-            h_layout.addWidget(w)
         v_layout.addWidget(header_row)
-        
+
         # 明细区域 - 使用卡片样式
         if tip_parts:
             detail_container = QWidget()
@@ -621,22 +609,28 @@ def _build_liunian_cell(year_data, index=0):
             detail_layout = QVBoxLayout(detail_container)
             detail_layout.setContentsMargins(0, 0, 0, 0)
             detail_layout.setSpacing(Spacing.S1)
-            
+
             # 标题
             title_lbl = QLabel('流年分析')
             title_lbl.setStyleSheet(
                 f"font-size:{Fonts.SZ_MICRO}; font-weight:{Fonts.W_MEDIUM}; "
                 f"color:{Colors.TEXT2}; font-family:{Fonts.BODY};")
             detail_layout.addWidget(title_lbl)
-            
+
             tip_lbl = QLabel(tip)
             tip_lbl.setWordWrap(True)
             tip_lbl.setStyleSheet(
                 f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; "
                 f"font-family:{Fonts.BODY}; line-height:1.5;")
             detail_layout.addWidget(tip_lbl)
-            
+
             v_layout.addWidget(detail_container)
+    else:
+        # 无明细时，把水平内容行直接挂到 cell（仅一次布局）
+        cell_layout = QVBoxLayout(cell)
+        cell_layout.setContentsMargins(0, 0, 0, 0)
+        cell_layout.setSpacing(0)
+        cell_layout.addWidget(header_row)
 
     # 入场淡入动画
     cell.setGraphicsEffect(None)
@@ -645,7 +639,10 @@ def _build_liunian_cell(year_data, index=0):
     effect = QGraphicsOpacityEffect(cell)
     effect.setOpacity(0.0)
     cell.setGraphicsEffect(effect)
-    anim = QPropertyAnimation(effect, b"opacity")
+    # 关键修复：anim 必须被持有引用，否则 singleShot 回调执行后局部变量被 GC 析构，
+    # QPropertyAnimation 被销毁 → opacity 永久卡 0.0 → 整个流年格子透明不可见（"显示为空"）。
+    # 传入 parent=cell 让 Qt 父对象树持有引用，动画正常过渡到 1.0。
+    anim = QPropertyAnimation(effect, b"opacity", cell)
     anim.setDuration(300)
     anim.setStartValue(0.0)
     anim.setEndValue(1.0)

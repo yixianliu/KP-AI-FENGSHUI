@@ -4,11 +4,15 @@
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QFrame, QComboBox, QButtonGroup,
-                             QSpinBox, QStackedWidget, QScrollArea, QGroupBox,
+                             QSpinBox, QStackedWidget, QScrollArea,
                              QRadioButton, QGridLayout, QSizePolicy)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from ui.styles import Stylesheets, Colors, Fonts, Spacing
-from core.divination.meihua import YAO_NAMES
+from ui.components.collapsible_card import CollapsibleCard
+from ui.components.input_panel import (LUNAR_DAY_NAMES, LUNAR_MONTH_NAMES,
+                                       LunarDatePicker, build_action_bar,
+                                       form_label, refresh_form_labels)
+from core.divination.meihua import YAO_NAMES, MeiHuaCalculator
 
 METHODS = [
     ('time', '时间起卦'), ('number', '数字起卦'),
@@ -112,6 +116,60 @@ def _mod6(n):
     return 6 if r == 0 else r
 
 
+def _make_card(title, icon, grid=False, spacing=Spacing.S3):
+    """把原 QGroupBox 分组升级为 CollapsibleCard，默认展开。
+
+    与八字面板同构：卡片内容区提供 16px 左边距，内部再叠加 S_PAD_SM 小内边距，
+    三块面板的分组首个子控件左边缘因此一致；复用 CollapsibleCard 既有 API，
+    不复制其实现，也不改其行为。
+
+    Args:
+        title: 分组标题。
+        icon: 标题左侧图标（与起卦方式图标保持一致）。
+        grid: 内容是否使用 QGridLayout（表单型分组用网格更紧凑）。
+        spacing: 内容布局的行距。
+
+    Returns:
+        tuple[CollapsibleCard, QLayout]: (卡片, 已装好内边距与行距的内容布局)。
+    """
+    card = CollapsibleCard(title, icon, accent_color=Colors.QINGHUA, collapsed=False)
+    body = QWidget()
+    body.setStyleSheet('background: transparent;')
+    lay = QGridLayout(body) if grid else QVBoxLayout(body)
+    lay.setContentsMargins(Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM, Spacing.S_PAD_SM)
+    lay.setSpacing(spacing)
+    card.set_content(body)
+    return card, lay
+
+
+def _real_stroke_counts(chars):
+    """取与核心起卦完全一致的康熙笔画数；返回 (笔画列表, 未收录字列表)。
+
+    直接复用 ``MeiHuaCalculator._get_stroke_counts``（核心唯一取数入口），
+    绝不使用 ``len(ch) * 2`` 估算。任一汉字未收录时返回缺失清单，
+    由调用方在界面上明确显示「未收录」，而不是编造笔画数。
+
+    Args:
+        chars: 有效汉字字符列表。
+
+    Returns:
+        tuple[list[int] | None, list[str]]: 成功时 (笔画列表, [])；
+        失败时 (None, 未收录汉字列表)。
+    """
+    try:
+        return MeiHuaCalculator._get_stroke_counts(chars), []
+    except ValueError:
+        counts, missing = [], []
+        for ch in chars:
+            try:
+                counts.append(MeiHuaCalculator._get_stroke_counts([ch])[0])
+            except ValueError:
+                missing.append(ch)
+        if missing:
+            return None, missing
+        return counts, []
+
+
 class MeihuaInputPanel(QWidget):
     """梅花易数起卦输入面板（主窗口左栏）。
 
@@ -120,14 +178,19 @@ class MeihuaInputPanel(QWidget):
     堆叠页索引一一对应，切换方式即切换参数页，避免把无关控件堆在同一屏。
     """
 
+    #: 本面板全部标签文案：显式清单决定标签列宽（不遍历控件猜测）
+    LABEL_TEXTS = ('方式', '分类', '占问', '历法')
+
     def __init__(self, parent=None):
         """
         Args:
             parent: Qt 父控件。
         """
         super().__init__(parent)
+        self._form_labels = []           # 已创建的标签，字体变化时统一重算宽度
         # 默认时间起卦，与 METHODS[0] 及参数堆叠页索引 0 对齐
         self.selected_method = 'time'
+        self._lunar_initialized = False  # 农历控件是否已按当前时间初始化过
         self._build()
 
     def _build(self):
@@ -140,11 +203,6 @@ class MeihuaInputPanel(QWidget):
         self.setStyleSheet(f"""
             MeihuaInputPanel {{
                 background-color: {Colors.BG};
-            }}
-            QGroupBox {{
-                color: {Colors.TEXT};
-                font-weight: {Fonts.W_MEDIUM};
-                font-family: {Fonts.BODY};
             }}
         """)
 
@@ -233,37 +291,68 @@ class MeihuaInputPanel(QWidget):
         tw = QWidget(); tw.setStyleSheet("background: transparent;")
         tl = QVBoxLayout(tw); tl.setContentsMargins(0,0,0,0); tl.setSpacing(Spacing.S3)
         
-        # 历法 + 时间输入
-        cal_group = QGroupBox('时间设置')
-        cal_lay = QVBoxLayout(cal_group)
-        cal_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
-        cal_lay.setSpacing(Spacing.S3)
+        # 历法 + 时间输入（分组隐喻与八字一致：默认展开的折叠卡片）
+        cal_group, cal_lay = _make_card('时间设置', '◷', spacing=Spacing.S3)
         
-        # 历法单选：公历 / 农历
+        # 历法单选：公历（cal_solar）/ 农历（cal_lunar）
         cal_row = QHBoxLayout(); cal_row.setSpacing(Spacing.S4)
-        cal_row.addWidget(QLabel('历法:'))
+        cal_row.addWidget(self._label('历法'))
         self.calendar_btn_group = QButtonGroup(self)
         self.calendar_btn_group.setExclusive(True)
-        self.cal_lunar = QRadioButton('公历')
-        self.cal_lunar.setChecked(True)
-        self.cal_lunar.setStyleSheet(Stylesheets.RADIO)
-        self.cal_solar = QRadioButton('农历')
+        self.cal_solar = QRadioButton('公历')
+        self.cal_solar.setChecked(True)
         self.cal_solar.setStyleSheet(Stylesheets.RADIO)
-        self.calendar_btn_group.addButton(self.cal_lunar)
+        self.cal_lunar = QRadioButton('农历')
+        self.cal_lunar.setStyleSheet(Stylesheets.RADIO)
         self.calendar_btn_group.addButton(self.cal_solar)
-        cal_row.addWidget(self.cal_lunar)
+        self.calendar_btn_group.addButton(self.cal_lunar)
         cal_row.addWidget(self.cal_solar)
+        cal_row.addWidget(self.cal_lunar)
         cal_row.addStretch()
         cal_lay.addLayout(cal_row)
-        
-        # 时间输入
-        time_row = QHBoxLayout(); time_row.setSpacing(Spacing.S3)
-        time_row.addWidget(QLabel('时间:'))
+
+        # 时间输入：公历=文本输入（原行为不变），农历=年月日选择 + 时分微调
+        self.time_stack = QStackedWidget()
+        self.time_stack.setStyleSheet('background: transparent;')
+
+        solar_page = QWidget(); solar_page.setStyleSheet('background: transparent;')
+        solar_row = QHBoxLayout(solar_page)
+        solar_row.setContentsMargins(0, 0, 0, 0)
+        solar_row.setSpacing(Spacing.S3)
+        solar_row.addWidget(QLabel('时间:'))
         self.time_edit = QLineEdit()
         self.time_edit.setStyleSheet(Stylesheets.INPUT)
         self.time_edit.setPlaceholderText('留空取当前时辰 (格式: YYYY-MM-DD HH:MM)')
-        time_row.addWidget(self.time_edit, 1)
-        cal_lay.addLayout(time_row)
+        solar_row.addWidget(self.time_edit, 1)
+        self.time_stack.addWidget(solar_page)
+
+        lunar_page = QWidget(); lunar_page.setStyleSheet('background: transparent;')
+        lunar_lay = QVBoxLayout(lunar_page)
+        lunar_lay.setContentsMargins(0, 0, 0, 0)
+        lunar_lay.setSpacing(Spacing.S2)
+        self.lunar_picker = LunarDatePicker()
+        lunar_lay.addWidget(self.lunar_picker)
+        hm_row = QHBoxLayout(); hm_row.setSpacing(Spacing.S2)
+        hm_row.addWidget(QLabel('时间:'))
+        self.lunar_hour_spin = QSpinBox()
+        self.lunar_hour_spin.setRange(0, 23)
+        self.lunar_hour_spin.setSuffix(' 时')
+        self.lunar_hour_spin.setFixedWidth(88)
+        self.lunar_hour_spin.setStyleSheet(Stylesheets.INPUT)
+        self.lunar_minute_spin = QSpinBox()
+        self.lunar_minute_spin.setRange(0, 59)
+        self.lunar_minute_spin.setSuffix(' 分')
+        self.lunar_minute_spin.setFixedWidth(88)
+        self.lunar_minute_spin.setStyleSheet(Stylesheets.INPUT)
+        hm_row.addWidget(self.lunar_hour_spin)
+        hm_row.addWidget(self.lunar_minute_spin)
+        hm_row.addStretch()
+        lunar_lay.addLayout(hm_row)
+        self.time_stack.addWidget(lunar_page)
+
+        cal_lay.addWidget(self.time_stack)
+        self.cal_solar.toggled.connect(self._on_calendar_changed)
+        self.cal_lunar.toggled.connect(self._on_calendar_changed)
         
         tl.addWidget(cal_group)
         tl.setSizeConstraint(QVBoxLayout.SetMinimumSize)
@@ -339,10 +428,7 @@ class MeihuaInputPanel(QWidget):
         dw = QWidget(); dw.setStyleSheet("background: transparent;")
         dl = QVBoxLayout(dw); dl.setContentsMargins(0,0,0,0); dl.setSpacing(Spacing.S3)
 
-        dir_group = QGroupBox('方位选择')
-        dir_lay = QVBoxLayout(dir_group)
-        dir_lay.setSpacing(Spacing.S3)
-        dir_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
+        dir_group, dir_lay = _make_card('方位选择', '🧭', spacing=Spacing.S3)
 
         self.dir_combo = QComboBox()
         self.dir_combo.setStyleSheet(Stylesheets.COMBO)
@@ -354,8 +440,6 @@ class MeihuaInputPanel(QWidget):
         compass_widget, self._compass_update = self._build_compass()
         dir_lay.addWidget(compass_widget)
 
-        # 注意：QVBoxLayout(group_box) 已自动将 dir_lay 安装到 dir_group，
-        # 此处不能再 setLayout，否则会触发 "QLayout '' to QWidget '' which already has a layout" 警告
         dl.addWidget(dir_group)
 
         # 实时卦象预览
@@ -372,10 +456,7 @@ class MeihuaInputPanel(QWidget):
         xw = QWidget(); xw.setStyleSheet("background: transparent;")
         xl = QVBoxLayout(xw); xl.setContentsMargins(0,0,0,0); xl.setSpacing(Spacing.S3)
 
-        text_group = QGroupBox('文字设置')
-        text_lay = QGridLayout(text_group)
-        text_lay.setSpacing(Spacing.S2)
-        text_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
+        text_group, text_lay = _make_card('文字设置', '✎', grid=True, spacing=Spacing.S2)
 
         self.char_mode_combo = QComboBox()
         self.char_mode_combo.addItems(['单字', '多字'])
@@ -392,7 +473,6 @@ class MeihuaInputPanel(QWidget):
 
         self._build_text_feedback(text_lay)
 
-        # 注意：QVBoxLayout(group_box) 已自动安装到 text_group，此处不能再 setLayout
         xl.addWidget(text_group)
 
         # 实时卦象预览
@@ -407,10 +487,7 @@ class MeihuaInputPanel(QWidget):
         ccw = QWidget(); ccw.setStyleSheet("background: transparent;")
         ccl = QVBoxLayout(ccw); ccl.setContentsMargins(0,0,0,0); ccl.setSpacing(Spacing.S3)
         
-        coin_group = QGroupBox('铜钱摇卦')
-        coin_lay = QVBoxLayout(coin_group)
-        coin_lay.setSpacing(Spacing.S2)
-        coin_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
+        coin_group, coin_lay = _make_card('铜钱摇卦', '🪙', spacing=Spacing.S2)
         
         coin_hint = QLabel('摇6次铜钱（从初爻到上爻）：\n● 少阳(1背2面) ○ 老阴(3背) ● 少阴(2背1面) ✕ 老阳(3面)\n默认初始：每次点击"自动"随机生成')
         coin_hint.setStyleSheet(f"font-size: {Fonts.SZ_SMALL}; color: {Colors.TEXT2}; background: {Colors.ZHUSHA}; padding: 6px; border-radius: 4px;")
@@ -453,7 +530,6 @@ class MeihuaInputPanel(QWidget):
         self.auto_coin_btn.clicked.connect(self._auto_fill_coins)
         coin_lay.addWidget(self.auto_coin_btn)
 
-        # 注意：QVBoxLayout(group_box) 已自动安装到 coin_group，此处不能再 setLayout
         ccl.addWidget(coin_group, 1)
         ccl.setSizeConstraint(QVBoxLayout.SetMinimumSize)
         
@@ -463,10 +539,7 @@ class MeihuaInputPanel(QWidget):
         sw = QWidget(); sw.setStyleSheet("background: transparent;")
         sl = QVBoxLayout(sw); sl.setContentsMargins(0,0,0,0); sl.setSpacing(Spacing.S3)
 
-        stroke_group = QGroupBox('笔画起卦')
-        stroke_lay = QGridLayout(stroke_group)
-        stroke_lay.setSpacing(Spacing.S2)
-        stroke_lay.setContentsMargins(Spacing.S3, Spacing.S3, Spacing.S3, Spacing.S3)
+        stroke_group, stroke_lay = _make_card('笔画起卦', '✍', grid=True, spacing=Spacing.S2)
 
         stroke_label = QLabel('输入汉字:')
         stroke_lay.addWidget(stroke_label, 0, 0)
@@ -490,7 +563,6 @@ class MeihuaInputPanel(QWidget):
         stroke_hint.setWordWrap(True)
         stroke_lay.addWidget(stroke_hint, 2, 0, 1, 2)
 
-        # 注意：QVBoxLayout(group_box) 已自动安装到 stroke_group，此处不能再 setLayout
         sl.addWidget(stroke_group)
 
         # 实时卦象预览
@@ -503,26 +575,26 @@ class MeihuaInputPanel(QWidget):
 
         lay.addWidget(self.params)
 
-        # 按钮
-        btn_row = QHBoxLayout(); btn_row.setSpacing(Spacing.S3)
+        # 末尾留白：留在内容区内部，把多余空间压在参数区下方；
+        # 按钮已移到 QGroupBox 之外的吸底条，不再受内容区留白影响。
+        lay.addStretch()
+
+        scroll.setWidget(content)
+
+        # 吸底操作条：与八字 / 玄空同构，必须在 QGroupBox 之外（面板最外层），
+        # 否则会跟着分组框内边距缩进。
         self.submit_btn = QPushButton('起卦')
         self.submit_btn.setStyleSheet(Stylesheets.BTN_PRIMARY)
         self.submit_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn = QPushButton('重置')
         self.reset_btn.setStyleSheet(Stylesheets.BTN_SECONDARY)
         self.reset_btn.setCursor(Qt.PointingHandCursor)
-        btn_row.addWidget(self.submit_btn); btn_row.addWidget(self.reset_btn)
-        lay.addLayout(btn_row)
 
-        # 末尾留白：把多余空间压到最底部，确保「占问→参数→按钮」紧凑成组、
-        # 矮页（如数字起卦）下方不留突兀间隙，整体视觉更平衡。
-        lay.addStretch()
-
-        scroll.setWidget(content)
         outer = QVBoxLayout(self)
-        outer.setSpacing(Spacing.S2)  # 显式设值：避免继承 Qt 默认 6（非 8-4 体系）
+        outer.setSpacing(Spacing.S0)  # 操作条紧贴滚动区，1px 上分隔线即面板分界
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
+        outer.addWidget(scroll, 1)
+        outer.addWidget(build_action_bar(self.submit_btn, self.reset_btn))
 
     def _label(self, text):
         """生成表单左侧的定宽说明标签，使各行输入控件左边缘对齐。
@@ -531,11 +603,17 @@ class MeihuaInputPanel(QWidget):
             text: 标签文字。
 
         Returns:
-            QLabel: 固定宽 42px 的深灰色标签，确保在浅色背景上清晰可读。
+            FormLabel: 宽度由本面板文案集合实测字体宽度决定的深灰色标签。
         """
-        l = QLabel(text); l.setFixedWidth(42)
-        l.setStyleSheet(f"font-size:{Fonts.SZ_SMALL}; color:{Colors.TEXT}; font-family:{Fonts.BODY};")
-        return l
+        lb = form_label(text, Colors.TEXT, self.LABEL_TEXTS)
+        self._form_labels.append(lb)
+        return lb
+
+    def changeEvent(self, event):
+        """字体变化时按新字体重算所有标签列宽（换字体/DPI 后不裁切）。"""
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            refresh_form_labels(self._form_labels)
 
     def _on_method(self, i):
         """起卦方式切换槽（由方式按钮的 clicked 触发）。
@@ -548,6 +626,29 @@ class MeihuaInputPanel(QWidget):
         """
         self.selected_method = METHODS[i][0]
         self.params.setCurrentIndex(i)
+
+    def _on_calendar_changed(self, *_):
+        """历法切换槽：公历显示文本输入页，农历显示年月日选择页。
+
+        首次切到农历时用公历时间框可解析的值或当前时刻初始化农历控件；
+        之后保留用户已选的农历日期，避免来回切换把输入清掉。
+        """
+        is_lunar = self.cal_lunar.isChecked()
+        self.time_stack.setCurrentIndex(1 if is_lunar else 0)
+        if is_lunar and not self._lunar_initialized:
+            self._init_lunar_from_now_or_text()
+            self._lunar_initialized = True
+
+    def _init_lunar_from_now_or_text(self):
+        """用公历时间框（能解析时）或系统当前时刻初始化农历年/月/日与时/分。"""
+        from datetime import datetime as dt
+        try:
+            parsed = dt.strptime(self.time_edit.text().strip(), '%Y-%m-%d %H:%M')
+        except (ValueError, TypeError):
+            parsed = dt.now()
+        self.lunar_picker.set_from_solar_date(parsed.year, parsed.month, parsed.day)
+        self.lunar_hour_spin.setValue(parsed.hour)
+        self.lunar_minute_spin.setValue(parsed.minute)
 
     def _auto_fill_coins(self):
         """自动填充6爻为随机铜钱结果"""
@@ -616,26 +717,42 @@ class MeihuaInputPanel(QWidget):
             d['stroke_count'] = self.stroke_spin.value()
 
         elif method == 'time':
-            time_str = self.time_edit.text().strip()
-            d['time_str'] = time_str
-            from datetime import datetime as dt
-            if not time_str:
-                # 时间留空则用当前时间（这是合理行为，非兜底）
-                now = dt.now()
-                d['year'] = now.year
-                d['month'] = now.month
-                d['day'] = now.day
-                d['hour'] = now.hour
+            if self.cal_lunar.isChecked():
+                # 农历：年月日取自选择器（含闰月），时分取自双微调；先严格校验日期真实性
+                ly, lm, ld, leap = self.lunar_picker.lunar_date()
+                from core.lunar_converter import convert_lunar_to_solar
+                convert_lunar_to_solar(ly, lm, ld, leap)
+                hh = self.lunar_hour_spin.value()
+                mm = self.lunar_minute_spin.value()
+                d['year'], d['month'], d['day'] = ly, lm, ld
+                d['hour'] = hh
+                d['calendar_type'] = '农历'
+                d['is_leap'] = leap
+                d['time_str'] = (f'{ly}年{"闰" if leap else ""}'
+                                 f'{LUNAR_MONTH_NAMES[lm - 1]}{LUNAR_DAY_NAMES[ld - 1]} '
+                                 f'{hh:02d}:{mm:02d}')
             else:
-                try:
-                    parsed = dt.strptime(time_str, '%Y-%m-%d %H:%M')
-                    d['year'] = parsed.year
-                    d['month'] = parsed.month
-                    d['day'] = parsed.day
-                    d['hour'] = parsed.hour
-                except (ValueError, TypeError):
-                    raise ValueError(f"时间格式错误: {time_str}（需 YYYY-MM-DD HH:MM）")
-            d['calendar_type'] = '公历' if self.cal_lunar.isChecked() else '农历'
+                time_str = self.time_edit.text().strip()
+                d['time_str'] = time_str
+                from datetime import datetime as dt
+                if not time_str:
+                    # 时间留空则用当前时间（这是合理行为，非兜底）
+                    now = dt.now()
+                    d['year'] = now.year
+                    d['month'] = now.month
+                    d['day'] = now.day
+                    d['hour'] = now.hour
+                else:
+                    try:
+                        parsed = dt.strptime(time_str, '%Y-%m-%d %H:%M')
+                        d['year'] = parsed.year
+                        d['month'] = parsed.month
+                        d['day'] = parsed.day
+                        d['hour'] = parsed.hour
+                    except (ValueError, TypeError):
+                        raise ValueError(f"时间格式错误: {time_str}（需 YYYY-MM-DD HH:MM）")
+                d['calendar_type'] = '公历'
+                d['is_leap'] = False
 
         return d
 
@@ -670,9 +787,18 @@ class MeihuaInputPanel(QWidget):
                 f"font-size:{Fonts.SZ_MICRO}; color:{Colors.WARNING}; font-family:{Fonts.BODY};"
             )
         else:
-            strokes = [len(ch) * 2 for ch in chars]
+            strokes, missing = _real_stroke_counts(chars)
+            if missing:
+                self._text_feedback.setText(
+                    f'未收录笔画：{"、".join(missing)}（康熙笔画表中无此字，'
+                    f'无法按真实笔画起卦）'
+                )
+                self._text_feedback.setStyleSheet(
+                    f"font-size:{Fonts.SZ_MICRO}; color:{Colors.WARNING}; font-family:{Fonts.BODY};"
+                )
+                return
             self._text_feedback.setText(
-                f'共 {len(chars)} 字，累计 {sum(strokes)} 笔（按 Unicode 2 笔/字估算）'
+                f'共 {len(chars)} 字，累计 {sum(strokes)} 笔（康熙笔画）'
             )
             self._text_feedback.setStyleSheet(
                 f"font-size:{Fonts.SZ_MICRO}; color:{Colors.TEXT3}; font-family:{Fonts.BODY};"
@@ -706,7 +832,9 @@ class MeihuaInputPanel(QWidget):
         self.dir_combo.setCurrentIndex(0)
         self.stroke_char_edit.clear()
         self.stroke_spin.setValue(12)
-        self.cal_lunar.setChecked(True)
+        self.cal_solar.setChecked(True)
+        self.time_stack.setCurrentIndex(0)
+        self._lunar_initialized = False
         if hasattr(self, 'coin_radio_buttons'):
             for i in range(6):
                 for rbtn in self.coin_radio_buttons[i]:
@@ -781,7 +909,17 @@ class MeihuaInputPanel(QWidget):
         gl.setColumnStretch(1, 1)
         gl.setColumnStretch(2, 1)
 
-        def update(upper_num, lower_num, changing_yao):
+        # 未收录字提示：默认隐藏，仅在核心笔画表缺失该字时显示
+        note_lbl = QLabel('')
+        note_lbl.setWordWrap(True)
+        note_lbl.setAlignment(Qt.AlignCenter)
+        note_lbl.setStyleSheet(
+            f"font-size:{Fonts.SZ_MICRO}; color:{Colors.WARNING}; font-family:{Fonts.BODY};"
+        )
+        note_lbl.hide()
+        gl.addWidget(note_lbl, 2, 0, 1, 3)
+
+        def update(upper_num, lower_num, changing_yao, note=''):
             u = TRIGRAMS.get(upper_num)
             l = TRIGRAMS.get(lower_num)
             if u:
@@ -796,6 +934,16 @@ class MeihuaInputPanel(QWidget):
                 s3.setText('⚡'); n3.setText(YAO_NAMES[changing_yao - 1])
             else:
                 s3.setText('—'); n3.setText('—')
+            if note:
+                # 笔画未收录时不显示任何估算卦象，三栏明确写「未收录」
+                s1.setText('—'); n1.setText('未收录')
+                s2.setText('—'); n2.setText('未收录')
+                s3.setText('—'); n3.setText('未收录')
+                note_lbl.setText(note)
+                note_lbl.show()
+            else:
+                note_lbl.clear()
+                note_lbl.hide()
 
         return card, update
 
@@ -891,7 +1039,13 @@ class MeihuaInputPanel(QWidget):
         if not chars:
             self._text_preview_update(None, None, None)
             return
-        total_strokes = sum(2 for _ in chars)  # 与核心算法一致：每汉字估 2 笔
+        # 与核心 text_divination 共用同一套康熙笔画表，预览口不再按 2 笔/字估算
+        strokes, missing = _real_stroke_counts(chars)
+        if missing:
+            self._text_preview_update(None, None, None,
+                                      note=f'未收录笔画：{"、".join(missing)}')
+            return
+        total_strokes = sum(strokes)
         char_count = len(chars)
         upper = _mod8(total_strokes)
         lower = _mod8(total_strokes + char_count)

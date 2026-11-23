@@ -77,15 +77,15 @@ def ensure_cache_table() -> None:
 
 
 # 参与 input_hash 计算的输入字段（与排盘计算相关的核心字段）
-_BAZI_KEY_FIELDS = ('name', 'gender', 'year', 'month', 'day', 'hour', 'minute', 'longitude', 'is_lunar')
+# is_leap 必须纳入：农历闰月与同月号非闰月的四柱不同，漏掉会串用缓存
+_BAZI_KEY_FIELDS = ('name', 'gender', 'year', 'month', 'day', 'hour', 'minute',
+                    'longitude', 'is_lunar', 'is_leap')
 _MEIHUA_KEY_FIELDS = ('method', 'year', 'month', 'day', 'hour', 'minute', 'question', 'numbers', 'text')
-_LIUREN_KEY_FIELDS = ('method', 'year', 'month', 'day', 'hour', 'minute', 'question')
-_COMPREHENSIVE_KEY_FIELDS = ('question', 'bazi', 'meihua', 'liuren')
+_COMPREHENSIVE_KEY_FIELDS = ('question', 'bazi', 'meihua')
 
 _PAN_TYPE_FIELDS = {
     'bazi': _BAZI_KEY_FIELDS,
     'meihua': _MEIHUA_KEY_FIELDS,
-    'liuren': _LIUREN_KEY_FIELDS,
     'comprehensive': _COMPREHENSIVE_KEY_FIELDS,
 }
 
@@ -99,15 +99,23 @@ def _normalize(obj: Any) -> Any:
     return obj
 
 
-def compute_input_hash(pan_type: str, input_data: Dict[str, Any]) -> str:
+def compute_input_hash(pan_type: str, input_data: Dict[str, Any],
+                       namespace: str = '') -> str:
     """计算 (pan_type, input_data) 的稳定哈希（SHA256 前 32 字符）。
 
     仅纳入该 pan_type 的核心字段，避免 UI 临时字段（如 question）污染 hash。
+
+    Args:
+        namespace: 可选命名空间（模型 + 提示词版本指纹）。传入后同一份排盘数据
+            在不同模型/不同提示词下会得到不同 hash，避免换模型后继续吃旧结论；
+            默认空串保持历史行为（存量缓存与旧测试兼容）。
     """
     fields = _PAN_TYPE_FIELDS.get(pan_type, ())
     picked = {k: input_data.get(k) for k in fields if k in input_data}
     normalized = _normalize(picked)
     payload = json.dumps(normalized, ensure_ascii=False, sort_keys=True)
+    if namespace:
+        payload = f'{namespace}\n{payload}'
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:32]
 
 
@@ -117,22 +125,33 @@ def compute_question_hash(question: Any) -> str:
     return hashlib.sha256(q.encode('utf-8')).hexdigest()[:32]
 
 
-def make_cache_key(pan_type: str, input_data: Dict[str, Any], question: Any = None) -> tuple:
-    """构造缓存主键 (pan_type, input_hash, question_hash)。"""
+def make_cache_key(pan_type: str, input_data: Dict[str, Any], question: Any = None,
+                   namespace: str = '') -> tuple:
+    """构造缓存主键 (pan_type, input_hash, question_hash)。
+
+    namespace 参与 input_hash，用于把「模型 + 提示词版本」纳入缓存键，
+    无需新增数据库列即可实现换模型自动失效。
+    """
     return (
         pan_type,
-        compute_input_hash(pan_type, input_data),
+        compute_input_hash(pan_type, input_data, namespace),
         compute_question_hash(question),
     )
 
 
-def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any = None) -> Optional[Dict[str, Any]]:
+def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any = None,
+                      namespace: str = '') -> Optional[Dict[str, Any]]:
     """查询缓存：命中返回 dict；未命中返回 None。
+
+    Args:
+        namespace: 模型/提示词版本指纹；非空时先查带指纹的键，未命中再兼容
+            查一次旧键（升级前的存量缓存仍可命中，避免老用户突然全部重算）。
 
     副作用：命中时原子更新 last_used_at 与 hit_count。
     """
     ensure_cache_table()
-    key = make_cache_key(pan_type, input_data, question)
+    key = make_cache_key(pan_type, input_data, question, namespace)
+    legacy_key = make_cache_key(pan_type, input_data, question) if namespace else None
     con = get_connection()
     try:
         row = con.execute(
@@ -140,6 +159,16 @@ def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any =
             'WHERE pan_type=? AND input_hash=? AND question_hash=?',
             key
         ).fetchone()
+        hit_key = key
+        if row is None and legacy_key and legacy_key != key:
+            row = con.execute(
+                'SELECT ai_json, hit_count FROM ai_cache '
+                'WHERE pan_type=? AND input_hash=? AND question_hash=?',
+                legacy_key
+            ).fetchone()
+            if row is not None:
+                hit_key = legacy_key
+                logger.debug(f'[AI 缓存] 命中升级前旧键（无版本指纹）pan_type={pan_type}')
         if row is None:
             logger.debug(f'[AI 缓存] 未命中 pan_type={pan_type} input_hash={key[1][:8]}...')
             # 指标埋点：缓存未命中
@@ -168,7 +197,7 @@ def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any =
             con.execute(
                 'UPDATE ai_cache SET hit_count=?, last_used_at=CURRENT_TIMESTAMP '
                 'WHERE pan_type=? AND input_hash=? AND question_hash=?',
-                (hit_count + 1, *key)
+                (hit_count + 1, *hit_key)
             )
             con.commit()
         except Exception as e:
@@ -197,15 +226,18 @@ def get_cached_result(pan_type: str, input_data: Dict[str, Any], question: Any =
 
 
 def save_to_cache(pan_type: str, input_data: Dict[str, Any], question: Any,
-                  ai_result: Dict[str, Any]) -> bool:
+                  ai_result: Dict[str, Any], namespace: str = '') -> bool:
     """写入缓存：成功 True，失败 False。
 
     只缓存非空结果；写失败仅记日志不抛异常（避免缓存错误影响正常流程）。
+
+    Args:
+        namespace: 模型/提示词版本指纹；非空时写入带指纹的键，换模型后旧条目自然失效。
     """
     if not ai_result or not isinstance(ai_result, dict):
         return False
     ensure_cache_table()
-    key = make_cache_key(pan_type, input_data, question)
+    key = make_cache_key(pan_type, input_data, question, namespace)
     # 不缓存带 _cache_hit_count 标记的二次结果（避免污染）
     ai_json = json.dumps(ai_result, ensure_ascii=False)
     con = get_connection()

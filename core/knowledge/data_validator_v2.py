@@ -34,13 +34,13 @@ YEAR_MAX = 2100
 MONTH_MIN = 1
 MONTH_MAX = 12
 
-#: 有效经度范围（东经 73-135，覆盖中国疆域）
-LONGITUDE_MIN = 73.0
-LONGITUDE_MAX = 135.0
+#: 有效经度范围（全球口径，与 core/calendar_utils 的 -180~180 保持一致）
+LONGITUDE_MIN = -180.0
+LONGITUDE_MAX = 180.0
 
-#: 有效纬度范围（北纬 18-53）
-LATITUDE_MIN = 18.0
-LATITUDE_MAX = 53.0
+#: 有效纬度范围（全球口径，与 core/calendar_utils 的 -90~90 保持一致）
+LATITUDE_MIN = -90.0
+LATITUDE_MAX = 90.0
 
 #: 性别选项
 GENDER_OPTIONS = ('男', '女')
@@ -134,20 +134,20 @@ def validate_time(hour: int, minute: int = 0) -> Optional[str]:
 
 
 def validate_longitude(longitude: float) -> Optional[str]:
-    """校验经度是否在有效范围。"""
+    """校验经度是否在有效范围（全球 -180~180）。"""
     if not isinstance(longitude, (int, float)):
         return f'经度必须为数值，收到 {type(longitude).__name__}'
     if longitude < LONGITUDE_MIN or longitude > LONGITUDE_MAX:
-        return f'经度 {longitude}° 超出有效范围 {LONGITUDE_MIN}-{LONGITUDE_MAX}°E'
+        return f'经度 {longitude}° 超出有效范围 {LONGITUDE_MIN}-{LONGITUDE_MAX}°'
     return None
 
 
 def validate_latitude(latitude: float) -> Optional[str]:
-    """校验纬度是否在有效范围。"""
+    """校验纬度是否在有效范围（全球 -90~90）。"""
     if not isinstance(latitude, (int, float)):
         return f'纬度必须为数值，收到 {type(latitude).__name__}'
     if latitude < LATITUDE_MIN or latitude > LATITUDE_MAX:
-        return f'纬度 {latitude}° 超出有效范围 {LATITUDE_MIN}-{LATITUDE_MAX}°N'
+        return f'纬度 {latitude}° 超出有效范围 {LATITUDE_MIN}-{LATITUDE_MAX}°'
     return None
 
 
@@ -219,6 +219,12 @@ def validate_bazi_input(data: Dict[str, Any]) -> ValidationResult:
     if err:
         result.add_error(err)
 
+    # 纬度与经度同口径校验（入参含 latitude 时）；旧实现从不校验纬度
+    if 'latitude' in data:
+        err = validate_latitude(data['latitude'])
+        if err:
+            result.add_error(err)
+
     err = validate_gender(data.get('gender', '男'))
     if err:
         result.add_error(err)
@@ -287,24 +293,6 @@ def validate_meihua_input(data: Dict[str, Any]) -> ValidationResult:
     return v
 
 
-def validate_liuren_input(data: Dict[str, Any]) -> ValidationResult:
-    """大六壬输入校验。"""
-    v = ValidationResult()
-    method = data.get('method', 'auto')
-    valid_methods = ('auto', 'zeike', 'biyong', 'shehai', 'maoxing',
-                     'fuyin', 'fanyin', 'bieze', 'bazhuan')
-    if method not in valid_methods:
-        v.add_error(f'九宗门方法 "{method}" 无效')
-    if data.get('year') and data.get('month') and data.get('day'):
-        err = validate_year(data['year'])
-        if err:
-            v.add_error(err)
-        err = validate_month(data['month'])
-        if err:
-            v.add_error(err)
-    return v
-
-
 def validate_xuan_kong_input(data: Dict[str, Any]) -> ValidationResult:
     """玄空飞星输入校验。
 
@@ -342,7 +330,7 @@ def create_validator_for(pan_type: str):
     """按盘型返回对应的输入校验函数。
 
     Args:
-        pan_type: 'bazi' / 'meihua' / 'liuren' / 'xuan_kong'
+        pan_type: 'bazi' / 'meihua' / 'xuan_kong'
 
     Returns:
         callable: 接受 dict 参数，返回 ValidationResult
@@ -350,7 +338,6 @@ def create_validator_for(pan_type: str):
     mapping = {
         'bazi': validate_bazi_input,
         'meihua': validate_meihua_input,
-        'liuren': validate_liuren_input,
         'xuan_kong': validate_xuan_kong_input,
     }
     fn = mapping.get(pan_type)

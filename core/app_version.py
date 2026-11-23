@@ -14,7 +14,7 @@ README 等所有对外展示的版本号，都必须从本模块读取，不得�
 """
 from __future__ import annotations
 
-__version__ = '5.0.6'
+__version__ = '5.1.0'
 
 APP_NAME = '风水排盘专业工具'
 

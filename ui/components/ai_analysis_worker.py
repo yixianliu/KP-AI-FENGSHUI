@@ -10,7 +10,6 @@ from core.knowledge.analysis_storage import (
     AnalysisStorage,
     run_bazi_analysis,
     run_meihua_analysis,
-    run_liuren_analysis,
 )
 
 
@@ -24,42 +23,58 @@ class AiAnalysisWorker(QThread):
     analysis_finished = Signal(dict)
     analysis_failed = Signal(str, str)
 
-    def __init__(self, analysis_type: str, input_data: dict, chart_data: dict = None, task_id: str = None):
+    def __init__(self, analysis_type: str, input_data: dict, chart_data: dict = None,
+                 task_id: str = None, force_refresh: bool = False):
         """
         初始化分析工作线程
 
         Args:
-            analysis_type: 分析类型 ('bazi'/'meihua'/'liuren')
+            analysis_type: 分析类型 ('bazi'/'meihua')
             input_data: 输入数据
             chart_data: 排盘/卦象数据
             task_id: 任务ID（用于日志关联，可选）
+            force_refresh: True 时跳过 AI 结果缓存，强制重新分析（由结果面板「重新分析」入口触发）
         """
         super().__init__()
         self.analysis_type = analysis_type
         self.input_data = input_data
         self.chart_data = chart_data or {}
         self.task_id = task_id
+        self.force_refresh = force_refresh
+        # 协作式取消标志：closeEvent 只置 False，不强制 terminate 线程
         self._is_running = True
 
     def run(self):
-        """执行分析任务"""
+        """执行分析任务。
+
+        协作式退出：每个可以中断的间隙检查取消标志。底层 HTTP 请求若已发出
+        无法中断，会等其自然返回后丢弃结果；但绝不会在写库/写缓存中途被强杀。
+        """
         try:
+            if not self._is_running:
+                return
             self.progress_updated.emit('validating', '正在验证输入数据...')
 
             self.progress_updated.emit('initializing', '正在初始化文化研究算法分析引擎...')
             AnalysisStorage()  # 确保表就绪
 
+            if not self._is_running:
+                return
+
             if self.analysis_type == 'bazi':
                 self.progress_updated.emit('analyzing', '文化研究算法正在深入分析八字命理...')
-                result = run_bazi_analysis(self.input_data, self.chart_data, self.task_id)
+                result = run_bazi_analysis(self.input_data, self.chart_data, self.task_id,
+                                           force_refresh=self.force_refresh)
             elif self.analysis_type == 'meihua':
                 self.progress_updated.emit('analyzing', '文化研究算法正在解读卦象玄机...')
-                result = run_meihua_analysis(self.input_data, self.chart_data, self.task_id)
-            elif self.analysis_type == 'liuren':
-                self.progress_updated.emit('analyzing', '文化研究算法正在解读六壬玄机...')
-                result = run_liuren_analysis(self.input_data, self.chart_data, self.task_id)
+                result = run_meihua_analysis(self.input_data, self.chart_data, self.task_id,
+                                             force_refresh=self.force_refresh)
             else:
                 self.analysis_failed.emit('unknown_type', f'不支持的分析类型: {self.analysis_type}')
+                return
+
+            # 已请求退出：丢弃结果，不再向 UI 发信号（本次分析写库已是完整事务）
+            if not self._is_running:
                 return
 
             if result.get('success'):
@@ -75,9 +90,13 @@ class AiAnalysisWorker(QThread):
             error_detail = traceback.format_exc()
             self.analysis_failed.emit('exception', f'{str(e)}\n{error_detail}')
 
-    def stop(self):
-        """停止分析任务"""
+    def cancel(self):
+        """请求协作式取消（关窗时调用）：只置标志，线程会自行走完当前原子操作。"""
         self._is_running = False
+
+    def stop(self):
+        """停止分析任务（cancel 的旧名，保持向后兼容）。"""
+        self.cancel()
 
 
 class AiAnalysisManager(QObject):
@@ -102,7 +121,8 @@ class AiAnalysisManager(QObject):
         self._worker = None      # 当前（或最近一次）的工作线程，兼作保活引用
         self._result_cache = {}  # 预留的结果缓存，便于后续按 task_id 复用分析结果
 
-    def start_analysis(self, analysis_type: str, input_data: dict, chart_data: dict = None, task_id: str = None) -> AiAnalysisWorker:
+    def start_analysis(self, analysis_type: str, input_data: dict, chart_data: dict = None,
+                       task_id: str = None, force_refresh: bool = False) -> AiAnalysisWorker:
         """
         启动智能分析
 
@@ -111,6 +131,7 @@ class AiAnalysisManager(QObject):
             input_data: 输入数据
             chart_data: 排盘数据
             task_id: 任务ID（用于日志关联，可选）
+            force_refresh: True 时跳过缓存强制重新分析
 
         Returns:
             Worker线程对象
@@ -118,7 +139,10 @@ class AiAnalysisManager(QObject):
         if self._worker and self._worker.isRunning():
             self._worker.wait()
 
+        # 保持 4 个位置参数的构造契约（测试替身/外部子类可能不接受额外关键字）
         self._worker = AiAnalysisWorker(analysis_type, input_data, chart_data, task_id)
+        if force_refresh:
+            self._worker.force_refresh = True
         self._worker.start()
         return self._worker
 

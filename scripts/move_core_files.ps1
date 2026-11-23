@@ -22,8 +22,7 @@ $baziFiles = @(
 $divinationFiles = @(
     "meihua.py",
     "hexagram_analyzer.py",
-    "hexagram_data.py",
-    "liuren.py"
+    "hexagram_data.py"
 )
 
 # 移动到 core/knowledge/

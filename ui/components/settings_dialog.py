@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, QThread, Signal
 
 from ui.styles import Colors, Fonts, Spacing, Stylesheets
+from ui.thread_shutdown import shutdown_threads
 from core.ai_config import (AIProfile, OFFICIAL_AGNES_ENDPOINT,
                             OFFICIAL_AGNES_MODEL, get_config_manager,
                             make_default_profile)
@@ -51,6 +52,9 @@ class _ConnectionTestWorker(QThread):
 
     def run(self):
         """线程入口：用最小请求验证密钥可用性，结果通过信号回传主线程。"""
+        # 协作式取消：对话框已关闭时不再发起请求/回传信号
+        if self.isInterruptionRequested():
+            return
         try:
             from api.agnes_client import AgnesClient
             client = AgnesClient(profile=self._profile)
@@ -58,10 +62,14 @@ class _ConnectionTestWorker(QThread):
                 [{"role": "user", "content": "你好"}],
                 temperature=0.0, max_tokens=8,
             )
-            self.finished_ok.emit((resp.get('content') or '').strip()[:60])
         except Exception as e:
             # 异常文本来自客户端与上游，已确保不含凭据信息
-            self.finished_err.emit(str(e))
+            if not self.isInterruptionRequested():
+                self.finished_err.emit(str(e))
+            return
+        if self.isInterruptionRequested():
+            return
+        self.finished_ok.emit((resp.get('content') or '').strip()[:60])
 
 
 # ================================================================
@@ -87,6 +95,8 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(Stylesheets.DIALOG)
         self.setWindowTitle('设置 · 文化研究算法配置')
         self.setMinimumSize(520, 430)
+        # 关闭即销毁：避免每次打开设置页残留一个对话框对象
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
 
         self._manager = get_config_manager()
         self._test_worker = None
@@ -309,6 +319,28 @@ class SettingsDialog(QDialog):
         self.key_toggle.setText('隐藏' if shown else '显示')
 
     # ---------- 测试连接 ----------
+    def active_test_worker(self):
+        """返回在途的连通测试线程（无则 None），供主窗口关窗统一收尾。"""
+        return self._test_worker
+
+    def shutdown_test_worker(self, timeout_ms: int = 3000) -> list:
+        """协作式收尾连通测试线程，返回超时仍未结束（已托管）的线程列表。"""
+        worker = self._test_worker
+        self._test_worker = None
+        if worker is None:
+            return []
+        return shutdown_threads([worker], timeout_ms)
+
+    def done(self, r: int):
+        """accept/reject/关闭统一收尾在途测试线程（复用同一套收尾机制）。"""
+        self.shutdown_test_worker()
+        super().done(r)
+
+    def closeEvent(self, event):
+        """窗口关闭（含系统标题栏关闭）前收尾在途测试线程。"""
+        self.shutdown_test_worker()
+        super().closeEvent(event)
+
     def _on_test(self):
         """由「测试连接」按钮 clicked 触发：校验后启动后台连接测试线程。"""
         self._draft.api_key = self.key_edit.text().strip()

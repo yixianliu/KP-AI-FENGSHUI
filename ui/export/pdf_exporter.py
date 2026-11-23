@@ -123,7 +123,7 @@ def _app_version() -> str:
         from core.app_version import get_version_label
         return get_version_label()
     except Exception:
-        return 'v5.0.6'
+        return 'v5.1.0'
 
 
 # reportlab 缺席时退回 object，保证模块级 class 定义不会因 NameError 拖垮
@@ -220,14 +220,15 @@ class PdfExporter(BaseExporter):
         Args:
             data: 排盘结果字典，可能包含 basic_info / bazi_types / bazi /
                 wuxing / shishen / dayun / liunian / yuncheng / analysis /
-                ai_analysis / meihua_data / meihua_ai / liuren_data /
-                liuren_ai / zonghe 等键
+                ai_analysis / meihua_data / meihua_ai / zonghe 等键
             file_path: 目标 PDF 文件路径
 
         Returns:
             bool，渲染并保存成功返回 True；任何异常（路径不可写、字体缺失、
             内容排版失败等）被捕获后打印错误并返回 False，不向上抛出
         """
+        # 记录最后一次失败原因，供后台导出线程回传给 UI（不再只打印日志）
+        self.last_error = ''
         try:
             # T6.4 两遍构建：reportlab 在 build 前无法预知章节落在第几页，
             # 所以先用 BytesIO 干跑一遍采集各章节锚点页码，再带目录正式输出。
@@ -256,6 +257,7 @@ class PdfExporter(BaseExporter):
         except Exception as e:
             # 导出属于用户主动触发的非关键路径，失败时不应让界面崩溃，
             # 统一吞掉异常并以返回值告知调用方
+            self.last_error = f'{type(e).__name__}: {e}'
             print(f"PDF 导出失败: {e}")
             return False
 
@@ -288,7 +290,6 @@ class PdfExporter(BaseExporter):
         self._build_analysis(story, data)
         self._build_ai(story, data)
         self._build_meihua(story, data)
-        self._build_liuren(story, data)
         self._build_zonghe(story, data)
         return story
 
@@ -815,54 +816,8 @@ class PdfExporter(BaseExporter):
                 story.append(Paragraph('<b>结论：</b>' + _esc(_to_str(mh_ai.get('final_verdict'))),
                                        self.styles['body']))
 
-    def _build_liuren(self, story, data):
-        """渲染大六壬起课章节：四课三传等课体要素表 + AI 课理解读。
-
-        结构与 _build_meihua 完全对称：排盘数据 liuren_data 与 AI 解读
-        liuren_ai 是两个独立的键，任一有值即成章。
-
-        Args:
-            story: reportlab 的 Flowable 列表，本方法就地追加元素
-            data: 排盘结果字典，读取 liuren_data（四课/三传/月将/天将/神煞等）
-                与 liuren_ai（各维度解读列表及 final_verdict 结论）
-
-        Returns:
-            None；两个键都为空时直接返回，不输出标题
-        """
-        lr = data.get('liuren_data', {}) or {}
-        lr_ai = data.get('liuren_ai') or {}
-        if not lr and not lr_ai:
-            return
-        self._section_title(story, '十、大六壬起课')
-        if lr:
-            pairs = [
-                ('公历日期', lr.get('pan_date')),
-                ('四课', lr.get('si_ke')),
-                ('三传', lr.get('san_chuan')),
-                ('三传门法', lr.get('gate')),
-                ('月将', lr.get('yue_jiang')),
-                ('天将', lr.get('tian_jiang')),
-                ('神煞', lr.get('shen_sha')),
-            ]
-            self._kv_table(story, pairs)
-        if lr_ai:
-            story.append(Spacer(1, 4 * mm))
-            story.append(Paragraph('<b>文化研究算法六壬解读：</b>', self.styles['body']))
-            for key, title in _AI_SECTIONS:
-                items = lr_ai.get(key, []) or []
-                if not items:
-                    continue
-                story.append(Paragraph(_esc(title), self.styles['body']))
-                flow = [ListItem(Paragraph(_esc(_to_str(x)), self.styles['bullet'])) for x in items]
-                story.append(ListFlowable(flow, bulletType='bullet', start='•', leftIndent=12))
-                story.append(Spacer(1, 2 * mm))
-            # final_verdict 是六壬特有的总断语，独立于 _AI_SECTIONS 各分项，放在最后压轴
-            if lr_ai.get('final_verdict'):
-                story.append(Paragraph('<b>结论：</b>' + _esc(_to_str(lr_ai.get('final_verdict'))),
-                                       self.styles['body']))
-
     def _build_zonghe(self, story, data):
-        """渲染综合建议章节：AI 融合八字/梅花/六壬三方结论后的统一判断。
+        """渲染综合建议章节：AI 融合各板块结论后的统一判断。
 
         位于导出流程最末尾，是全报告的收口章节，附免责说明。
 

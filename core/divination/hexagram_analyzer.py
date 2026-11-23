@@ -6,6 +6,7 @@
 """
 from core.database_manager import DatabaseManager
 from core.divination.hexagram_data import GAN_YAO_FULL
+from core.divination.meihua import TRIGRAM_NUM_FROM_YAO
 
 
 def _get_db():
@@ -160,9 +161,13 @@ class HexagramAnalyzer:
         return self.bagua.get(num, {'name': '未知', 'nature': '', 'symbol': '', 'wuxing': '', 'description': ''})
 
     def get_hexagram_info(self, upper_num, lower_num):
-        """获取64卦完整信息"""
-        key = (upper_num, lower_num)
-        return self.hexagrams.get(key, {
+        """按先天八卦数获取64卦完整信息。
+
+        hexagram_64 的 upper_num/lower_num 已在数据层统一为先天数
+        （乾1 兑2 离3 震4 巽5 坎6 艮7 坤8），此处直接以 (上卦, 下卦) 查表，
+        不再做编号换算。
+        """
+        return self.hexagrams.get((upper_num, lower_num), {
             'name': '未知卦',
             'judgment': '平',
             'gua_ci': '',
@@ -266,19 +271,15 @@ class HexagramAnalyzer:
         }
 
     def _extract_hex_num(self, yangs):
-        """从爻信息提取卦的先天数（二进制转十进制+1）"""
-        num = 0
-        # 三爻由下而上构成三位二进制：阳爻记 1、阴爻记 0，再整体 +1
-        # 得到 1-8，对应先天八卦数 乾1 兑2 离3 震4 巽5 坎6 艮7 坤8
-        for yao in yangs:
-            num = num * 2 + (1 if yao['symbol_short'] == '阳' else 0)
-        num = num + 1
-        if num < 1:
-            num = 1
-        elif num > 8:
-            num = num % 8
-            if num == 0:
-                num = 8
+        """从爻信息提取卦的先天数：按「初→上」位图直查先天卦序表。
+
+        原来的「二进制转十进制 +1」把阴阳位图当进制数，得到的 1-8 与先天数
+        正好整体颠倒（乾算成 8、坤算成 1），导致互/变/错/综四卦全部错位。
+        """
+        pattern = tuple(yao['symbol_short'] for yao in yangs)
+        num = TRIGRAM_NUM_FROM_YAO.get(pattern)
+        if num is None:
+            raise ValueError(f"爻位图无法对应先天八卦（需 3 爻），收到: {pattern}")
         return num
 
     def _make_judgment(self, base_info, bi_info, changing_yao):

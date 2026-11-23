@@ -18,7 +18,7 @@ from ui.styles import Colors, Spacing
 _CHAPTER_GROUP_DEFS = [
     ('基础信息', '📋', ['basic_info']),
     ('命局分析', '☯',  ['bazi_types', 'bazi', 'wuxing', 'shishen',
-                       'analysis', 'meihua', 'liuren']),
+                       'analysis', 'meihua']),
     ('运程',     '⏳', ['yunshi', 'yuncheng']),
     ('AI 解读',  '🧙', ['ai_analysis', 'zonghe']),
 ]

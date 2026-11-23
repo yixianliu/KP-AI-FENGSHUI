@@ -103,20 +103,33 @@ _baazi_module = _SimModule()
 class _CoreBaZiCalc:
     """Compatible BaZiCalculator delegating to calendar_utils.BaZiCalendar."""
 
-    def calculate(self, year, month, day, hour, minute=0, longitude=120.0, is_lunar=False):
+    def calculate(self, year, month, day, hour, minute=0, longitude=120.0,
+                  is_lunar=False, is_leap=False, latitude=30.0):
         """兼容入口：把参数转交 calendar_utils.BaZiCalendar 计算四柱，并补齐 solar_date / lunar_date 字段。
 
         Args:
-            year, month, day, hour: 公历时间
+            year, month, day, hour: 出生日期时间（公历；is_lunar=True 时为农历）
             minute: 分钟，用于真太阳时精算
             longitude: 经度，用于真太阳时修正
-            is_lunar: 是否农历（当前透传给底层日历器）
+            is_lunar: 是否农历输入；True 时先严格转换为公历再排盘
+            is_leap: 农历输入是否为闰月（仅 is_lunar=True 时生效）
+            latitude: 纬度，仅随结果保存（真太阳时只依赖经度）
 
         Returns:
             dict: 含四柱、日主、公历/农历日期等字段的八字结果
+
+        Raises:
+            ValueError: 农历日期非法或不存在（禁止按未转换的数字继续排盘）
         """
         from core.calendar_utils import BaZiCalendar as _BC
-        r = _BC().calculate_bazi(year, month, day, hour, minute, longitude)
+
+        if is_lunar:
+            # 农历输入必须真实转换：转换失败直接抛出，绝不让农历数字当作公历继续计算
+            from core.lunar_converter import convert_lunar_to_solar
+            solar_date = convert_lunar_to_solar(year, month, day, is_leap)
+            year, month, day = solar_date.year, solar_date.month, solar_date.day
+
+        r = _BC().calculate_bazi(year, month, day, hour, minute, longitude, latitude)
         r.setdefault("solar_date", f"{year}-{month:02d}-{day:02d}")
 
         # 正确计算农历日期：使用 lunarcalendar 库进行公历→农历转换
@@ -134,6 +147,7 @@ class _CoreBaZiCalc:
             r.setdefault("lunar_year", lunar_result.year)
             r.setdefault("lunar_month", lunar_result.month)
             r.setdefault("lunar_day", lunar_result.day)
+            r.setdefault("lunar_is_leap", lunar_result.isleap)
         except Exception:
             # 降级处理：转换失败时不设置lunar_date字段，让转换器知道这是失败的
             pass  # 不设置lunar_date字段
@@ -191,11 +205,11 @@ class _CoreBaZiCalc:
 def _get_lunar_year_ganzhi(lunar_year):
     """获取农历年份的干支纪年"""
     _ensure()
-    # 1984年为甲子年，按60甲子循环
+    # 1984年为甲子年，按60甲子循环；六十甲子表中 idx 的天干为 idx%10、地支为 idx%12
     idx = (lunar_year - 1984) % 60
     if idx < 0:
         idx += 60
-    return _TG[idx // 12] + _DZ[idx % 12]
+    return _TG[idx % 10] + _DZ[idx % 12]
 
 
 def _lunar_month_to_chinese(month, is_leap=False):
